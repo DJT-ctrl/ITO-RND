@@ -1,0 +1,25 @@
+services:
+  db:
+    # Official pgvector-enabled Postgres image (pgvector extension pre-built in).
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ito}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-ito_posts}
+    volumes:
+      # T1.4: durable storage. DB_DATA_PATH defaults to a local folder for
+      # dev; on the real EC2 deployment, point it at the mounted EBS volume
+      # path instead (e.g. DB_DATA_PATH=/data/postgres) — see
+      # T1.4_DATABASE_PLAN.md. Restarting this container must NOT lose data.
+      - ${DB_DATA_PATH:-./data/pgdata}:/var/lib/postgresql/data
+    ports:
+      # Bind to localhost only — never expose Postgres on 0.0.0.0. On EC2,
+      # access should additionally be restricted via the security group
+      # (VPC-internal only, no public inbound rule on 5432).
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ito} -d ${POSTGRES_DB:-ito_posts}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

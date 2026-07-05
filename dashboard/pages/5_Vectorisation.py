@@ -80,8 +80,7 @@ with st.sidebar:
     max_posts = st.number_input(
         "Max posts to embed this run",
         min_value=1,
-        max_value=max(len(eligible), 1),
-        value=min(10, len(eligible)) if eligible else 1,
+        value=len(eligible) if eligible else 1,
         help="Keep this small for a test run — each post costs a Gemini embedding API call.",
     )
     run_clicked = st.button(

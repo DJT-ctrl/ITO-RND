@@ -26,9 +26,15 @@ class Settings:
     gemini_api_key: str
     raw_data_dir: str
     default_search_limit: int
+    # T1.4/T1.5: Postgres+pgvector connection. A single DSN string (rather
+    # than separate host/port/user fields) because that's exactly what
+    # psycopg.connect() accepts directly. Empty by default so anything not
+    # touching the database still runs without a .env change.
+    database_url: str = ""
 
 
 def load_settings() -> Settings:
+    load_dotenv(override=True)
     return Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
         apify_actor_id=os.getenv("APIFY_ACTOR_ID", ""),
@@ -37,6 +43,7 @@ def load_settings() -> Settings:
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         raw_data_dir=os.getenv("RAW_DATA_DIR", "data/raw"),
         default_search_limit=int(os.getenv("DEFAULT_SEARCH_LIMIT", "20")),
+        database_url=os.getenv("DATABASE_URL", ""),
     )
 
 

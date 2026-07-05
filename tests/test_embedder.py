@@ -7,7 +7,7 @@ import pytest
 from google.genai import errors as genai_errors
 
 from config.settings import Settings
-from processors.embedder import embed_batch, save_embeddings
+from processors.embedder import embed_batch, embed_query, save_embeddings
 
 
 def make_settings(**overrides) -> Settings:
@@ -132,3 +132,28 @@ def test_save_embeddings_writes_npy_file(tmp_path):
 
     loaded = np.load(out_path)
     assert loaded.shape == (3, 3072)
+
+
+# ── embed_query ──────────────────────────────────────────────────────────
+
+def test_embed_query_raises_without_api_key():
+    with pytest.raises(ValueError):
+        embed_query("some draft text", make_settings(gemini_api_key=""))
+
+
+def test_embed_query_uses_retrieval_query_task_type():
+    with patch("processors.embedder.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.embed_content.return_value = fake_embed_response(1)
+        embed_query("some draft text", make_settings())
+
+    call_kwargs = mock_client_cls.return_value.models.embed_content.call_args.kwargs
+    assert call_kwargs["config"].task_type == "RETRIEVAL_QUERY"
+    assert call_kwargs["contents"] == ["some draft text"]
+
+
+def test_embed_query_returns_1d_vector():
+    with patch("processors.embedder.genai.Client") as mock_client_cls:
+        mock_client_cls.return_value.models.embed_content.return_value = fake_embed_response(1)
+        vector = embed_query("some draft text", make_settings())
+
+    assert vector.shape == (3072,)

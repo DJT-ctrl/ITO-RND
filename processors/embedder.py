@@ -19,6 +19,10 @@ object, which is the wrong shape for "one embedding per post".)
 Two functions:
   embed_batch()     — text -> vectors, with local retry handling.
   save_embeddings()  — vectors -> timestamped .npy file on disk.
+
+A third function, embed_query(), embeds a single query string at request
+time for T2's similarity-search endpoint (see below for why it needs its
+own task_type rather than reusing embed_batch()).
 """
 
 import time
@@ -81,7 +85,31 @@ def embed_batch(records: list[dict[str, Any]], settings: Settings) -> tuple[np.n
     return vectors, skipped
 
 
-def _embed_with_retry(client: "genai.Client", batch: list[str]) -> list[list[float]]:
+def embed_query(text: str, settings: Settings) -> np.ndarray:
+    """Embed a single query string for similarity search against stored posts.
+
+    Uses task_type="RETRIEVAL_QUERY" (not "RETRIEVAL_DOCUMENT", which
+    embed_batch() uses for stored posts) — Gemini's asymmetric retrieval
+    mode expects queries and documents embedded with matching-but-different
+    task types for best retrieval accuracy. Reuses the same retry logic
+    (_embed_with_retry) as embed_batch(), just with a single-element batch.
+
+    Returns:
+        A 1-D array of shape (3072,).
+
+    Raises:
+        ValueError: if settings.gemini_api_key is not set.
+        google.genai.errors.APIError: if the request still fails after retries.
+    """
+    if not settings.gemini_api_key:
+        raise ValueError("GEMINI_API_KEY is not set (check your .env file).")
+
+    client = genai.Client(api_key=settings.gemini_api_key)
+    vectors = _embed_with_retry(client, [text], task_type="RETRIEVAL_QUERY")
+    return np.array(vectors[0], dtype=np.float32)
+
+
+def _embed_with_retry(client: "genai.Client", batch: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
     """Call the embedding endpoint for one batch, retrying transient errors.
 
     Retries on HTTP 429 (rate limit) and 5xx (server error) with
@@ -95,7 +123,7 @@ def _embed_with_retry(client: "genai.Client", batch: list[str]) -> list[list[flo
                 model=_MODEL,
                 contents=batch,
                 config=genai_types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT",
+                    task_type=task_type,
                     output_dimensionality=_OUTPUT_DIMENSIONALITY,
                 ),
             )

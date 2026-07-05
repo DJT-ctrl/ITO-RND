@@ -118,8 +118,7 @@ with st.sidebar:
     max_posts = st.number_input(
         "Max posts to analyse",
         min_value=1,
-        max_value=max(len(posts), 1),
-        value=min(10, len(posts)) if posts else 1,
+        value=len(posts) if posts else 1,
         help="Limits Gemini calls. Stage 1 is always instant.",
     )
     run_python = st.button("▶ Stage 1 only (Python, free)", disabled=not posts)

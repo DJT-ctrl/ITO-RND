@@ -39,6 +39,7 @@ htmlcov/
 
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
+data/pgdata/
 
 # Logs
 *.log
