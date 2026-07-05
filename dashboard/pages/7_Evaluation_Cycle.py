@@ -1,4 +1,4 @@
-"""Throwaway visual test harness for Step 5 — Evaluation Cycle Orchestrator (T3.1).
+"""Throwaway visual test harness for Step 5 — Evaluation Cycle (T3.1-T3.3).
 
 Exercises the exact same code path as the FastAPI endpoint
 (POST /api/v1/evaluate in api/main.py) directly — run_evaluation_cycle()
@@ -9,15 +9,13 @@ concurrently via asyncio.gather().
 What this visualises:
   - The full 3-stage pipeline: sequential neighbor-fetch, concurrent
     evaluation (Predictor + Diagnostics), optional sequential finalize.
-  - For T3.1's own scope, NO real agents are registered yet (T3.2 Predictor,
-    T3.3 Diagnostics, T3.4 Variant Engine don't exist yet), so
-    predictor_result/diagnostics/variants stay empty — that's expected, not a
-    bug. This page exists to prove the orchestrator plumbing works end-to-end.
-  - Once T3.2/T3.3/T3.4 land, those fields will populate with actual AI
-    predictions, diagnostic checks, and generated variants.
+    - T3.2 Predictor output: estimated engagement percentile, raw engagement
+        count, and comparative reasoning against nearest historical posts.
+    - T3.3 Diagnostic outputs: SEO, clarity, and tone/brand-persona checks.
+    - T3.4 variants remain empty until the Variant Optimisation Engine lands.
 
-Not the product UI — exists purely to validate T3.1's orchestrator the same
-way earlier pages validate their pipeline stage.
+Not the product UI — exists purely to validate the Phase 3 pipeline the same
+way earlier pages validate their pipeline stages.
 """
 
 import asyncio
@@ -28,21 +26,33 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from agents.diagnostics import build_diagnostic_agents  # noqa: E402
 from agents.orchestrator import run_evaluation_cycle  # noqa: E402
+from agents.predictor import build_predictor_agent  # noqa: E402
 from config.settings import load_settings  # noqa: E402
+
+
+def _render_list(title: str, items: list[str]) -> None:
+    st.markdown(f"**{title}**")
+    if not items:
+        st.caption("None returned.")
+        return
+    for item in items:
+        st.markdown(f"- {item}")
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Evaluation Cycle Test Harness", layout="wide")
-st.title("Step 5: Evaluation Cycle Orchestrator (T3.1)")
+st.title("Step 5: Evaluation Cycle (T3.1-T3.3)")
 st.caption(
-    "Throwaway visual tool for the T3.1 async orchestrator. Calls the real "
-    "Gemini embedding endpoint + Postgres DB to fetch neighbors, then runs "
-    "the concurrent evaluation stage (no real agents registered yet — "
-    "T3.2/T3.3/T3.4 will populate predictor_result/diagnostics/variants later)."
+    "Throwaway visual tool for the Phase 3 async evaluation cycle. Calls the "
+    "real Gemini embedding endpoint + Postgres DB to fetch neighbors, then "
+    "runs the Gemini-backed Predictor and Diagnostic agents concurrently."
 )
 
 settings = load_settings()
+predictor_agent = build_predictor_agent()
+diagnostic_agents = build_diagnostic_agents()
 
 if "eval_result" not in st.session_state:
     st.session_state.eval_result = None
@@ -60,8 +70,7 @@ with st.sidebar:
         value="Excited to announce our new product launch! We've been working on this for months.",
         height=160,
         help="The draft LinkedIn post you want evaluated. The system will find "
-        "similar historical posts and (once T3.2-T3.4 land) run prediction + "
-        "diagnostic + variant generation agents on it.",
+        "similar historical posts, predict engagement, and run SEO/clarity/tone diagnostics.",
     )
     run_clicked = st.button(
         "\u25b6 Run evaluation cycle",
@@ -80,7 +89,14 @@ if run_clicked:
         st.info("Running evaluation cycle (neighbor-fetch + concurrent agents stage)...")
     try:
         # run_evaluation_cycle is async, need to call it via asyncio.run
-        state = asyncio.run(run_evaluation_cycle(draft_content.strip(), settings))
+        state = asyncio.run(
+            run_evaluation_cycle(
+                draft_content.strip(),
+                settings,
+                predictor=predictor_agent,
+                diagnostics=diagnostic_agents,
+            )
+        )
         st.session_state.eval_result = state
         status.success("Evaluation cycle complete!")
     except Exception as exc:
@@ -122,25 +138,37 @@ if st.session_state.eval_result is not None:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("**Predictor Result** (T3.2 — not implemented yet)")
+        st.markdown("**Predictor Result** (T3.2)")
         if state.predictor_result is None:
-            st.info(
-                "No predictor agent registered. Once T3.2 (Predictor Agent Development) "
-                "lands, this will show a predicted engagement score based on the 10 "
-                "nearest neighbors."
-            )
+            st.info("No predictor result returned.")
         else:
-            st.json(state.predictor_result)
+            predictor = state.predictor_result
+            metrics = st.columns(2)
+            metrics[0].metric(
+                "Predicted Percentile",
+                f"{predictor.get('predicted_engagement_percentile', 0):.1f}",
+            )
+            metrics[1].metric(
+                "Predicted Engagement",
+                f"{predictor.get('predicted_total_engagement', 0)}",
+            )
+            st.markdown("**Reasoning**")
+            st.write(predictor.get("reasoning", "No reasoning returned."))
 
     with col2:
-        st.markdown("**Diagnostics** (T3.3 — not implemented yet)")
+        st.markdown("**Diagnostics** (T3.3)")
         if not state.diagnostics:
-            st.info(
-                "No diagnostic agents registered. Once T3.3 (Diagnostic Worker Agents) "
-                "lands, this will show parallel checks for SEO, clarity, tone, etc."
-            )
+            st.info("No diagnostic results returned.")
         else:
-            st.json(state.diagnostics)
+            for name in ["seo", "clarity", "tone"]:
+                diagnostic = state.diagnostics.get(name)
+                if diagnostic is None:
+                    continue
+                with st.expander(name.title(), expanded=True):
+                    st.metric("Score", f"{diagnostic.get('score', 0):.1f}/10")
+                    _render_list("Flaws", diagnostic.get("flaws", []))
+                    _render_list("Advantages", diagnostic.get("advantages", []))
+                    _render_list("Improvements", diagnostic.get("improvements", []))
 
     if state.errors:
         st.warning(f"**Errors:** {len(state.errors)} agent(s) failed during concurrent evaluation")

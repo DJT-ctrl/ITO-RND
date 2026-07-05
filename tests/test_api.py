@@ -5,6 +5,7 @@ calls in unit tests, per repo convention (see tests/test_embedder.py and
 tests/test_vector_store.py).
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -27,6 +28,14 @@ def fake_row(post_id: str = "1") -> dict:
         "engagement_zscore": 0.8,
         "cosine_distance": 0.05,
     }
+
+
+class _AgentStub:
+    def __init__(self, output: dict):
+        self._output = output
+
+    async def run(self, prompt: str, deps) -> SimpleNamespace:
+        return SimpleNamespace(output=self._output)
 
 
 def test_health_check():
@@ -83,24 +92,29 @@ def test_similar_posts_limit_out_of_range_rejected(mock_embed_query, mock_find_s
 @patch("agents.orchestrator.get_connection")
 @patch("agents.orchestrator.find_similar")
 @patch("agents.orchestrator.embed_query")
-def test_evaluate_endpoint_runs_end_to_end_with_no_agents_registered(
+def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector
 ):
-    """T3.1: no Predictor/Diagnostic agents exist yet (T3.2/T3.3), so this
-    just proves the orchestrator runs end-to-end over HTTP — similar_posts
-    populated, everything else at its empty placeholder default."""
+    """T3.2/T3.3: /evaluate wires registered agents into the orchestrator."""
     mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
     mock_find_similar.return_value = [fake_row("1"), fake_row("2")]
     mock_get_connection.return_value = MagicMock()
 
-    response = client.post("/api/v1/evaluate", json={"content": "Excited to announce our new product launch!"})
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post("/api/v1/evaluate", json={"content": "Excited to announce our new product launch!"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["draft_content"] == "Excited to announce our new product launch!"
     assert len(body["similar_posts"]) == 2
-    assert body["predictor_result"] is None
-    assert body["diagnostics"] == {}
+    assert body["predictor_result"] == {
+        "predicted_engagement_percentile": 81.0,
+        "predicted_total_engagement": 42,
+    }
+    assert body["diagnostics"] == {"seo": {"score": 7.0}}
     assert body["variants"] == []
     assert body["errors"] == []
 

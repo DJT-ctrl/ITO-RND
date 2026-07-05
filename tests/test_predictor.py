@@ -1,0 +1,120 @@
+"""Unit tests for the T3.2 Predictor Agent."""
+
+import asyncio
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+from pydantic_ai.models.test import TestModel
+
+from agents.diagnostics import build_diagnostic_agents
+from agents.orchestrator import run_evaluation_cycle
+from agents.predictor import PredictorOutput, build_predictor_agent, build_predictor_prompt
+from agents.schemas import EvaluationDeps
+from api.schemas import SimilarPost
+from config.settings import Settings
+
+
+def fake_post(post_id: str = "1") -> SimilarPost:
+    return SimilarPost(
+        post_id=post_id,
+        content="Strong launch post with a clear hook and direct CTA.",
+        likes=20,
+        comments=4,
+        shares=2,
+        total_engagement=26,
+        engagement_percentile=82.0,
+        engagement_zscore=1.1,
+        cosine_distance=0.04,
+    )
+
+
+def fake_row(post_id: str = "1") -> dict:
+    return fake_post(post_id).model_dump()
+
+
+def fake_settings() -> Settings:
+    return Settings(
+        apify_api_token="",
+        apify_actor_id="",
+        apify_profile_actor_id="",
+        linkedin_cookies=[],
+        gemini_api_key="fake-key",
+        raw_data_dir="data/raw",
+        default_search_limit=20,
+        database_url="postgresql://fake/fake",
+    )
+
+
+def _patch_neighbor_fetch(rows: list[dict]):
+    return (
+        patch("agents.orchestrator.embed_query", return_value=np.zeros(3072, dtype=np.float32)),
+        patch("agents.orchestrator.find_similar", return_value=rows),
+        patch("agents.orchestrator.get_connection", return_value=MagicMock()),
+        patch("agents.orchestrator.register_vector"),
+    )
+
+
+def test_predictor_prompt_includes_neighbor_context():
+    deps = EvaluationDeps(
+        draft_content="Draft post about a product launch.",
+        similar_posts=[fake_post("abc")],
+    )
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "Draft post about a product launch" in prompt
+    assert "Neighbor 1" in prompt
+    assert "Total engagement: 26" in prompt
+    assert "Engagement percentile: 82.0" in prompt
+    assert "Strong launch post" in prompt
+
+
+def test_predictor_prompt_handles_zero_neighbors():
+    prompt = build_predictor_prompt(EvaluationDeps(draft_content="Draft without neighbors."))
+
+    assert "Draft without neighbors" in prompt
+    assert "No comparable historical posts were found" in prompt
+
+
+def test_predictor_agent_returns_structured_output_with_test_model():
+    agent = build_predictor_agent(TestModel())
+
+    result = asyncio.run(
+        agent.run(
+            "Draft post about a product launch.",
+            deps=EvaluationDeps(draft_content="Draft post about a product launch.", similar_posts=[fake_post()]),
+        )
+    )
+
+    assert isinstance(result.output, PredictorOutput)
+    assert 0 <= result.output.predicted_engagement_percentile <= 100
+    assert result.output.predicted_total_engagement >= 0
+    assert result.output.reasoning
+
+
+def test_predictor_and_diagnostics_integrate_with_orchestrator():
+    predictor = build_predictor_agent(TestModel())
+    diagnostics = build_diagnostic_agents(TestModel())
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1"), fake_row("2")])
+
+    with p1, p2, p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "Draft post about a product launch.",
+                fake_settings(),
+                predictor=predictor,
+                diagnostics=diagnostics,
+            )
+        )
+
+    assert len(state.similar_posts) == 2
+    assert state.predictor_result is not None
+    assert set(state.predictor_result) == {
+        "predicted_engagement_percentile",
+        "predicted_total_engagement",
+        "reasoning",
+    }
+    assert set(state.diagnostics) == {"seo", "clarity", "tone"}
+    for output in state.diagnostics.values():
+        assert set(output) == {"score", "flaws", "advantages", "improvements"}
+    assert state.errors == []

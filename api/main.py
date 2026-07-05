@@ -18,7 +18,9 @@ PhaseT2plan.md Decision #3).
 from fastapi import FastAPI, HTTPException
 from pgvector.psycopg import register_vector
 
+from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
+from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
 from config.settings import load_settings
@@ -26,6 +28,8 @@ from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
 
 settings = load_settings()
+predictor_agent = build_predictor_agent()
+diagnostic_agents = build_diagnostic_agents()
 
 app = FastAPI(title="ITO Post Similarity API")
 
@@ -63,15 +67,13 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
 
 @app.post("/api/v1/evaluate", response_model=PostEvaluationState)
 async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
-    """T3.1: run the async evaluation cycle end-to-end over HTTP.
-
-    No Predictor/Diagnostic agents are registered yet (T3.2/T3.3 don't exist
-    yet), so `predictor_result`/`diagnostics`/`variants` will be empty on the
-    response — that's expected. This endpoint's job right now is only to
-    prove the orchestrator (agents/orchestrator.py) runs correctly end-to-end,
-    including the neighbor-fetch stage which reuses embed_query()/find_similar().
-    """
+    """Run the async evaluation cycle end-to-end over HTTP."""
     try:
-        return await run_evaluation_cycle(request.content, settings)
+        return await run_evaluation_cycle(
+            request.content,
+            settings,
+            predictor=predictor_agent,
+            diagnostics=diagnostic_agents,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
