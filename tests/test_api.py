@@ -77,3 +77,34 @@ def test_similar_posts_limit_out_of_range_rejected(mock_embed_query, mock_find_s
     response = client.post("/api/v1/similar-posts", json={"content": "valid text", "limit": 100})
     assert response.status_code == 422
     mock_embed_query.assert_not_called()
+
+
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_runs_end_to_end_with_no_agents_registered(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector
+):
+    """T3.1: no Predictor/Diagnostic agents exist yet (T3.2/T3.3), so this
+    just proves the orchestrator runs end-to-end over HTTP — similar_posts
+    populated, everything else at its empty placeholder default."""
+    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_find_similar.return_value = [fake_row("1"), fake_row("2")]
+    mock_get_connection.return_value = MagicMock()
+
+    response = client.post("/api/v1/evaluate", json={"content": "Excited to announce our new product launch!"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["draft_content"] == "Excited to announce our new product launch!"
+    assert len(body["similar_posts"]) == 2
+    assert body["predictor_result"] is None
+    assert body["diagnostics"] == {}
+    assert body["variants"] == []
+    assert body["errors"] == []
+
+
+def test_evaluate_endpoint_empty_content_rejected():
+    response = client.post("/api/v1/evaluate", json={"content": ""})
+    assert response.status_code == 422

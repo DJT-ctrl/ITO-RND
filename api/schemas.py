@@ -28,3 +28,7 @@ class SimilarPost(BaseModel):
 class SimilarPostsResponse(BaseModel):
     query_content: str
     results: list[SimilarPost]
+
+
+class EvaluateRequest(BaseModel):
+    content: str = Field(..., min_length=1, description="Draft post text to evaluate")
