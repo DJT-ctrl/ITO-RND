@@ -22,6 +22,7 @@ from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
+from agents.variant_engine import build_variant_engine
 from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
 from config.settings import load_settings
 from processors.embedder import embed_query
@@ -68,12 +69,22 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
 @app.post("/api/v1/evaluate", response_model=PostEvaluationState)
 async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
     """Run the async evaluation cycle end-to-end over HTTP."""
+    # Building the hook is pure Python (no I/O until it's awaited inside the
+    # cycle's finalize stage), so it's cheap to construct fresh per request
+    # with the caller-selected strategy rather than fixing one at startup.
+    variant_hook = build_variant_engine(
+        predictor_agent,
+        strategy=request.variant_strategy,
+        reembed_neighbors=request.reembed_variant_neighbors,
+        settings=settings,
+    )
     try:
         return await run_evaluation_cycle(
             request.content,
             settings,
             predictor=predictor_agent,
             diagnostics=diagnostic_agents,
+            finalize=variant_hook,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

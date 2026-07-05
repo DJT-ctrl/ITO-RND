@@ -88,17 +88,33 @@ def test_similar_posts_limit_out_of_range_rejected(mock_embed_query, mock_find_s
     mock_embed_query.assert_not_called()
 
 
+async def _noop_finalize(state) -> None:
+    """Stand-in for the T3.4 finalize hook in tests that aren't exercising
+    it directly — avoids a real Gemini call from the default-model variant
+    generation agent that build_variant_engine() would otherwise build."""
+    return None
+
+
+def _stub_variant_hook(marker: dict):
+    async def _hook(state) -> None:
+        state.variants = [marker]
+
+    return _hook
+
+
+@patch("api.main.build_variant_engine")
 @patch("agents.orchestrator.register_vector")
 @patch("agents.orchestrator.get_connection")
 @patch("agents.orchestrator.find_similar")
 @patch("agents.orchestrator.embed_query")
 def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
-    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
 ):
     """T3.2/T3.3: /evaluate wires registered agents into the orchestrator."""
     mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
     mock_find_similar.return_value = [fake_row("1"), fake_row("2")]
     mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
 
     predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
@@ -117,6 +133,92 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     assert body["diagnostics"] == {"seo": {"score": 7.0}}
     assert body["variants"] == []
     assert body["errors"] == []
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_passes_selected_variant_strategy(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    """T3.4: variant_strategy from the request body is forwarded to
+    build_variant_engine(), and its resulting hook's output ends up in the
+    response's `variants` field."""
+    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
+
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={"content": "Excited to announce our new product launch!", "variant_strategy": "tiered"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["variants"] == [{"strategy_label": "stub"}]
+    mock_build_variant_engine.assert_called_once()
+    assert mock_build_variant_engine.call_args.kwargs["strategy"] == "tiered"
+    assert mock_build_variant_engine.call_args.kwargs["reembed_neighbors"] is False
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_passes_reembed_variant_neighbors_flag(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    """T3.4: reembed_variant_neighbors from the request body is forwarded to
+    build_variant_engine() as reembed_neighbors."""
+    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
+
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={"content": "Excited to announce our new product launch!", "reembed_variant_neighbors": True},
+        )
+
+    assert response.status_code == 200
+    mock_build_variant_engine.assert_called_once()
+    assert mock_build_variant_engine.call_args.kwargs["reembed_neighbors"] is True
+    assert mock_build_variant_engine.call_args.kwargs["settings"] is not None
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_defaults_variant_strategy_to_dimension(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post("/api/v1/evaluate", json={"content": "Excited to announce our new product launch!"})
+
+    assert response.status_code == 200
+    mock_build_variant_engine.assert_called_once()
+    assert mock_build_variant_engine.call_args.kwargs["strategy"] == "dimension"
 
 
 def test_evaluate_endpoint_empty_content_rejected():
