@@ -12,7 +12,7 @@ from pydantic_ai import Agent, RunContext
 
 from agents.schemas import EvaluationDeps
 
-DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
+DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 
 class PredictorOutput(BaseModel):

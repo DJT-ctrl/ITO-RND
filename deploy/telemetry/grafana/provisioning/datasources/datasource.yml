@@ -1,0 +1,14 @@
+# Auto-provisions the Prometheus data source so Grafana is usable the moment
+# the stack comes up — no manual clicking. Mounted read-only into the
+# `grafana` service (see docker-compose.yml).
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

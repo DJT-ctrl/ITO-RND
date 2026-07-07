@@ -7,7 +7,7 @@ Python async primitives to run concurrent evaluations." Success criteria:
 system data or leaking memory."
 
 Decision: PydanticAI (`pydantic_ai.Agent`), staying on Gemini via the
-`google-gla:` provider — PydanticAI reads GEMINI_API_KEY from the
+`google:` provider — PydanticAI reads GEMINI_API_KEY from the
 environment automatically (already loaded by config/settings.py's
 load_dotenv()), so no extra credential wiring is needed here.
 
