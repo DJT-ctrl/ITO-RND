@@ -5,7 +5,7 @@ full OpenAPI spec (served at /docs and /openapi.json) directly from these
 models, so no separate contract document is needed.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,14 @@ from pydantic import BaseModel, Field
 class SimilarPostsRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Draft post text to find similar posts for")
     limit: int = Field(default=10, ge=1, le=50)
+    user_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional subscriber id. When given, retrieval is scoped to that subscriber's own "
+            "posts first, falling back to the global corpus automatically if they don't have "
+            "enough of their own yet (cold start)."
+        ),
+    )
 
 
 class SimilarPost(BaseModel):
@@ -50,5 +58,22 @@ class EvaluateRequest(BaseModel):
             "shifts topic/angle, at the cost of up to 3 extra Gemini embed calls + DB queries). "
             "If false (default), all variants are scored against the original draft's shared "
             "neighbors (cheaper, and keeps all 3 compared against one consistent baseline)."
+        ),
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional subscriber id (personalization). When given: (1) similar-post retrieval "
+            "is scoped to that subscriber's own posts, falling back to the global corpus if "
+            "they don't have enough yet, and (2) a derived voice profile from their top posts "
+            "is injected into every agent's prompt, when enough of their own posts exist."
+        ),
+    )
+    use_voice_profile: bool = Field(
+        default=True,
+        description=(
+            "Whether to derive and apply the subscriber's voice profile when user_id is given. "
+            "Has no effect if user_id is not set. Set to false to scope retrieval to the "
+            "subscriber without personalizing the agent prompts."
         ),
     )

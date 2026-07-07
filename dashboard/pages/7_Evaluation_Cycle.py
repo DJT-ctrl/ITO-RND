@@ -1,36 +1,36 @@
-"""Throwaway visual test harness for Step 5 — Evaluation Cycle (T3.1-T3.4).
+"""LinkedIn Post Evaluator — Phase 4 production interface (T4.1-T4.4).
 
-Exercises the exact same code path as the FastAPI endpoint
-(POST /api/v1/evaluate in api/main.py) directly — run_evaluation_cycle()
-(agents/orchestrator.py) which calls embed_query() + find_similar() to
-populate similar_posts, then runs any registered Predictor/Diagnostic agents
-concurrently via asyncio.gather(), then the T3.4 Variant Optimisation Engine
-as the sequential finalize hook.
+Runs the full Phase 3 pipeline end-to-end:
 
-What this visualises:
-  - The full 3-stage pipeline: sequential neighbor-fetch, concurrent
-    evaluation (Predictor + Diagnostics), sequential finalize (Variants).
-    - T3.2 Predictor output: estimated engagement percentile, raw engagement
-        count, and comparative reasoning against nearest historical posts.
-    - T3.3 Diagnostic outputs: SEO, clarity, and tone/brand-persona checks.
-    - T3.4 Variant output: exactly 3 ranked, rewritten post alternatives with
-        recalculated predicted percentiles (strategy selectable in sidebar).
+  Stage 1 (sequential): embed the draft and retrieve 10 nearest historical
+      neighbors via pgvector cosine search (T2 retrieval layer).
+  Stage 2 (concurrent): Predictor Agent (T3.2) estimates engagement
+      percentile; Diagnostic Worker Agents (T3.3) check SEO, clarity, and
+      tone in parallel via asyncio.gather().
+  Stage 3 (sequential): Variant Optimisation Engine (T3.4) produces 3
+      ranked rewrites using the collected diagnostic output.
 
-Not the product UI — exists purely to validate the Phase 3 pipeline the same
-way earlier pages validate their pipeline stages.
+T4.2 — each stage surfaces its own progress indicator as it completes.
+T4.3 — top scorecard + per-diagnostic progress bars.
+T4.4 — any variant can be applied back to the draft input with one click.
 """
 
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
+from pydantic import BaseModel
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
-from agents.orchestrator import run_evaluation_cycle  # noqa: E402
+# _gather_similar_posts is the stage-1 coroutine from the orchestrator;
+# imported directly here so we can run each stage separately for T4.2.
+from agents.orchestrator import _fetch_voice_profile, _gather_similar_posts  # noqa: E402
 from agents.predictor import build_predictor_agent  # noqa: E402
+from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings  # noqa: E402
 
@@ -40,30 +40,71 @@ _STRATEGY_LABELS = {
     "Tiered risk (safe / moderate / bold)": "tiered",
 }
 
+_DEFAULT_DRAFT = (
+    "Excited to announce our new product launch! "
+    "We've been working on this for months."
+)
 
-def _render_list(title: str, items: list[str]) -> None:
-    st.markdown(f"**{title}**")
-    if not items:
-        st.caption("None returned.")
-        return
-    for item in items:
-        st.markdown(f"- {item}")
+# ── Stage helpers ──────────────────────────────────────────────────────────────
 
-# ── Page setup ────────────────────────────────────────────────────────────────
+def _as_dict(output: Any) -> dict:
+    """Coerce a PydanticAI result output to a plain dict."""
+    if isinstance(output, BaseModel):
+        return output.model_dump()
+    if isinstance(output, dict):
+        return output
+    return {"result": output}
 
-st.set_page_config(page_title="Evaluation Cycle Test Harness", layout="wide")
-st.title("Step 5: Evaluation Cycle (T3.1-T3.4)")
+
+async def _run_concurrent_eval(
+    state: PostEvaluationState,
+    predictor,
+    diagnostics: dict,
+) -> None:
+    """Stage 2: run Predictor + all Diagnostic agents concurrently.
+
+    Mirrors the asyncio.gather logic in agents/orchestrator.py but exposed
+    as a standalone coroutine so the Streamlit page can show separate
+    progress for each pipeline stage (T4.2).
+    """
+    deps = EvaluationDeps(
+        draft_content=state.draft_content,
+        similar_posts=state.similar_posts,
+        voice_profile=state.voice_profile,
+    )
+    keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
+    coros = [
+        predictor.run(state.draft_content, deps=deps),
+        *(agent.run(state.draft_content, deps=deps) for agent in diagnostics.values()),
+    ]
+    results = await asyncio.gather(*coros, return_exceptions=True)
+    for key, result in zip(keys, results):
+        if isinstance(result, Exception):
+            state.errors.append(f"{key}: {result}")
+            continue
+        output = _as_dict(result.output)
+        if key == "__predictor__":
+            state.predictor_result = output
+        else:
+            state.diagnostics[key] = output
+
+
+# ── Page config ───────────────────────────────────────────────────────────────
+
+st.set_page_config(page_title="Post Evaluator", layout="wide")
+st.title("LinkedIn Post Evaluator")
 st.caption(
-    "Throwaway visual tool for the Phase 3 async evaluation cycle. Calls the "
-    "real Gemini embedding endpoint + Postgres DB to fetch neighbors, runs the "
-    "Gemini-backed Predictor and Diagnostic agents concurrently, then the T3.4 "
-    "Variant Optimisation Engine as a sequential finalize stage."
+    "Enter a draft post, then click **Evaluate Post** to get an engagement "
+    "prediction, diagnostic analysis, and 3 AI-generated rewrites."
 )
 
 settings = load_settings()
 predictor_agent = build_predictor_agent()
 diagnostic_agents = build_diagnostic_agents()
 
+# T4.4: session state holds the active draft so variant apply can overwrite it.
+if "draft_text" not in st.session_state:
+    st.session_state.draft_text = _DEFAULT_DRAFT
 if "eval_result" not in st.session_state:
     st.session_state.eval_result = None
 
@@ -76,188 +117,213 @@ if not settings.database_url:
 with st.sidebar:
     st.header("Draft Post")
     draft_content = st.text_area(
-        "Your draft post content",
-        value="Excited to announce our new product launch! We've been working on this for months.",
-        height=160,
-        help="The draft LinkedIn post you want evaluated. The system will find "
-        "similar historical posts, predict engagement, and run SEO/clarity/tone diagnostics.",
+        "Post content",
+        value=st.session_state.draft_text,
+        height=200,
+        help="The draft LinkedIn post to evaluate. The system retrieves similar "
+        "historical posts, predicts engagement, and runs SEO/clarity/tone diagnostics.",
     )
+    st.subheader("Options")
     strategy_choice = st.selectbox(
-        "Variant strategy (T3.4)",
+        "Variant strategy",
         options=list(_STRATEGY_LABELS.keys()),
-        help="Which distinctness axis the Variant Optimisation Engine should use "
-        "when rewriting the draft into 3 alternatives.",
+        help="The rewriting axis the Variant Engine uses to produce 3 distinct alternatives.",
     )
     variant_strategy = _STRATEGY_LABELS[strategy_choice]
     reembed_neighbors = st.checkbox(
-        "Re-embed each variant's own neighbors",
+        "Per-variant neighbors",
         value=False,
-        help="Off (default): all 3 variants are scored against the ORIGINAL draft's shared "
-        "neighbors — cheap, and keeps all 3 compared against one consistent baseline. "
-        "On: each variant re-embeds its own text and fetches its OWN nearest neighbors before "
-        "scoring — more accurate if a variant shifts topic/angle, but costs up to 3 extra "
-        "Gemini embed calls + DB queries.",
+        help="Off (default): all 3 variants scored against the original draft's neighbors. "
+        "On: each variant fetches its own nearest neighbors — more accurate but slower.",
     )
+    st.subheader("Personalization")
+    user_id = st.text_input(
+        "Subscriber user_id (optional)",
+        value="",
+        help="When set, retrieval is scoped to this subscriber's own posts (falling back to "
+        "the global corpus if they don't have enough yet), and a derived voice profile from "
+        "their top posts is injected into every agent's prompt.",
+    ).strip() or None
+    use_voice_profile = st.checkbox(
+        "Use voice profile",
+        value=True,
+        disabled=user_id is None,
+        help="Has no effect without a user_id. Turn off to scope retrieval to the subscriber "
+        "without personalizing the agent prompts.",
+    )
+    st.divider()
     run_clicked = st.button(
-        "\u25b6 Run evaluation cycle",
+        "Evaluate Post",
         type="primary",
         disabled=bool(missing_config) or not draft_content.strip(),
+        use_container_width=True,
     )
     if missing_config:
-        st.caption(f"\u26a0\ufe0f Missing config: {', '.join(missing_config)} — check your .env file.")
+        st.warning(f"Missing config: {', '.join(missing_config)}")
 
-# ── Run ────────────────────────────────────────────────────────────────────────
+# ── Evaluation (T4.2 — staged progress) ───────────────────────────────────────
 
-status = st.empty()
+if run_clicked and draft_content.strip():
+    variant_hook = build_variant_engine(
+        predictor_agent,
+        strategy=variant_strategy,
+        reembed_neighbors=reembed_neighbors,
+        settings=settings,
+    )
+    state = PostEvaluationState(draft_content=draft_content.strip())
 
-if run_clicked:
-    with status:
-        st.info("Running evaluation cycle (neighbor-fetch + concurrent agents + variant finalize stage)...")
-    try:
-        # Building the hook is pure Python (no I/O until awaited inside the
-        # cycle), so it's cheap to construct fresh per run with whichever
-        # strategy/neighbor-mode is selected in the sidebar.
-        variant_hook = build_variant_engine(
-            predictor_agent,
-            strategy=variant_strategy,
-            reembed_neighbors=reembed_neighbors,
-            settings=settings,
+    # Stage 1: neighbor fetch
+    with st.status("Finding similar posts...", expanded=True) as s:
+        asyncio.run(_gather_similar_posts(state, settings, user_id=user_id))
+        if user_id and use_voice_profile:
+            asyncio.run(_fetch_voice_profile(state, settings, user_id))
+        label = f"Found {len(state.similar_posts)} similar posts"
+        if state.voice_profile:
+            label += f" · voice profile from {state.voice_profile.get('sample_size')} posts"
+        s.update(label=label, state="complete", expanded=False)
+
+    # Stage 2: concurrent evaluation
+    with st.status("Running Predictor + Diagnostics...", expanded=True) as s:
+        asyncio.run(_run_concurrent_eval(state, predictor_agent, diagnostic_agents))
+        s.update(
+            label="Predictor + Diagnostics complete",
+            state="complete",
+            expanded=False,
         )
-        # run_evaluation_cycle is async, need to call it via asyncio.run
-        state = asyncio.run(
-            run_evaluation_cycle(
-                draft_content.strip(),
-                settings,
-                predictor=predictor_agent,
-                diagnostics=diagnostic_agents,
-                finalize=variant_hook,
-            )
-        )
-        st.session_state.eval_result = state
-        status.success("Evaluation cycle complete!")
-    except Exception as exc:
-        status.error(f"Evaluation cycle failed: {exc}")
-        st.stop()
 
-# ── Display results ────────────────────────────────────────────────────────────
+    # Stage 3: variant engine
+    with st.status("Generating variants...", expanded=True) as s:
+        asyncio.run(variant_hook(state))
+        n = len(state.variants)
+        s.update(
+            label=f"{n} variant{'s' if n != 1 else ''} generated",
+            state="complete",
+            expanded=False,
+        )
+
+    st.session_state.eval_result = state
+    st.session_state.draft_text = draft_content.strip()
+    st.rerun()
+
+# ── Results ────────────────────────────────────────────────────────────────────
 
 if st.session_state.eval_result is not None:
     state = st.session_state.eval_result
+    predictor = state.predictor_result or {}
 
-    st.divider()
-    st.subheader("Stage 1: Similar Posts (from neighbor-fetch)")
-    st.caption(
-        f"Retrieved {len(state.similar_posts)} semantically similar historical posts "
-        "via embed_query() + find_similar() (reuses T2's retrieval endpoint logic)."
+    # T4.3 — Top scorecard
+    st.subheader("Scorecard")
+    sc = st.columns(5)
+    sc[0].metric(
+        "Predicted Percentile",
+        f"{predictor.get('predicted_engagement_percentile', 0):.0f}",
+        help="Where this post is predicted to rank vs all historical posts (0–100).",
     )
-
-    if state.similar_posts:
-        for i, post in enumerate(state.similar_posts[:5], start=1):  # Show top 5
-            with st.expander(
-                f"#{i} — post_id={post.post_id} | "
-                f"engagement={post.total_engagement} (p{post.engagement_percentile:.0f}) | "
-                f"distance={post.cosine_distance:.3f}",
-                expanded=(i == 1),
-            ):
-                st.markdown(f"**Content:**\n\n{post.content}")
-                cols = st.columns(4)
-                cols[0].metric("Likes", post.likes)
-                cols[1].metric("Comments", post.comments)
-                cols[2].metric("Shares", post.shares)
-                cols[3].metric("Percentile", f"{post.engagement_percentile:.1f}")
-    else:
-        st.info("No similar posts found (DB might be empty).")
+    sc[1].metric(
+        "Predicted Engagements",
+        predictor.get("predicted_total_engagement", "—"),
+    )
+    for idx, name in enumerate(["seo", "clarity", "tone"], start=2):
+        diag = state.diagnostics.get(name, {})
+        sc[idx].metric(name.title(), f"{diag.get('score', 0):.1f}/10")
 
     st.divider()
-    st.subheader("Stage 2: Concurrent Evaluation (Predictor + Diagnostics)")
 
-    col1, col2 = st.columns(2)
+    # Predictor + Diagnostics side-by-side
+    left, right = st.columns(2)
 
-    with col1:
-        st.markdown("**Predictor Result** (T3.2)")
-        if state.predictor_result is None:
-            st.info("No predictor result returned.")
-        else:
-            predictor = state.predictor_result
-            metrics = st.columns(2)
-            metrics[0].metric(
-                "Predicted Percentile",
-                f"{predictor.get('predicted_engagement_percentile', 0):.1f}",
-            )
-            metrics[1].metric(
-                "Predicted Engagement",
-                f"{predictor.get('predicted_total_engagement', 0)}",
-            )
-            st.markdown("**Reasoning**")
+    with left:
+        st.subheader("Predictor Analysis")
+        if predictor:
             st.write(predictor.get("reasoning", "No reasoning returned."))
+        else:
+            st.info("No predictor result.")
 
-    with col2:
-        st.markdown("**Diagnostics** (T3.3)")
+    with right:
+        st.subheader("Diagnostics")
         if not state.diagnostics:
-            st.info("No diagnostic results returned.")
+            st.info("No diagnostic results.")
         else:
             for name in ["seo", "clarity", "tone"]:
-                diagnostic = state.diagnostics.get(name)
-                if diagnostic is None:
+                diag = state.diagnostics.get(name)
+                if not diag:
                     continue
-                with st.expander(name.title(), expanded=True):
-                    st.metric("Score", f"{diagnostic.get('score', 0):.1f}/10")
-                    _render_list("Flaws", diagnostic.get("flaws", []))
-                    _render_list("Advantages", diagnostic.get("advantages", []))
-                    _render_list("Improvements", diagnostic.get("improvements", []))
+                score = diag.get("score", 0)
+                with st.expander(f"**{name.title()}** — {score:.1f}/10", expanded=True):
+                    st.progress(score / 10.0)
+                    for section, heading, icon in [
+                        ("advantages", "Strengths", "+"),
+                        ("flaws", "Issues", "−"),
+                        ("improvements", "Suggestions", "→"),
+                    ]:
+                        items = diag.get(section, [])
+                        if items:
+                            st.markdown(f"**{heading}**")
+                            for item in items:
+                                st.markdown(f"{icon} {item}")
 
     if state.errors:
-        st.warning(f"**Errors:** {len(state.errors)} agent(s) failed during concurrent evaluation")
-        for error in state.errors:
-            st.error(error)
+        with st.expander(f"⚠ {len(state.errors)} error(s)", expanded=False):
+            for err in state.errors:
+                st.error(err)
 
     st.divider()
-    st.subheader("Stage 3: Variants (T3.4 — Variant Optimisation Engine)")
+
+    # T4.3 + T4.4 — Variants with one-click apply
+    st.subheader(f"Variants ({len(state.variants)})")
+    original_pct = predictor.get("predicted_engagement_percentile")
+
     if not state.variants:
-        st.info(
-            "No variants returned — the engine skips entirely when neither a predictor "
-            "result nor any diagnostics are available. Check the errors below."
-        )
+        st.info("No variants were generated.")
     else:
-        st.caption(
-            "Ranked descending by recalculated predicted engagement percentile "
-            "(the T3.2 Predictor Agent re-run on each rewritten variant)."
-        )
-        original_percentile = (
-            state.predictor_result.get("predicted_engagement_percentile")
-            if state.predictor_result
-            else None
-        )
-        # Vertically stacked, ranked top-to-bottom — chosen over side-by-side
-        # columns since rewritten post copy can be long and columns would
-        # cramp/truncate it.
         for i, variant in enumerate(state.variants, start=1):
             with st.container(border=True):
-                rank_label = "Highest Predicted" if i == 1 else f"Rank {i}"
-                st.markdown(f"**Variant {i} — {rank_label}** &nbsp; `{variant['strategy_label']}`")
-                metrics = st.columns(2)
-                delta = (
-                    f"{variant['predicted_engagement_percentile'] - original_percentile:+.1f}"
-                    if original_percentile is not None
-                    else None
-                )
-                metrics[0].metric(
-                    "Predicted Percentile",
-                    f"{variant['predicted_engagement_percentile']:.1f}",
-                    delta=delta,
-                )
-                metrics[1].metric("Predicted Engagement", f"{variant['predicted_total_engagement']}")
-                st.markdown("**Rationale**")
-                st.write(variant["rationale"])
-                st.markdown("**Variant text**")
+                header_col, metric_col = st.columns([3, 1])
+                with header_col:
+                    label = "Top Variant" if i == 1 else f"Variant {i}"
+                    st.markdown(f"**{label}** &nbsp; `{variant.get('strategy_label', '')}`")
+                    st.write(variant.get("rationale", ""))
+                with metric_col:
+                    pct = variant.get("predicted_engagement_percentile", 0)
+                    delta = (
+                        f"{pct - original_pct:+.0f}" if original_pct is not None else None
+                    )
+                    st.metric("Percentile", f"{pct:.0f}", delta=delta)
+                    st.metric(
+                        "Engagements",
+                        variant.get("predicted_total_engagement", "—"),
+                    )
+
                 st.text_area(
-                    f"variant_{i}_text",
-                    value=variant["variant_text"],
-                    height=140,
+                    f"v{i}",
+                    value=variant.get("variant_text", ""),
+                    height=110,
                     label_visibility="collapsed",
-                    disabled=True,
                 )
 
+                # T4.4: one-click apply — loads variant text back into the draft input
+                if st.button(f"Use Variant {i}", key=f"apply_{i}", type="secondary"):
+                    st.session_state.draft_text = variant.get("variant_text", "")
+                    st.session_state.eval_result = None
+                    st.rerun()
+
     st.divider()
-    st.subheader("Raw Response (full PostEvaluationState)")
-    st.json(state.model_dump())
+    with st.expander(
+        f"Similar posts used as context ({len(state.similar_posts)} retrieved)",
+        expanded=False,
+    ):
+        for j, post in enumerate(state.similar_posts[:5], start=1):
+            st.markdown(
+                f"**#{j}** &nbsp; `{post.post_id}` · "
+                f"p{post.engagement_percentile:.0f} · "
+                f"distance={post.cosine_distance:.3f}"
+            )
+            preview = post.content[:300]
+            if len(post.content) > 300:
+                preview += "…"
+            st.caption(preview)
+            if j < min(5, len(state.similar_posts)):
+                st.divider()
+
+else:
+    st.info("Enter your draft post in the sidebar and click **Evaluate Post**.")

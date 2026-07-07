@@ -43,7 +43,7 @@ from pydantic_ai import Agent
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from config.settings import Settings
 from processors.embedder import embed_query
-from storage.vector_store import find_similar, get_connection
+from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 
 # A PydanticAI agent sharing our EvaluationDeps as read-only context. T3.2's
 # Predictor Agent and T3.3's Diagnostic Worker Agents will each be one of
@@ -55,7 +55,9 @@ EvaluationAgent = Agent[EvaluationDeps, Any]
 FinalizeHook = Callable[[PostEvaluationState], Awaitable[None]]
 
 
-async def _gather_similar_posts(state: PostEvaluationState, settings: Settings) -> None:
+async def _gather_similar_posts(
+    state: PostEvaluationState, settings: Settings, user_id: Optional[str] = None
+) -> None:
     """Populate state.similar_posts with the 10 nearest vector neighbors.
 
     Wraps the existing *synchronous* embed_query() (processors/embedder.py)
@@ -68,6 +70,10 @@ async def _gather_similar_posts(state: PostEvaluationState, settings: Settings) 
     per-request pattern as api/main.py — nothing is held open across the
     concurrent stage, which is the "no leaking memory" half of Erdal's
     success criterion.
+
+    If `user_id` is given, retrieval is tenant-scoped to that subscriber's
+    own posts, with an automatic fallback to the global corpus when they
+    don't have enough of their own (see find_similar()'s docstring).
     """
 
     def _fetch() -> list[dict]:
@@ -75,7 +81,7 @@ async def _gather_similar_posts(state: PostEvaluationState, settings: Settings) 
         conn = get_connection(settings)
         try:
             register_vector(conn)
-            return find_similar(conn, query_vector, limit=10)
+            return find_similar(conn, query_vector, limit=10, user_id=user_id)
         finally:
             conn.close()
 
@@ -83,6 +89,23 @@ async def _gather_similar_posts(state: PostEvaluationState, settings: Settings) 
     from api.schemas import SimilarPost
 
     state.similar_posts = [SimilarPost(**row) for row in rows]
+
+
+async def _fetch_voice_profile(state: PostEvaluationState, settings: Settings, user_id: str) -> None:
+    """Populate state.voice_profile from the subscriber's own top posts
+    (dynamic style-profile prompting). Leaves it at None (the default) if
+    there isn't enough data yet — see
+    storage/vector_store.get_user_voice_profile()'s cold-start behavior.
+    """
+
+    def _fetch() -> Optional[dict]:
+        conn = get_connection(settings)
+        try:
+            return get_user_voice_profile(conn, user_id)
+        finally:
+            conn.close()
+
+    state.voice_profile = await asyncio.to_thread(_fetch)
 
 
 def _as_dict(output: Any) -> dict:
@@ -105,6 +128,8 @@ async def run_evaluation_cycle(
     predictor: Optional[EvaluationAgent] = None,
     diagnostics: Optional[dict[str, EvaluationAgent]] = None,
     finalize: Optional[FinalizeHook] = None,
+    user_id: Optional[str] = None,
+    use_voice_profile: bool = True,
 ) -> PostEvaluationState:
     """Run one full content-evaluation cycle for `draft_content`.
 
@@ -126,6 +151,17 @@ async def run_evaluation_cycle(
             (future hook for T3.4's Variant Optimisation Engine, which needs
             stage 2's collected diagnostics as input). None (default) for
             T3.1's own scope — nothing calls this yet.
+        user_id: optional subscriber id (personalization). When given,
+            neighbor retrieval is tenant-scoped to that user's own posts
+            (falling back to the global corpus if they don't have enough,
+            see find_similar()), and — if `use_voice_profile` is True — a
+            derived voice profile is fetched and made available to every
+            agent via `EvaluationDeps.voice_profile`.
+        use_voice_profile: whether to fetch/apply the subscriber's voice
+            profile when `user_id` is given. Ignored if `user_id` is None.
+            Default True — this is opt-in only in the sense that it does
+            nothing without a `user_id`; no separate flag is needed to
+            "turn personalization on" once a user_id is supplied.
 
     Returns:
         The populated PostEvaluationState. `predictor_result`, `diagnostics`,
@@ -134,9 +170,15 @@ async def run_evaluation_cycle(
     """
     state = PostEvaluationState(draft_content=draft_content)
 
-    await _gather_similar_posts(state, settings)
+    await _gather_similar_posts(state, settings, user_id=user_id)
+    if user_id is not None and use_voice_profile:
+        await _fetch_voice_profile(state, settings, user_id)
 
-    deps = EvaluationDeps(draft_content=draft_content, similar_posts=state.similar_posts)
+    deps = EvaluationDeps(
+        draft_content=draft_content,
+        similar_posts=state.similar_posts,
+        voice_profile=state.voice_profile,
+    )
 
     keys: list[str] = []
     coros: list[Awaitable[Any]] = []

@@ -34,12 +34,46 @@ from api.schemas import SimilarPost
 class EvaluationDeps:
     draft_content: str
     similar_posts: list[SimilarPost] = field(default_factory=list)
+    # Personalization (dynamic style-profile prompting): a subscriber's
+    # derived voice profile (agents/orchestrator.py fetches this via
+    # storage/vector_store.get_user_voice_profile() when a user_id is
+    # supplied and enough of their own posts exist). None when there's no
+    # user_id or not enough data (cold start) — agents fall back to their
+    # generic, non-personalized system prompt in that case.
+    voice_profile: Optional[dict] = None
 
 
 class PostEvaluationState(BaseModel):
     draft_content: str
     similar_posts: list[SimilarPost] = Field(default_factory=list)
+    voice_profile: Optional[dict] = None
     predictor_result: Optional[dict] = None
     diagnostics: dict[str, dict] = Field(default_factory=dict)
     variants: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+
+
+def build_voice_profile_section(voice_profile: Optional[dict]) -> str:
+    """Render a subscriber's derived voice profile (personalization —
+    dynamic style-profile prompting, see
+    storage/vector_store.get_user_voice_profile()) as an extra prompt
+    section shared by the Predictor (T3.2) and Diagnostic (T3.3) agents.
+
+    Returns an empty string when there isn't one (no user_id supplied to
+    run_evaluation_cycle, or that subscriber doesn't have enough of their
+    own posts yet — cold start) so non-personalized calls get the exact
+    same prompt as before this feature existed.
+    """
+    if not voice_profile:
+        return ""
+    return f"""
+This subscriber's own writing style (derived from their {voice_profile.get('sample_size')} best-performing posts):
+- Typical hook type: {voice_profile.get('dominant_hook_type') or 'unknown'}
+- Typical tone: {voice_profile.get('dominant_tone') or 'unknown'}
+- Typical writing style: {voice_profile.get('dominant_writing_style') or 'unknown'}
+- Average length: {voice_profile.get('avg_word_count') or 'unknown'} words
+- Average hashtag count: {voice_profile.get('avg_hashtag_count') or 'unknown'}
+- Uses an explicit CTA in {voice_profile.get('cta_usage_ratio') or 'unknown'} of posts (0-1 ratio)
+Factor this subscriber's established voice in — content close to their own proven style is more
+likely to land, and improvement suggestions should nudge toward that voice, not away from it.
+"""

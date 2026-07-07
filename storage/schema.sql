@@ -17,6 +17,11 @@ CREATE TABLE IF NOT EXISTS posts (
     post_id             TEXT PRIMARY KEY,
     author_public_id    TEXT NOT NULL DEFAULT '',
     linkedin_url        TEXT NOT NULL DEFAULT '',
+    -- Tenant scoping (personalization): which subscriber this post belongs
+    -- to, so retrieval/voice-profile queries can be filtered per-user.
+    -- NULL = a global-corpus post (e.g. the bulk-scraped dataset ingested
+    -- so far), not owned by any particular subscriber.
+    user_id             TEXT,
 
     -- 2. Raw engagement counts
     likes               INTEGER NOT NULL CHECK (likes >= 0),
@@ -50,12 +55,31 @@ CREATE TABLE IF NOT EXISTS posts (
     has_explicit_cta    BOOLEAN,
     writing_style       TEXT,
 
-    -- 7. Raw text + embedding (T1.3 output)
+    -- 7. Anomaly detection (batch step, processors/benchmark.py)
+    engagement_anomaly_flag BOOLEAN NOT NULL DEFAULT FALSE,
+    anomaly_reasons         TEXT[] NOT NULL DEFAULT '{}',
+
+    -- 8. Raw text + embedding (T1.3 output)
     content             TEXT NOT NULL,
     embedding           vector(3072) NOT NULL,
 
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for pre-existing tables: CREATE TABLE IF NOT EXISTS above is a
+-- no-op once the table already exists, so a table created before the
+-- anomaly-detection columns were added (group 7) would otherwise never
+-- get them. ADD COLUMN IF NOT EXISTS is idempotent/safe to re-run and a
+-- no-op on a freshly-created table (columns already exist from the CREATE
+-- TABLE above).
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS engagement_anomaly_flag BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS anomaly_reasons TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_id TEXT;
+
+-- Speeds up tenant-scoped retrieval (WHERE user_id = ...) and the voice-
+-- profile aggregation query in storage/vector_store.get_user_voice_profile().
+CREATE INDEX IF NOT EXISTS posts_user_id_idx ON posts (user_id) WHERE user_id IS NOT NULL;
+
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).

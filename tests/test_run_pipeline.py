@@ -27,11 +27,17 @@ def make_settings(raw_data_dir: str) -> Settings:
     )
 
 
-def make_post(post_id: str, likes: int, comments: int = 0, shares: int = 0) -> dict:
+def make_post(
+    post_id: str,
+    likes: int,
+    comments: int = 0,
+    shares: int = 0,
+    content: str = "A test post about hiring #jobs",
+) -> dict:
     return {
         "id": post_id,
         "linkedinUrl": f"https://www.linkedin.com/posts/{post_id}",
-        "content": "A test post about hiring #jobs",
+        "content": content,
         "author": {"publicIdentifier": f"user{post_id}"},
         "postedAt": {"timestamp": 1783081190913},
         "postImages": [],
@@ -70,7 +76,12 @@ def test_run_pipeline_writes_csv_and_jsonl_with_valid_records(tmp_path):
     raw_dir.mkdir()
     processed_dir = tmp_path / "processed"
     (raw_dir / "linkedin_20260101T000000Z.json").write_text(
-        json.dumps([make_post("1", 10, 2, 1), make_post("2", 100, 20, 5)])
+        json.dumps(
+            [
+                make_post("1", 10, 2, 1, content="A test post about hiring #jobs"),
+                make_post("2", 100, 20, 5, content="A different test post about engineering #tech"),
+            ]
+        )
     )
 
     settings = make_settings(str(raw_dir))

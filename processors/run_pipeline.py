@@ -7,15 +7,21 @@ interactive harness for testing one saved scan at a time.
 What it does, in order:
   1. Load every raw post scan in data/raw/linkedin_*.json (profile scans
      are skipped — different record shape, merged in separately).
-  2. Stage 1 — per-post Python features (free, instant, always run).
-  3. Batch step — engagement benchmark (needs the whole set at once,
+  2. Remove exact-duplicate content (processors/dedup.py).
+  3. Stage 1 — per-post Python features (free, instant, always run).
+  4. Batch step — engagement benchmark (needs the whole set at once,
      see processors/benchmark.py for why this can't be per-post).
-  4. Stage 2 — Gemini qualitative tags (optional, one API call per post,
+  5. Stage 2 — Gemini qualitative tags (optional, one API call per post,
      only runs with --with-gemini since it costs money).
-  5. Validate every record against NormalizedPost (processors/schemas.py)
-     so a broken row fails loudly here instead of downstream in T1.3.
-  6. Persist ONE consolidated dataset in both CSV and JSONL
-     (storage/processed_store.py).
+  6. Flag statistically implausible engagement ratios
+     (processors/benchmark.py::flag_engagement_anomalies) — flagged posts
+     are held out of the main dataset into a separate review file.
+  7. Validate every remaining record against NormalizedPost
+     (processors/schemas.py) so a broken row fails loudly here instead of
+     downstream in T1.3.
+  8. Persist the clean dataset in both CSV and JSONL
+     (storage/processed_store.py), plus a separate JSONL for flagged posts
+     if any exist.
 
 Usage:
     python -m processors.run_pipeline                # Stage 1 + benchmark only
@@ -29,7 +35,8 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import Settings, load_settings
-from processors.benchmark import add_engagement_benchmark
+from processors.benchmark import add_engagement_benchmark, flag_engagement_anomalies
+from processors.dedup import dedupe_posts
 from processors.post_analyser import PostAnalyser
 from processors.schemas import NormalizedPost
 from storage.processed_store import ProcessedStore
@@ -70,6 +77,13 @@ def run_pipeline(
     if not raw_posts:
         raise ValueError(f"No raw posts found under {settings.raw_data_dir}/linkedin_*.json")
 
+    # Remove exact-duplicate content BEFORE Stage 1/benchmark — both are
+    # indexed 1:1 off raw_posts, and duplicate content would otherwise
+    # double-count in the engagement benchmark and anomaly-detection stats.
+    raw_posts, num_duplicates_removed = dedupe_posts(raw_posts)
+    if num_duplicates_removed:
+        print(f"Removed {num_duplicates_removed} exact-duplicate post(s) before analysis.")
+
     # Stage 1: per-post features, always run — free and instant.
     stage1_records = [analyser.compute_python_features(post) for post in raw_posts]
 
@@ -81,11 +95,32 @@ def run_pipeline(
         for post, record in zip(raw_posts, records):
             record.update(analyser.compute_gemini_features(post, record))
 
+    # Flag statistically implausible engagement ratios (e.g. bot/engagement-
+    # pod pollution). Flagged posts are held OUT of the main dataset and
+    # written to a separate review file instead — see
+    # processors/benchmark.py::flag_engagement_anomalies for the detection
+    # logic and /memories/session/plan.md for why this isn't auto-excluded
+    # silently or auto-included unflagged.
+    records = flag_engagement_anomalies(records)
+    clean_records = [r for r in records if not r["engagement_anomaly_flag"]]
+    flagged_records = [r for r in records if r["engagement_anomaly_flag"]]
+
     # Fail loudly here rather than writing a malformed row that T1.3 chokes on later.
-    validated_records = [NormalizedPost.model_validate(record).model_dump() for record in records]
+    validated_records = [NormalizedPost.model_validate(record).model_dump() for record in clean_records]
 
     csv_path = store.save("linkedin", validated_records)
     jsonl_path = store.save_jsonl("linkedin", validated_records)
+
+    if flagged_records:
+        validated_flagged = [
+            NormalizedPost.model_validate(record).model_dump() for record in flagged_records
+        ]
+        flagged_path = store.save_jsonl("linkedin_flagged", validated_flagged)
+        print(
+            f"Held out {len(flagged_records)} post(s) with anomalous engagement ratios "
+            f"for manual review: {flagged_path}"
+        )
+
     return csv_path, jsonl_path
 
 

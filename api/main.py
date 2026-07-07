@@ -56,7 +56,7 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
         # register the adapter immediately so `query_vector` (a numpy
         # array) can be passed directly as a query parameter.
         register_vector(conn)
-        rows = find_similar(conn, query_vector, limit=request.limit)
+        rows = find_similar(conn, query_vector, limit=request.limit, user_id=request.user_id)
     finally:
         conn.close()
 
@@ -85,6 +85,8 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
             predictor=predictor_agent,
             diagnostics=diagnostic_agents,
             finalize=variant_hook,
+            user_id=request.user_id,
+            use_voice_profile=request.use_voice_profile,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

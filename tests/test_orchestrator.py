@@ -210,3 +210,63 @@ def test_real_pydantic_ai_agent_with_test_model():
 
     assert state.diagnostics == {"real_agent": {"result": "stub diagnostic output"}}
     assert state.errors == []
+
+
+# ── Personalization: user_id / voice_profile ──────────────────────────────
+
+
+def test_user_id_scopes_neighbor_fetch_and_populates_voice_profile():
+    """When user_id is given, find_similar() should be called with it, and
+    a fetched voice profile should end up on state + be visible to agents
+    via deps.voice_profile."""
+    rows = [fake_row("1")]
+    profile = {"dominant_tone": "casual", "sample_size": 5}
+
+    captured: dict = {}
+
+    class _CapturingAgent:
+        async def run(self, prompt, deps):
+            captured["voice_profile"] = deps.voice_profile
+            return SimpleNamespace(output={"ok": True})
+
+    p1, p2, p3, p4 = _patch_neighbor_fetch(rows)
+    with p1, p2, p3, p4, patch(
+        "agents.orchestrator.get_user_voice_profile", return_value=profile
+    ) as mock_voice:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"capture": _CapturingAgent()},
+                user_id="user-1",
+            )
+        )
+
+    mock_voice.assert_called_once()
+    assert mock_voice.call_args[0][1] == "user-1"
+    assert state.voice_profile == profile
+    assert captured["voice_profile"] == profile
+
+
+def test_no_user_id_never_calls_voice_profile():
+    """Without a user_id, get_user_voice_profile must not be touched at
+    all — non-personalized calls behave exactly as before this feature."""
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4, patch("agents.orchestrator.get_user_voice_profile") as mock_voice:
+        state = asyncio.run(run_evaluation_cycle("draft text", fake_settings()))
+
+    mock_voice.assert_not_called()
+    assert state.voice_profile is None
+
+
+def test_use_voice_profile_false_skips_profile_even_with_user_id():
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4, patch("agents.orchestrator.get_user_voice_profile") as mock_voice:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text", fake_settings(), user_id="user-1", use_voice_profile=False
+            )
+        )
+
+    mock_voice.assert_not_called()
+    assert state.voice_profile is None

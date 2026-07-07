@@ -65,6 +65,12 @@ with st.sidebar:
         "against historical posts.",
     )
     limit = st.slider("Number of similar posts to return", min_value=1, max_value=50, value=10)
+    user_id = st.text_input(
+        "Subscriber user_id (optional)",
+        value="",
+        help="When set, retrieval is scoped to this subscriber's own posts first, falling back "
+        "to the global corpus automatically if they don't have enough of their own yet.",
+    ).strip() or None
     run_clicked = st.button(
         "\u25b6 Find similar posts",
         type="primary",
@@ -89,7 +95,7 @@ if run_clicked:
         try:
             register_vector(conn)
             sql_start = time.perf_counter()
-            rows = find_similar(conn, query_vector, limit=limit)
+            rows = find_similar(conn, query_vector, limit=limit, user_id=user_id)
             sql_ms = (time.perf_counter() - sql_start) * 1000
         finally:
             conn.close()

@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from agents.schemas import EvaluationDeps
+from agents.schemas import EvaluationDeps, build_voice_profile_section
 
 DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
 
@@ -55,12 +55,14 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
             )
         neighbor_context = "\n\n".join(neighbor_lines)
 
+    voice_section = build_voice_profile_section(deps.voice_profile)
+
     return f"""
 You are the Predictor Agent for a LinkedIn post evaluation pipeline.
 
 Your task: predict how the draft will perform by comparing it with the nearest
 historical posts retrieved from the vector database.
-
+{voice_section}
 Draft post:
 {deps.draft_content}
 

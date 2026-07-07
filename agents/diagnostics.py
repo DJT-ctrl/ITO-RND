@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from agents.schemas import EvaluationDeps
+from agents.schemas import EvaluationDeps, build_voice_profile_section
 
 DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
 
@@ -63,12 +63,13 @@ _DIAGNOSTIC_SPECS = {
 def build_diagnostic_prompt(name: str, deps: EvaluationDeps) -> str:
     """Build one diagnostic worker's prompt."""
     spec = _DIAGNOSTIC_SPECS[name]
+    voice_section = build_voice_profile_section(deps.voice_profile)
     return f"""
 You are the {spec['title']} Diagnostic Worker in a LinkedIn post evaluation pipeline.
 
 Your focus:
 {spec['focus']}
-
+{voice_section}
 Draft post:
 {deps.draft_content}
 

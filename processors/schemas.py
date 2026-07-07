@@ -87,3 +87,11 @@ class NormalizedPost(BaseModel):
     topic: Optional[str] = None
     has_explicit_cta: Optional[bool] = None
     writing_style: Optional[str] = None
+
+    # ── 7. Anomaly detection (batch step, processors/benchmark.py) ─────────
+    # Flags statistically implausible engagement ratios (e.g. bot/engagement-
+    # pod pollution) so processors/run_pipeline.py can route the post to a
+    # separate review file instead of the main dataset. See
+    # flag_engagement_anomalies() for the detection logic.
+    engagement_anomaly_flag: bool = False
+    anomaly_reasons: list[str] = Field(default_factory=list)

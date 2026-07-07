@@ -40,7 +40,7 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from agents.schemas import EvaluationDeps, PostEvaluationState
+from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
 from api.schemas import SimilarPost
 from config.settings import Settings
 from processors.embedder import embed_query
@@ -166,6 +166,7 @@ def build_variant_prompt(strategy: VariantStrategy, deps: EvaluationDeps, state:
     strategy (see VariantStrategy).
     """
     spec = _STRATEGY_SPECS[strategy]
+    voice_section = build_voice_profile_section(deps.voice_profile)
 
     return f"""
 You are the Variant Optimisation Engine in a LinkedIn post evaluation pipeline.
@@ -175,7 +176,7 @@ predicted performance and diagnostic criticism below as your cleanup brief.
 
 Strategy: {spec['title']}
 {spec['instructions']}
-
+{voice_section}
 Draft post:
 {deps.draft_content}
 
@@ -253,7 +254,7 @@ async def _score_variant(
         neighbors = await _fetch_variant_neighbors(item.variant_text, settings)
     else:
         neighbors = state.similar_posts
-    deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors)
+    deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors, voice_profile=state.voice_profile)
     return await predictor_agent.run(item.variant_text, deps=deps)
 
 
@@ -294,7 +295,11 @@ def build_variant_engine(
             state.errors.append("variant_engine: skipped, no predictor or diagnostic output available")
             return
 
-        deps = EvaluationDeps(draft_content=state.draft_content, similar_posts=state.similar_posts)
+        deps = EvaluationDeps(
+            draft_content=state.draft_content,
+            similar_posts=state.similar_posts,
+            voice_profile=state.voice_profile,
+        )
         prompt = build_variant_prompt(strategy, deps, state)
 
         gen_results = await asyncio.gather(generation_agent.run(prompt, deps=deps), return_exceptions=True)

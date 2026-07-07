@@ -37,6 +37,18 @@ def test_diagnostic_prompts_are_distinct_and_include_draft():
     assert len({seo_prompt, clarity_prompt, tone_prompt}) == 3
 
 
+def test_diagnostic_prompt_includes_voice_profile_when_present():
+    deps = EvaluationDeps(
+        draft_content="Draft post about hiring a backend engineer.",
+        voice_profile={"dominant_tone": "casual", "sample_size": 4},
+    )
+
+    prompt = build_diagnostic_prompt("tone", deps)
+
+    assert "subscriber's own writing style" in prompt
+    assert "casual" in prompt
+
+
 def test_each_diagnostic_agent_returns_uniform_structured_output_with_test_model():
     deps = EvaluationDeps(draft_content="Draft post about hiring a backend engineer.")
     agents = [

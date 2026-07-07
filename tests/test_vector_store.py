@@ -11,7 +11,13 @@ import numpy as np
 import pytest
 
 from config.settings import Settings
-from storage.vector_store import create_schema, find_similar, get_connection, insert_posts
+from storage.vector_store import (
+    create_schema,
+    find_similar,
+    get_connection,
+    get_user_voice_profile,
+    insert_posts,
+)
 
 
 def make_settings(**overrides) -> Settings:
@@ -57,6 +63,8 @@ def make_record(post_id: str) -> dict:
         "topic": None,
         "has_explicit_cta": None,
         "writing_style": None,
+        "engagement_anomaly_flag": False,
+        "anomaly_reasons": [],
         "content": "Some post content that is long enough to be valid.",
     }
 
@@ -230,3 +238,121 @@ def test_find_similar_returns_dicts_matching_rows():
             "cosine_distance": 0.05,
         }
     ]
+
+
+# ── find_similar: tenant scoping (personalization) ───────────────────────
+
+_SIMILAR_COLUMNS_WITH_DISTANCE = [
+    "post_id",
+    "content",
+    "likes",
+    "comments",
+    "shares",
+    "total_engagement",
+    "engagement_percentile",
+    "engagement_zscore",
+    "cosine_distance",
+]
+
+
+def test_find_similar_scopes_by_user_id():
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _SIMILAR_COLUMNS_WITH_DISTANCE)
+    # 5 rows >= default min_user_results (3), so no fallback query happens.
+    cursor.fetchall.return_value = [
+        (str(i), "hello", 1, 1, 1, 3, 50.0, 0.0, 0.1) for i in range(5)
+    ]
+
+    query_vector = np.zeros(3072, dtype=np.float32)
+    find_similar(conn, query_vector, limit=10, user_id="user-1")
+
+    assert cursor.execute.call_count == 1
+    executed_sql = cursor.execute.call_args[0][0]
+    executed_params = cursor.execute.call_args[0][1]
+    assert "WHERE user_id = %s" in executed_sql
+    assert executed_params[1] == "user-1"
+
+
+def test_find_similar_falls_back_to_global_when_user_results_insufficient():
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _SIMILAR_COLUMNS_WITH_DISTANCE)
+    # First (scoped) query returns too few rows; second (global) call
+    # returns a full result set.
+    cursor.fetchall.side_effect = [
+        [("1", "hello", 1, 1, 1, 3, 50.0, 0.0, 0.1)],
+        [(str(i), "hello", 1, 1, 1, 3, 50.0, 0.0, 0.1) for i in range(10)],
+    ]
+
+    query_vector = np.zeros(3072, dtype=np.float32)
+    results = find_similar(conn, query_vector, limit=10, user_id="user-1", min_user_results=3)
+
+    assert cursor.execute.call_count == 2
+    first_sql = cursor.execute.call_args_list[0][0][0]
+    second_sql = cursor.execute.call_args_list[1][0][0]
+    assert "WHERE user_id = %s" in first_sql
+    assert "WHERE user_id = %s" not in second_sql
+    assert len(results) == 10
+
+
+def test_find_similar_no_fallback_when_disabled():
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _SIMILAR_COLUMNS_WITH_DISTANCE)
+    cursor.fetchall.return_value = [("1", "hello", 1, 1, 1, 3, 50.0, 0.0, 0.1)]
+
+    query_vector = np.zeros(3072, dtype=np.float32)
+    results = find_similar(
+        conn, query_vector, limit=10, user_id="user-1", min_user_results=3, fallback_to_global=False
+    )
+
+    assert cursor.execute.call_count == 1
+    assert len(results) == 1
+
+
+# ── get_user_voice_profile ────────────────────────────────────────────────
+
+_VOICE_PROFILE_COLUMNS = [
+    "hook_type",
+    "tone",
+    "writing_style",
+    "has_explicit_cta",
+    "word_count",
+    "hashtag_count",
+]
+
+
+def test_get_user_voice_profile_returns_none_below_min_posts():
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _VOICE_PROFILE_COLUMNS)
+    cursor.fetchall.return_value = [
+        ("question", "casual", "story", True, 80, 2),
+        ("question", "casual", "story", True, 90, 3),
+    ]
+
+    result = get_user_voice_profile(conn, "user-1", min_posts=3)
+
+    assert result is None
+
+
+def test_get_user_voice_profile_aggregates_correctly():
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _VOICE_PROFILE_COLUMNS)
+    cursor.fetchall.return_value = [
+        ("question", "casual", "story", True, 80, 2),
+        ("question", "professional", "story", True, 100, 4),
+        ("statement", "casual", "story", False, 60, 0),
+    ]
+
+    result = get_user_voice_profile(conn, "user-1", min_posts=3)
+
+    assert result["dominant_hook_type"] == "question"
+    assert result["dominant_tone"] == "casual"
+    assert result["dominant_writing_style"] == "story"
+    assert result["avg_word_count"] == 80.0
+    assert result["avg_hashtag_count"] == 2.0
+    assert result["cta_usage_ratio"] == round(2 / 3, 2)
+    assert result["sample_size"] == 3

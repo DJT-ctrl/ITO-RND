@@ -75,3 +75,76 @@ def _percentile_rank(sorted_values: list[float], value: float) -> float:
     count_equal = sum(1 for v in sorted_values if v == value)
     rank = count_below + count_equal / 2
     return round(100 * rank / len(sorted_values), 2)
+
+
+def flag_engagement_anomalies(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a NEW list of records with engagement_anomaly_flag/anomaly_reasons added.
+
+    Why this exists
+    -----------------
+    A percentile/z-score tells you *where* a post ranks, not whether its
+    engagement looks organic. Bot/engagement-pod pollution and adversarial
+    data usually shows up as an implausible RATIO between engagement types
+    (e.g. comments far out of proportion to likes) rather than a high total
+    — a post can be perfectly ordinary in total_engagement terms and still
+    have a bot-inflated comment_ratio.
+
+    This flags each post's comment_ratio/share_ratio against the rest of
+    the batch using a *modified z-score* (median + MAD, not mean + std).
+    MAD is used deliberately: mean/std are themselves dragged around by the
+    very outliers this is trying to catch, which would raise the bar right
+    when it needs to be sensitive. Threshold 3.5 is the conservative cutoff
+    from Iglewicz & Hoaglin's outlier-detection guidance (fewer false
+    positives, appropriate for a dataset this small).
+
+    Does not mutate the input. Every record must already have
+    ``comment_ratio``/``share_ratio`` keys (i.e. have been through Stage 1)
+    — either may be ``None`` (posts with 0 likes), which are simply
+    excluded from that ratio's check rather than treated as anomalous.
+
+    This function only FLAGS — it never drops or reorders records. Callers
+    (processors/run_pipeline.py) are expected to route flagged records to a
+    separate review file instead of the main dataset.
+    """
+    if not records:
+        return []
+
+    reasons_by_index: list[list[str]] = [[] for _ in records]
+    ratio_checks = (
+        ("comment_ratio", "comment_ratio_outlier"),
+        ("share_ratio", "share_ratio_outlier"),
+    )
+    for field, reason_label in ratio_checks:
+        indexed_values = [(i, r[field]) for i, r in enumerate(records) if r.get(field) is not None]
+        if len(indexed_values) < 2:
+            continue  # nothing meaningful to compare against
+
+        values = [v for _, v in indexed_values]
+        median = _median(values)
+        mad = _median([abs(v - median) for v in values])
+        if mad == 0:
+            continue  # every value in this batch is identical for this ratio — nothing is an outlier
+
+        for index, value in indexed_values:
+            modified_zscore = 0.6745 * (value - median) / mad
+            if abs(modified_zscore) > 3.5:
+                reasons_by_index[index].append(reason_label)
+
+    return [
+        {
+            **record,
+            "engagement_anomaly_flag": bool(reasons_by_index[i]),
+            "anomaly_reasons": reasons_by_index[i],
+        }
+        for i, record in enumerate(records)
+    ]
+
+
+def _median(values: list[float]) -> float:
+    """Standard median (average of the two middle values on an even-length list)."""
+    ordered = sorted(values)
+    count = len(ordered)
+    midpoint = count // 2
+    if count % 2 == 0:
+        return (ordered[midpoint - 1] + ordered[midpoint]) / 2
+    return ordered[midpoint]

@@ -26,6 +26,7 @@ import numpy as np
 
 from config.settings import Settings, load_settings
 from processors.run_embeddings import load_and_join
+from storage.db_backup import create_backup
 from storage.vector_store import create_schema, get_connection, insert_posts
 
 
@@ -41,12 +42,25 @@ def run_db_ingest(
     processed_file: Optional[str] = None,
     embeddings_file: Optional[str] = None,
     settings: Optional[Settings] = None,
+    skip_backup: bool = False,
 ) -> int:
-    """Run the full T1.4/T1.5 batch: load -> join -> filter -> upsert into Postgres.
+    """Run the full T1.4/T1.5 batch: backup -> load -> join -> filter -> upsert into Postgres.
+
+    A full-database dump is taken via storage/db_backup.py BEFORE anything
+    is written, so a bad ingestion run can always be rolled back to the
+    state right before it ran (see storage/db_backup.py for why this is
+    the reliable rollback mechanism given insert_posts() upserts in place).
+    Set ``skip_backup=True`` to skip this (e.g. fast local iteration/tests
+    against a throwaway DB) — real runs should not pass this.
 
     Returns the number of rows upserted.
     """
     settings = settings or load_settings()
+
+    if not skip_backup:
+        backup_path = create_backup(settings)
+        print(f"Backed up posts table to {backup_path} before ingesting.")
+
     joined_records, jsonl_path = load_and_join(processed_file, settings)
 
     # Re-apply embedder.py's exact eligibility filter so records line up
@@ -89,9 +103,18 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Path to a specific .npy embeddings file (defaults to the latest under data/embeddings/).",
     )
+    parser.add_argument(
+        "--skip-backup",
+        action="store_true",
+        help="Skip the pre-ingestion pg_dump backup (default: a backup is always taken first).",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    run_db_ingest(processed_file=args.processed_file, embeddings_file=args.embeddings_file)
+    run_db_ingest(
+        processed_file=args.processed_file,
+        embeddings_file=args.embeddings_file,
+        skip_backup=args.skip_backup,
+    )

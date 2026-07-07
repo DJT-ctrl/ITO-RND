@@ -76,6 +76,33 @@ def test_predictor_prompt_handles_zero_neighbors():
     assert "No comparable historical posts were found" in prompt
 
 
+def test_predictor_prompt_includes_voice_profile_when_present():
+    deps = EvaluationDeps(
+        draft_content="Draft post about a product launch.",
+        voice_profile={
+            "dominant_hook_type": "question",
+            "dominant_tone": "casual",
+            "dominant_writing_style": "story",
+            "avg_word_count": 120.0,
+            "avg_hashtag_count": 3.0,
+            "cta_usage_ratio": 0.8,
+            "sample_size": 7,
+        },
+    )
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "subscriber's own writing style" in prompt
+    assert "question" in prompt
+    assert "casual" in prompt
+
+
+def test_predictor_prompt_omits_voice_section_when_absent():
+    prompt = build_predictor_prompt(EvaluationDeps(draft_content="Draft without a voice profile."))
+
+    assert "subscriber's own writing style" not in prompt
+
+
 def test_predictor_agent_returns_structured_output_with_test_model():
     agent = build_predictor_agent(TestModel())
 
