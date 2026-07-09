@@ -76,6 +76,44 @@ def test_predictor_prompt_handles_zero_neighbors():
     assert "No comparable historical posts were found" in prompt
 
 
+def test_predictor_prompt_omits_audience_adjusted_lines_when_absent():
+    """A neighbor with no follower-normalized data (the default, non-
+    enriched path) must produce a prompt with none of the optional lines —
+    byte-identical behavior to before T6 Point 1 existed."""
+    deps = EvaluationDeps(draft_content="Draft post.", similar_posts=[fake_post("abc")])
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "Author follower count" not in prompt
+    assert "Engagement rate" not in prompt
+    assert "Audience-adjusted percentile" not in prompt
+
+
+def test_predictor_prompt_includes_audience_adjusted_lines_when_present():
+    post = SimilarPost(
+        post_id="abc",
+        content="Strong launch post with a clear hook and direct CTA.",
+        likes=20,
+        comments=4,
+        shares=2,
+        total_engagement=26,
+        engagement_percentile=82.0,
+        engagement_zscore=1.1,
+        cosine_distance=0.04,
+        follower_count=500,
+        engagement_rate=0.052,
+        audience_adjusted_percentile=91.0,
+    )
+    deps = EvaluationDeps(draft_content="Draft post.", similar_posts=[post])
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "Author follower count: 500" in prompt
+    assert "Engagement rate (engagement/follower): 0.0520" in prompt
+    assert "Audience-adjusted percentile" in prompt
+    assert "91.0" in prompt
+
+
 def test_predictor_prompt_includes_voice_profile_when_present():
     deps = EvaluationDeps(
         draft_content="Draft post about a product launch.",

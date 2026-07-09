@@ -28,7 +28,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
 # _gather_similar_posts is the stage-1 coroutine from the orchestrator;
 # imported directly here so we can run each stage separately for T4.2.
-from agents.orchestrator import _fetch_voice_profile, _gather_similar_posts  # noqa: E402
+from agents.orchestrator import _fetch_voice_profile, _gather_discoverability_context, _gather_similar_posts  # noqa: E402
 from agents.predictor import build_predictor_agent  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
@@ -38,6 +38,11 @@ _STRATEGY_LABELS = {
     "Dimension-focused (SEO / Clarity / Tone)": "dimension",
     "Narrative angles (hook / educational / story)": "narrative",
     "Tiered risk (safe / moderate / bold)": "tiered",
+}
+
+_SEO_MODE_LABELS = {
+    "Corpus-grounded (default)": "corpus",
+    "Gemini only (baseline for testing)": "gemini_only",
 }
 
 _DEFAULT_DRAFT = (
@@ -60,6 +65,8 @@ async def _run_concurrent_eval(
     state: PostEvaluationState,
     predictor,
     diagnostics: dict,
+    seo_mode: str = "corpus",
+    discoverability_context=None,
 ) -> None:
     """Stage 2: run Predictor + all Diagnostic agents concurrently.
 
@@ -71,6 +78,8 @@ async def _run_concurrent_eval(
         draft_content=state.draft_content,
         similar_posts=state.similar_posts,
         voice_profile=state.voice_profile,
+        discoverability_context=discoverability_context,
+        seo_mode=seo_mode,
     )
     keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
     coros = [
@@ -136,6 +145,20 @@ with st.sidebar:
         help="Off (default): all 3 variants scored against the original draft's neighbors. "
         "On: each variant fetches its own nearest neighbors — more accurate but slower.",
     )
+    seo_mode_choice = st.selectbox(
+        "Discoverability mode",
+        options=list(_SEO_MODE_LABELS.keys()),
+        help="Corpus-grounded SEO uses your scraped dataset. Gemini only keeps the legacy "
+        "static prompt for side-by-side testing.",
+    )
+    seo_mode = _SEO_MODE_LABELS[seo_mode_choice]
+    use_google_trends = st.checkbox(
+        "Include Google Trends",
+        value=True,
+        disabled=seo_mode == "gemini_only",
+        help="Adds web-wide search momentum for keywords from your draft. Not LinkedIn-specific. "
+        "Disabled in Gemini-only baseline mode.",
+    )
     st.subheader("Personalization")
     user_id = st.text_input(
         "Subscriber user_id (optional)",
@@ -184,7 +207,33 @@ if run_clicked and draft_content.strip():
 
     # Stage 2: concurrent evaluation
     with st.status("Running Predictor + Diagnostics...", expanded=True) as s:
-        asyncio.run(_run_concurrent_eval(state, predictor_agent, diagnostic_agents))
+        async def _stage2() -> None:
+            discoverability_context = None
+            resolved_seo_mode = seo_mode or settings.seo_discoverability_mode
+            if resolved_seo_mode == "corpus":
+                from agents.discoverability_context import resolve_use_google_trends
+
+                resolved_use_trends = resolve_use_google_trends(
+                    resolved_seo_mode,
+                    settings,
+                    use_google_trends=use_google_trends,
+                )
+                discoverability_context, warnings = await _gather_discoverability_context(
+                    state.draft_content,
+                    state.similar_posts,
+                    settings,
+                    use_google_trends=resolved_use_trends,
+                )
+                state.errors.extend(warnings)
+            await _run_concurrent_eval(
+                state,
+                predictor_agent,
+                diagnostic_agents,
+                seo_mode=resolved_seo_mode,
+                discoverability_context=discoverability_context,
+            )
+
+        asyncio.run(_stage2())
         s.update(
             label="Predictor + Diagnostics complete",
             state="complete",

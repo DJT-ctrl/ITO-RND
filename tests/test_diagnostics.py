@@ -10,6 +10,7 @@ from agents.diagnostics import (
     build_diagnostic_agents,
     build_diagnostic_prompt,
     build_seo_agent,
+    build_seo_prompt,
     build_tone_agent,
 )
 from agents.schemas import EvaluationDeps
@@ -64,3 +65,48 @@ def test_each_diagnostic_agent_returns_uniform_structured_output_with_test_model
         assert isinstance(result.output.flaws, list)
         assert isinstance(result.output.advantages, list)
         assert isinstance(result.output.improvements, list)
+
+
+def test_build_seo_prompt_gemini_only_matches_legacy_prompt():
+    deps = EvaluationDeps(
+        draft_content="Draft post about hiring a backend engineer.",
+        seo_mode="gemini_only",
+    )
+    assert build_seo_prompt(deps) == build_diagnostic_prompt("seo", deps)
+
+
+def test_build_seo_prompt_corpus_includes_discoverability_evidence():
+    deps = EvaluationDeps(
+        draft_content="Hiring backend engineers today.",
+        seo_mode="corpus",
+        discoverability_context={
+            "corpus_benchmark_text": "- Corpus size: 50 posts",
+            "deterministic": {
+                "deterministic_score": 7.5,
+                "signals": [{"check": "hashtag_count", "status": "pass", "note": "ok"}],
+            },
+            "neighbor_summary": "Neighbor 1: percentile 90",
+        },
+    )
+    prompt = build_seo_prompt(deps)
+
+    assert "Corpus benchmark snapshot" in prompt
+    assert "Deterministic draft checks" in prompt
+    assert "Nearest historical posts" in prompt
+    assert "Hiring backend engineers today." in prompt
+
+
+def test_build_seo_prompt_corpus_includes_trends_section():
+    deps = EvaluationDeps(
+        draft_content="Hiring backend engineers today.",
+        seo_mode="corpus",
+        discoverability_context={
+            "trends_text": (
+                "External trend signal (Google Trends — web-wide, NOT LinkedIn-specific):\n"
+                "- Disclaimer: web-wide only"
+            ),
+        },
+    )
+    prompt = build_seo_prompt(deps)
+
+    assert "NOT LinkedIn-specific" in prompt

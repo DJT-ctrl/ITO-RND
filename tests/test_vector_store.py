@@ -255,6 +255,28 @@ _SIMILAR_COLUMNS_WITH_DISTANCE = [
 ]
 
 
+def test_find_similar_selects_optional_audience_adjusted_columns():
+    """T6 Point 1: the real SELECT clause must include the optional
+    follower-normalization columns so find_similar() rows can carry them
+    through to api/schemas.py::SimilarPost."""
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _SIMILAR_COLUMNS_WITH_DISTANCE)
+    cursor.fetchall.return_value = []
+
+    query_vector = np.zeros(3072, dtype=np.float32)
+    find_similar(conn, query_vector, limit=10)
+
+    executed_sql = cursor.execute.call_args[0][0]
+    assert "follower_count" in executed_sql
+    assert "engagement_rate" in executed_sql
+    assert "audience_adjusted_percentile" in executed_sql
+    assert "hashtag_count" in executed_sql
+    assert "word_count" in executed_sql
+    assert "topic" in executed_sql
+    assert "hook_type" in executed_sql
+
+
 def test_find_similar_scopes_by_user_id():
     conn = make_mock_conn()
     cursor = conn.cursor.return_value.__enter__.return_value
@@ -356,3 +378,18 @@ def test_get_user_voice_profile_aggregates_correctly():
     assert result["avg_hashtag_count"] == 2.0
     assert result["cta_usage_ratio"] == round(2 / 3, 2)
     assert result["sample_size"] == 3
+
+
+def test_get_user_voice_profile_orders_by_audience_adjusted_rank_when_available():
+    """T6 Point 1: ranking a subscriber's 'top' posts must prefer the
+    follower-normalized rank, falling back to raw engagement_percentile
+    only for posts that never went through profile enrichment."""
+    conn = make_mock_conn()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    make_row_columns(cursor, _VOICE_PROFILE_COLUMNS)
+    cursor.fetchall.return_value = []
+
+    get_user_voice_profile(conn, "user-1", min_posts=1)
+
+    executed_sql = cursor.execute.call_args[0][0]
+    assert "COALESCE(audience_adjusted_percentile, engagement_percentile)" in executed_sql

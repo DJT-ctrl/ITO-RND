@@ -22,11 +22,12 @@ the log transform keeps the benchmark meaningful across the whole range.
 What's deliberately NOT here
 -------------------------------
 Follower-normalized ``engagement_rate`` (engagement / author follower count)
-is a better long-term benchmark, but it needs each post paired with a
-profile scrape — the current raw dataset doesn't have that pairing yet.
-``processors/schemas.py`` reserves a nullable field for it so adding it
-later doesn't break the schema. See /memories/session/plan.md for the
-decision to defer this.
+is computed in Stage 1 (processors/post_analyser.py) instead, since it's a
+per-post ratio, not a batch comparison. The batch-level analogue lives here
+as ``add_audience_adjusted_benchmark`` below — it's a SEPARATE, ADDITIVE
+function (not folded into ``add_engagement_benchmark``) so the default
+pipeline path (no ``--with-profile-enrichment``) never has to think about
+follower counts at all.
 """
 
 import math
@@ -47,21 +48,78 @@ def add_engagement_benchmark(records: list[dict[str, Any]]) -> list[dict[str, An
         return []
 
     log_values = [math.log1p(record["total_engagement"]) for record in records]
-    mean = sum(log_values) / len(log_values)
-    variance = sum((value - mean) ** 2 for value in log_values) / len(log_values)
-    std_dev = math.sqrt(variance)
-    sorted_log_values = sorted(log_values)
+    return _rank_by_score(records, log_values, "engagement_percentile", "engagement_zscore")
 
-    enriched_records = []
-    for record, log_value in zip(records, log_values):
-        enriched_records.append(
-            {
-                **record,
-                "engagement_percentile": _percentile_rank(sorted_log_values, log_value),
-                "engagement_zscore": round((log_value - mean) / std_dev, 4) if std_dev > 0 else 0.0,
-            }
-        )
-    return enriched_records
+
+def add_audience_adjusted_benchmark(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a NEW list of records with audience_adjusted_percentile/_zscore
+    added — an OPTIONAL, follower-normalized companion to
+    ``add_engagement_benchmark``'s raw ranking (see T6_TEAM_PLAN.md Point 1:
+    a creator with 1M followers gets thousands of views regardless of
+    content quality, which skews a pure-engagement benchmark).
+
+    Only meaningful for records with a positive ``follower_count`` (i.e.
+    posts that went through the optional profile-enrichment path — see
+    processors/run_pipeline.py's ``--with-profile-enrichment``). Records
+    missing/invalid ``follower_count`` get ``None`` for both fields rather
+    than being dropped, so a partially-enriched batch (some authors scraped,
+    some not — see processors/profile_sources.py) still ranks the subset
+    that CAN be ranked, instead of failing the whole batch.
+
+    The ranked score is ``log1p(total_engagement) - log1p(follower_count)``
+    (both log-transformed for the same heavy-tail reason as the raw
+    benchmark) — NOT the plain ``engagement_rate`` ratio Stage 1 stores,
+    which is kept as the simple, human-readable display metric instead.
+
+    Does not mutate the input. Empty input returns an empty list.
+    """
+    if not records:
+        return []
+
+    valid_indices = [
+        i for i, r in enumerate(records) if (r.get("follower_count") or 0) > 0
+    ]
+    if not valid_indices:
+        return [{**r, "audience_adjusted_percentile": None, "audience_adjusted_zscore": None} for r in records]
+
+    valid_records = [records[i] for i in valid_indices]
+    scores = [
+        math.log1p(r["total_engagement"]) - math.log1p(r["follower_count"]) for r in valid_records
+    ]
+    ranked_valid = _rank_by_score(
+        valid_records, scores, "audience_adjusted_percentile", "audience_adjusted_zscore"
+    )
+
+    ranked_by_index = dict(zip(valid_indices, ranked_valid))
+    return [
+        ranked_by_index[i] if i in ranked_by_index else {**r, "audience_adjusted_percentile": None, "audience_adjusted_zscore": None}
+        for i, r in enumerate(records)
+    ]
+
+
+def _rank_by_score(
+    records: list[dict[str, Any]],
+    scores: list[float],
+    percentile_key: str,
+    zscore_key: str,
+) -> list[dict[str, Any]]:
+    """Shared percentile/z-score computation used by both benchmark
+    functions above — same heavy-tailed-safe math, different output keys.
+    """
+    mean = sum(scores) / len(scores)
+    variance = sum((value - mean) ** 2 for value in scores) / len(scores)
+    std_dev = math.sqrt(variance)
+    sorted_scores = sorted(scores)
+
+    return [
+        {
+            **record,
+            percentile_key: _percentile_rank(sorted_scores, score),
+            zscore_key: round((score - mean) / std_dev, 4) if std_dev > 0 else 0.0,
+        }
+        for record, score in zip(records, scores)
+    ]
+
 
 
 def _percentile_rank(sorted_values: list[float], value: float) -> float:

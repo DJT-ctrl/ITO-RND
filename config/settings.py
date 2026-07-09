@@ -31,6 +31,13 @@ class Settings:
     # psycopg.connect() accepts directly. Empty by default so anything not
     # touching the database still runs without a .env change.
     database_url: str = ""
+    # Tier 1 discoverability: corpus-grounded SEO (default) or gemini_only baseline.
+    seo_discoverability_mode: str = "corpus"
+    corpus_benchmark_ttl_hours: int = 24
+    # Tier 2 discoverability: Google Trends via pytrends (on by default in corpus mode).
+    google_trends_enabled: bool = True
+    google_trends_cache_ttl_hours: int = 12
+    google_trends_geo: str = ""
 
 
 def load_settings() -> Settings:
@@ -44,7 +51,19 @@ def load_settings() -> Settings:
         raw_data_dir=os.getenv("RAW_DATA_DIR", "data/raw"),
         default_search_limit=int(os.getenv("DEFAULT_SEARCH_LIMIT", "20")),
         database_url=os.getenv("DATABASE_URL", ""),
+        seo_discoverability_mode=os.getenv("SEO_DISCOVERABILITY_MODE", "corpus"),
+        corpus_benchmark_ttl_hours=int(os.getenv("CORPUS_BENCHMARK_TTL_HOURS", "24")),
+        google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=True),
+        google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
+        google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
     )
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

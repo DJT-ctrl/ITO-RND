@@ -19,10 +19,21 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 from agents.orchestrator import run_evaluation_cycle
 from agents.schemas import EvaluationDeps
 from config.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def _stub_discoverability_gather(monkeypatch):
+    """Avoid DB/cache access in orchestrator tests unless explicitly overridden."""
+
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+        return None, []
+
+    monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
 
 
 def fake_row(post_id: str = "1") -> dict:
@@ -149,6 +160,60 @@ def test_no_state_leaks_between_separate_calls():
     assert "b_check" not in state_a.diagnostics
     assert "a_check" not in state_b.diagnostics
     assert state_a.errors == [] and state_b.errors == []
+
+
+def test_seo_mode_gemini_only_skips_discoverability_gather():
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"seo": _SleepyAgent({"seo_score": 5}, sleep_s=0.01)},
+                seo_mode="gemini_only",
+            )
+        )
+
+    assert state.errors == []
+    assert state.diagnostics == {"seo": {"seo_score": 5}}
+
+
+def test_corpus_seo_mode_populates_discoverability_context(monkeypatch, _stub_discoverability_gather):
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+        return (
+            {
+                "corpus_benchmark_text": "- Corpus size: 10 posts",
+                "deterministic": {"deterministic_score": 8.0, "signals": []},
+                "neighbor_summary": "Neighbor 1",
+                "warnings": [],
+            },
+            [],
+        )
+
+    monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
+
+    captured: dict = {}
+
+    class _CapturingSeoAgent:
+        async def run(self, prompt, deps=None):
+            captured["seo_mode"] = deps.seo_mode
+            captured["has_context"] = deps.discoverability_context is not None
+            return SimpleNamespace(output={"seo_score": 6})
+
+    with p1, p2, p3, p4:
+        asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"seo": _CapturingSeoAgent()},
+                seo_mode="corpus",
+            )
+        )
+
+    assert captured["seo_mode"] == "corpus"
+    assert captured["has_context"] is True
 
 
 def test_similar_posts_populated_before_agents_run():

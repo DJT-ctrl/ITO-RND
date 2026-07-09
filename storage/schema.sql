@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS posts (
     engagement_percentile DOUBLE PRECISION NOT NULL CHECK (engagement_percentile BETWEEN 0 AND 100),
     engagement_zscore      DOUBLE PRECISION NOT NULL,
     engagement_rate         DOUBLE PRECISION,
+    -- Optional follower-normalization (T6 Point 1, processors/run_pipeline.py
+    -- --with-profile-enrichment). All nullable: only populated when that
+    -- opt-in path ran AND a given author's follower count was resolved
+    -- (partial coverage is expected, not an error).
+    follower_count          INTEGER CHECK (follower_count >= 0),
+    author_location_text    TEXT,
+    author_timezone         TEXT,
+    audience_adjusted_percentile DOUBLE PRECISION CHECK (audience_adjusted_percentile BETWEEN 0 AND 100),
+    audience_adjusted_zscore      DOUBLE PRECISION,
 
     -- 6. Qualitative tags (Stage 2 - Gemini, optional)
     hook_type           TEXT,
@@ -75,6 +84,11 @@ CREATE TABLE IF NOT EXISTS posts (
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS engagement_anomaly_flag BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS anomaly_reasons TEXT[] NOT NULL DEFAULT '{}';
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS follower_count INTEGER;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_location_text TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_timezone TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_percentile DOUBLE PRECISION;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_zscore DOUBLE PRECISION;
 
 -- Speeds up tenant-scoped retrieval (WHERE user_id = ...) and the voice-
 -- profile aggregation query in storage/vector_store.get_user_voice_profile().

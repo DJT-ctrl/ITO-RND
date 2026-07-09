@@ -1,16 +1,20 @@
-"""LinkedIn profile scraper, backed by the curious_coder/linkedin-profile-scraper
+"""LinkedIn profile scraper, backed by the harvestapi/linkedin-profile-scraper
 Apify actor.
 
 Why this exists: the post-search scraper (linkedin_scraper.py) has no way to
 tell whether a post did well because it's genuinely good content or because
 its author has a huge following. This scraper fetches author-level data
-(follower count, industry, current company, etc.) so engagement can later be
-normalized by audience size instead of producing misleading "patterns".
+(follower count, connections, headline, etc.) for PERSONAL-profile authors
+so engagement can later be normalized by audience size instead of producing
+misleading "patterns". (Business/company authors never need this scraper —
+their follower count is already free in the post-search scrape's
+``author.info`` field; see ``processors/profile_enricher.py``.)
 
-Unlike the post scraper, this actor needs an authenticated LinkedIn session
-(cookies) to load profile pages. Cookies are read from Settings only - never
-hardcoded, logged, or echoed back in error messages - since they're
-effectively a login credential for the LinkedIn account that exported them.
+Unlike some other LinkedIn actors, harvestapi/linkedin-profile-scraper does
+NOT require an authenticated LinkedIn session/cookies - it works from plain
+profile URLs. ``linkedin_cookies`` support is kept here only because
+``Settings`` is shared across actor variants; it's a no-op for this actor
+as long as ``LINKEDIN_COOKIES`` is left unset.
 """
 
 from typing import Any, Optional
@@ -45,6 +49,10 @@ class LinkedInProfileScraper(BaseScraper):
             profileUrls (required): list[str] of LinkedIn profile URLs.
             Any other keys (e.g. proxy config) are passed straight through
             to the actor untouched.
+
+        Only personal-profile URLs should ever be passed in — never
+        business/company page URLs, which don't need a paid scrape at all
+        (see processors/profile_enricher.py::collect_personal_profile_urls).
         """
         profile_urls = params.get("profileUrls", [])
         if not profile_urls:

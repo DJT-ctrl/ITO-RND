@@ -23,6 +23,7 @@ from google import genai
 from google.genai import types as genai_types
 
 from config.settings import Settings
+from processors.post_timing import build_post_timing_fields, infer_timezone_from_location
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -112,7 +113,17 @@ class PostAnalyser:
         shares = int(engagement.get("shares") or 0)
         total = likes + comments + shares
 
-        posted_dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc) if ts else None
+        location_text = post.get("location_text")
+        tz_name = infer_timezone_from_location(location_text) if location_text else None
+        timing = build_post_timing_fields(ts, tz_name)
+
+        follower_count = post.get("follower_count")
+        if follower_count is not None:
+            follower_count = int(follower_count)
+            engagement_rate = round(total / follower_count, 4) if follower_count > 0 else None
+        else:
+            follower_count = None
+            engagement_rate = None
 
         return {
             # ── identity (join keys, not analysis features) ──────────────────
@@ -139,8 +150,13 @@ class PostAnalyser:
             "has_media": len(images) > 0,
             "is_job_post": bool(post.get("job")),
             # ── timing ───────────────────────────────────────────────────────
-            "hour_of_day": posted_dt.hour if posted_dt else None,
-            "day_of_week": posted_dt.strftime("%A") if posted_dt else None,
+            "hour_of_day": timing["hour_of_day"],
+            "day_of_week": timing["day_of_week"],
+            # ── enrichment fields (T6 Point 1) ──────────────────────────────
+            "follower_count": follower_count,
+            "engagement_rate": engagement_rate,
+            "author_location_text": location_text,
+            "author_timezone": timing["author_timezone"],
         }
 
     # ── Stage 2 ───────────────────────────────────────────────────────────────

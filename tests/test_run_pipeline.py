@@ -111,3 +111,73 @@ def test_run_pipeline_raises_when_no_raw_posts_found(tmp_path):
     store = ProcessedStore(base_dir=str(tmp_path / "processed"))
     with pytest.raises(ValueError):
         run_pipeline(with_gemini=False, settings=settings, store=store)
+
+
+def test_run_pipeline_default_path_never_populates_audience_adjusted_fields(tmp_path):
+    """with_profile_enrichment defaults to False: the optional fields must
+    all be None, confirming the old path is completely unaffected."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "linkedin_20260101T000000Z.json").write_text(
+        json.dumps([make_post("1", 10, 2, 1, content="A test post about hiring #jobs")])
+    )
+
+    settings = make_settings(str(raw_dir))
+    store = ProcessedStore(base_dir=str(tmp_path / "processed"))
+    _, jsonl_path = run_pipeline(settings=settings, store=store)
+
+    record = json.loads(jsonl_path.read_text().splitlines()[0])
+    assert record["follower_count"] is None
+    assert record["audience_adjusted_percentile"] is None
+    assert record["audience_adjusted_zscore"] is None
+    assert record["engagement_rate"] is None
+
+
+# ── run_pipeline (with_profile_enrichment=True, T6 Point 1) ─────────────────
+
+def test_run_pipeline_profile_enrichment_raises_clearly_without_a_profile_file(tmp_path):
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "linkedin_20260101T000000Z.json").write_text(json.dumps([make_post("1", 10)]))
+
+    settings = make_settings(str(raw_dir))
+    store = ProcessedStore(base_dir=str(tmp_path / "processed"))
+
+    with pytest.raises(ValueError, match="no profile scrape"):
+        run_pipeline(with_profile_enrichment=True, settings=settings, store=store)
+
+
+def test_run_pipeline_profile_enrichment_allows_partial_author_coverage(tmp_path):
+    """Only user1 has a matching profile record; user2 doesn't. The batch
+    must still succeed, with user1 getting follower-normalized fields and
+    user2 simply falling back to None (not an error)."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    (raw_dir / "linkedin_20260101T000000Z.json").write_text(
+        json.dumps(
+            [
+                make_post("1", 10, 2, 1, content="A test post about hiring #jobs"),
+                make_post("2", 100, 20, 5, content="A different test post about engineering #tech"),
+            ]
+        )
+    )
+    (raw_dir / "linkedin_profiles_20260101T000000Z.json").write_text(
+        json.dumps([{"publicIdentifier": "user1", "followerCount": 1000}])
+    )
+
+    settings = make_settings(str(raw_dir))
+    store = ProcessedStore(base_dir=str(tmp_path / "processed"))
+
+    _, jsonl_path = run_pipeline(with_profile_enrichment=True, settings=settings, store=store)
+    records = [json.loads(line) for line in jsonl_path.read_text().splitlines()]
+    by_id = {r["post_id"]: r for r in records}
+
+    assert by_id["1"]["follower_count"] == 1000
+    assert by_id["1"]["engagement_rate"] is not None
+    assert by_id["1"]["audience_adjusted_percentile"] is not None
+
+    assert by_id["2"]["follower_count"] is None
+    assert by_id["2"]["audience_adjusted_percentile"] is None
+
+    for record in records:
+        NormalizedPost.model_validate(record)

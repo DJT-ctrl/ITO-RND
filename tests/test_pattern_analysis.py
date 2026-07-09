@@ -63,6 +63,34 @@ def test_group_by_tag_raises_on_empty_input():
         group_engagement_by_tag([])
 
 
+# ── dynamic target: prefers audience_adjusted_zscore when present ──────────
+
+def test_group_by_tag_prefers_audience_adjusted_zscore_when_present():
+    """When the optional profile-enrichment path populated
+    audience_adjusted_zscore for at least one row, ranking must use it
+    instead of the raw engagement_zscore — even if the two disagree."""
+    records = [
+        # Raw engagement favors "announcement", but audience-adjusted
+        # (reach-normalized) favors "question" — the analysis must follow
+        # the adjusted score once it's available.
+        _record(hook_type="question", engagement_zscore=-0.5, audience_adjusted_zscore=2.0),
+        _record(hook_type="question", engagement_zscore=-0.3, audience_adjusted_zscore=1.8),
+        _record(hook_type="announcement", engagement_zscore=2.0, audience_adjusted_zscore=-0.5),
+        _record(hook_type="announcement", engagement_zscore=1.8, audience_adjusted_zscore=-0.3),
+    ]
+    results = group_engagement_by_tag(records)
+    assert results["hook_type"].index[0] == "question"
+
+
+def test_group_by_tag_falls_back_to_engagement_zscore_when_adjusted_all_null():
+    records = [
+        _record(hook_type="question", engagement_zscore=2.0, audience_adjusted_zscore=None),
+        _record(hook_type="announcement", engagement_zscore=-0.5, audience_adjusted_zscore=None),
+    ]
+    results = group_engagement_by_tag(records)
+    assert results["hook_type"].index[0] == "question"
+
+
 # ── correlate_numeric_features ─────────────────────────────────────────────────
 
 def test_correlate_numeric_features_finds_strong_positive_correlation():

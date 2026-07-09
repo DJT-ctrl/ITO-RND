@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from agents.discoverability import format_discoverability_context_section
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 
 DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
@@ -83,8 +84,23 @@ Be direct and practical. Do not invent metrics outside this schema.
 """.strip()
 
 
+def build_seo_prompt(deps: EvaluationDeps) -> str:
+    """Build the SEO worker prompt — corpus-grounded or legacy baseline."""
+    if deps.seo_mode == "gemini_only":
+        return build_diagnostic_prompt("seo", deps)
+
+    base = build_diagnostic_prompt("seo", deps)
+    context = deps.discoverability_context or {}
+    section = format_discoverability_context_section(context)
+    if not section:
+        return base
+
+    # Stable corpus block first — helps Gemini implicit prefix caching.
+    return f"{section}\n\n{base}"
+
+
 def build_seo_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, DiagnosticOutput]:
-    return _build_diagnostic_agent("seo", model)
+    return _build_seo_agent(model)
 
 
 def build_clarity_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, DiagnosticOutput]:
@@ -101,6 +117,20 @@ def build_diagnostic_agents(model: Any = DEFAULT_MODEL) -> dict[str, Agent[Evalu
         "clarity": build_clarity_agent(model),
         "tone": build_tone_agent(model),
     }
+
+
+def _build_seo_agent(model: Any) -> Agent[EvaluationDeps, DiagnosticOutput]:
+    agent: Agent[EvaluationDeps, DiagnosticOutput] = Agent(
+        model,
+        deps_type=EvaluationDeps,
+        output_type=DiagnosticOutput,
+    )
+
+    @agent.system_prompt
+    def seo_system_prompt(ctx: RunContext[EvaluationDeps]) -> str:
+        return build_seo_prompt(ctx.deps)
+
+    return agent
 
 
 def _build_diagnostic_agent(name: str, model: Any) -> Agent[EvaluationDeps, DiagnosticOutput]:

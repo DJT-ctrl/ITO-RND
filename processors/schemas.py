@@ -66,18 +66,29 @@ class NormalizedPost(BaseModel):
     is_job_post: bool
 
     # ── 4. Timing (Stage 1) ─────────────────────────────────────────────────
+    # Local time when the optional profile-enrichment path resolved the
+    # author's timezone (processors/post_timing.py); UTC otherwise — the
+    # default (non-enriched) pipeline path always gets UTC, same as before
+    # this feature existed.
     hour_of_day: Optional[int] = Field(default=None, ge=0, le=23)
     day_of_week: Optional[str] = None
 
     # ── 5. Engagement benchmark (batch step, processors/benchmark.py) ──────
     # Percentile/z-score are always populated by the batch pipeline.
-    # engagement_rate (author-follower-normalized) is intentionally nullable:
-    # it requires pairing each post with a profile scrape, which isn't wired
-    # up yet (deferred per plan — see /memories/session/plan.md). Reserving
-    # the field now means adding it later isn't a breaking schema change.
+    # engagement_rate/follower_count/audience_adjusted_* are all reserved
+    # for the OPTIONAL profile-enrichment path (run_pipeline.py's
+    # --with-profile-enrichment) — None whenever that flag wasn't used, or
+    # a particular author's follower count wasn't resolved (partial
+    # coverage is expected, not an error — see processors/benchmark.py's
+    # add_audience_adjusted_benchmark).
     engagement_percentile: float = Field(ge=0, le=100)
     engagement_zscore: float
     engagement_rate: Optional[float] = None
+    follower_count: Optional[int] = Field(default=None, ge=0)
+    author_location_text: Optional[str] = None
+    author_timezone: Optional[str] = None
+    audience_adjusted_percentile: Optional[float] = Field(default=None, ge=0, le=100)
+    audience_adjusted_zscore: Optional[float] = None
 
     # ── 6. Qualitative tags (Stage 2 — Gemini, optional) ────────────────────
     # None whenever the batch was run with --with-gemini omitted, or Gemini

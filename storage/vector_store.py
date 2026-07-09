@@ -62,6 +62,11 @@ _COLUMNS = [
     "engagement_percentile",
     "engagement_zscore",
     "engagement_rate",
+    "follower_count",
+    "author_location_text",
+    "author_timezone",
+    "audience_adjusted_percentile",
+    "audience_adjusted_zscore",
     "hook_type",
     "tone",
     "topic",
@@ -159,7 +164,11 @@ def insert_posts(
 
 
 # Columns returned by find_similar(), in SELECT order (excluding the
-# computed cosine_distance, added separately below).
+# computed cosine_distance, added separately below). follower_count/
+# engagement_rate/audience_adjusted_percentile are the optional T6 Point 1
+# follower-normalization fields (processors/run_pipeline.py's
+# --with-profile-enrichment) — NULL for any post that path never touched,
+# so callers (e.g. agents/predictor.py) must treat them as optional.
 _SIMILAR_COLUMNS = [
     "post_id",
     "content",
@@ -169,6 +178,33 @@ _SIMILAR_COLUMNS = [
     "total_engagement",
     "engagement_percentile",
     "engagement_zscore",
+    "follower_count",
+    "engagement_rate",
+    "audience_adjusted_percentile",
+    "hashtag_count",
+    "word_count",
+    "topic",
+    "hook_type",
+]
+
+# Feature columns for Tier 1 corpus benchmarks — no embeddings.
+_ANALYSIS_COLUMNS = [
+    "word_count",
+    "char_count",
+    "hashtag_count",
+    "emoji_count",
+    "hour_of_day",
+    "has_media",
+    "is_job_post",
+    "has_explicit_cta",
+    "hook_type",
+    "tone",
+    "topic",
+    "day_of_week",
+    "engagement_percentile",
+    "engagement_zscore",
+    "audience_adjusted_percentile",
+    "audience_adjusted_zscore",
 ]
 
 
@@ -233,6 +269,25 @@ def _find_similar_query(
     return [dict(zip(columns, row)) for row in rows]
 
 
+def fetch_posts_for_analysis(
+    conn: psycopg.Connection,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Return feature columns for corpus benchmark analysis (no embeddings)."""
+    select_clause = ", ".join(_ANALYSIS_COLUMNS)
+    sql = (
+        f"SELECT {select_clause} FROM posts "
+        f"WHERE engagement_anomaly_flag = FALSE "
+        f"ORDER BY engagement_percentile DESC "
+        f"LIMIT %s"
+    )
+    with conn.cursor() as cur:
+        cur.execute(sql, (limit,))
+        columns = [col.name for col in cur.description]
+        rows = cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
+
+
 # Columns aggregated by get_user_voice_profile() — all already populated by
 # Stage 2 Gemini tagging (processors/run_pipeline.py --with-gemini) and
 # Stage 1 content-shape features, so the voice profile costs zero extra
@@ -257,11 +312,13 @@ def get_user_voice_profile(
     top-performing posts (personalization — dynamic style-profile
     prompting).
 
-    Looks at that user's `top_n` posts by `engagement_percentile` and
-    summarizes their dominant hook_type/tone/writing_style, average
-    word_count/hashtag_count, and how often they use an explicit CTA.
-    Purely an aggregation over columns already in the `posts` table (no
-    extra Gemini call) — cheap enough to run on every personalized request.
+    Looks at that user's `top_n` posts by follower-adjusted rank (falling
+    back to raw `engagement_percentile` for posts that never went through
+    the optional profile-enrichment path) and summarizes their dominant
+    hook_type/tone/writing_style, average word_count/hashtag_count, and how
+    often they use an explicit CTA. Purely an aggregation over columns
+    already in the `posts` table (no extra Gemini call) — cheap enough to
+    run on every personalized request.
 
     Returns:
         None if fewer than `min_posts` posts exist for this user (cold
@@ -275,7 +332,7 @@ def get_user_voice_profile(
     sql = (
         f"SELECT {select_clause} FROM posts "
         f"WHERE user_id = %s "
-        f"ORDER BY engagement_percentile DESC "
+        f"ORDER BY COALESCE(audience_adjusted_percentile, engagement_percentile) DESC "
         f"LIMIT %s"
     )
     with conn.cursor() as cur:

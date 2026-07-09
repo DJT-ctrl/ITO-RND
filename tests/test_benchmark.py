@@ -1,6 +1,10 @@
 """Unit tests for the batch engagement benchmark (processors/benchmark.py)."""
 
-from processors.benchmark import add_engagement_benchmark, flag_engagement_anomalies
+from processors.benchmark import (
+    add_audience_adjusted_benchmark,
+    add_engagement_benchmark,
+    flag_engagement_anomalies,
+)
 
 
 def _record(total_engagement: int) -> dict:
@@ -54,6 +58,73 @@ def test_original_fields_are_preserved():
     enriched = add_engagement_benchmark(records)
     assert enriched[0]["post_id"] == "10"
     assert enriched[0]["total_engagement"] == 10
+
+
+# ── add_audience_adjusted_benchmark ─────────────────────────────────────────
+
+def _follower_record(post_id: str, total_engagement: int, follower_count) -> dict:
+    return {"post_id": post_id, "total_engagement": total_engagement, "follower_count": follower_count}
+
+
+def test_audience_adjusted_empty_input_returns_empty_list():
+    assert add_audience_adjusted_benchmark([]) == []
+
+
+def test_audience_adjusted_does_not_mutate_input():
+    records = [_follower_record("1", 100, 1000)]
+    original_copy = [dict(r) for r in records]
+    add_audience_adjusted_benchmark(records)
+    assert records == original_copy
+
+
+def test_audience_adjusted_none_when_no_follower_count_present():
+    """A batch that never went through --with-profile-enrichment (no
+    follower_count key at all) must get None for every row \u2014 the
+    optional path is a pure no-op when unused."""
+    records = [_record(10), _record(50)]
+    enriched = add_audience_adjusted_benchmark(records)
+    for r in enriched:
+        assert r["audience_adjusted_percentile"] is None
+        assert r["audience_adjusted_zscore"] is None
+
+
+def test_audience_adjusted_ranks_smaller_audience_higher_for_same_engagement():
+    # Same total_engagement, but "small" has a much smaller following —
+    # audience-adjusted ranking must favor it over "big".
+    records = [
+        _follower_record("small", 100, 500),
+        _follower_record("big", 100, 500_000),
+    ]
+    enriched = add_audience_adjusted_benchmark(records)
+    by_id = {r["post_id"]: r for r in enriched}
+    assert by_id["small"]["audience_adjusted_percentile"] > by_id["big"]["audience_adjusted_percentile"]
+    assert by_id["small"]["audience_adjusted_zscore"] > by_id["big"]["audience_adjusted_zscore"]
+
+
+def test_audience_adjusted_partial_coverage_ranks_only_valid_subset():
+    """Partial profile-enrichment coverage (some authors matched, some not)
+    must still rank the matched subset, leaving unmatched rows as None
+    rather than failing the whole batch."""
+    records = [
+        _follower_record("has_followers_1", 100, 1000),
+        _follower_record("has_followers_2", 10, 100),
+        _follower_record("no_followers", 500, None),
+    ]
+    enriched = add_audience_adjusted_benchmark(records)
+    by_id = {r["post_id"]: r for r in enriched}
+
+    assert by_id["no_followers"]["audience_adjusted_percentile"] is None
+    assert by_id["no_followers"]["audience_adjusted_zscore"] is None
+    assert by_id["has_followers_1"]["audience_adjusted_percentile"] is not None
+    assert by_id["has_followers_2"]["audience_adjusted_percentile"] is not None
+
+
+def test_audience_adjusted_treats_zero_follower_count_as_missing():
+    records = [_follower_record("zero", 100, 0), _follower_record("valid", 100, 100)]
+    enriched = add_audience_adjusted_benchmark(records)
+    by_id = {r["post_id"]: r for r in enriched}
+    assert by_id["zero"]["audience_adjusted_percentile"] is None
+    assert by_id["valid"]["audience_adjusted_percentile"] is not None
 
 
 # ── flag_engagement_anomalies ───────────────────────────────────────────────

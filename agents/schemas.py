@@ -23,11 +23,13 @@ PydanticAI's `deps_type` expects.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from api.schemas import SimilarPost
+
+SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
 
 
 @dataclass
@@ -41,6 +43,10 @@ class EvaluationDeps:
     # user_id or not enough data (cold start) — agents fall back to their
     # generic, non-personalized system prompt in that case.
     voice_profile: Optional[dict] = None
+    # Tier 1 discoverability (T6 Point 2): pre-computed corpus evidence for
+    # the SEO worker. None when seo_mode is gemini_only.
+    discoverability_context: Optional[dict[str, Any]] = None
+    seo_mode: SeoDiscoverabilityMode = "corpus"
 
 
 class PostEvaluationState(BaseModel):

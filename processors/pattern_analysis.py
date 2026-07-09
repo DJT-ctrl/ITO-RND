@@ -40,13 +40,28 @@ _NUMERIC_FEATURES = (
     "is_job_post",
     "has_explicit_cta",
 )
-_TARGET = "engagement_zscore"
 
 
 def _to_frame(records: list[dict[str, Any]]) -> pd.DataFrame:
     if not records:
         raise ValueError("records list is empty — nothing to analyse.")
     return pd.DataFrame.from_records(records)
+
+
+def _resolve_target(df: pd.DataFrame) -> str:
+    """Pick which score every analysis below ranks against.
+
+    Prefers ``audience_adjusted_zscore`` (follower-normalized — see
+    processors/benchmark.py::add_audience_adjusted_benchmark) whenever the
+    optional profile-enrichment path populated it for at least one row;
+    otherwise falls back to the always-present raw ``engagement_zscore``.
+    This means every function below auto-upgrades to reach-adjusted
+    ranking the moment enrichment data exists — no caller-side changes
+    needed, and non-enriched datasets behave exactly as before.
+    """
+    if "audience_adjusted_zscore" in df.columns and df["audience_adjusted_zscore"].notna().any():
+        return "audience_adjusted_zscore"
+    return "engagement_zscore"
 
 
 def group_engagement_by_tag(records: list[dict[str, Any]]) -> dict[str, pd.DataFrame]:
@@ -58,13 +73,14 @@ def group_engagement_by_tag(records: list[dict[str, Any]]) -> dict[str, pd.DataF
     available legitimately varies run to run.
     """
     df = _to_frame(records)
+    target = _resolve_target(df)
     results: dict[str, pd.DataFrame] = {}
     for tag in _CATEGORICAL_TAGS:
         if tag not in df.columns or df[tag].isna().all():
             continue
         grouped = (
             df.dropna(subset=[tag])
-            .groupby(tag)[_TARGET]
+            .groupby(tag)[target]
             .agg(["mean", "median", "count"])
             .sort_values("mean", ascending=False)
         )
@@ -80,11 +96,12 @@ def correlate_numeric_features(records: list[dict[str, Any]]) -> pd.Series:
     coerced to 0/1 so point-biserial correlation falls out for free.
     """
     df = _to_frame(records)
+    target = _resolve_target(df)
     available = [f for f in _NUMERIC_FEATURES if f in df.columns]
     if not available:
         raise ValueError("None of the expected numeric features are present in records.")
-    numeric_df = df[[*available, _TARGET]].apply(pd.to_numeric, errors="coerce")
-    return numeric_df.corr(numeric_only=True)[_TARGET].drop(_TARGET).sort_values(ascending=False)
+    numeric_df = df[[*available, target]].apply(pd.to_numeric, errors="coerce")
+    return numeric_df.corr(numeric_only=True)[target].drop(target).sort_values(ascending=False)
 
 
 def feature_importance(records: list[dict[str, Any]], min_rows: int = 50) -> pd.Series:
@@ -107,10 +124,11 @@ def feature_importance(records: list[dict[str, Any]], min_rows: int = 50) -> pd.
     # function, so a missing/broken install doesn't break the rest of the module.
     from sklearn.ensemble import GradientBoostingRegressor
 
+    target = _resolve_target(df)
     available = [f for f in _NUMERIC_FEATURES if f in df.columns]
     features = df[available].apply(pd.to_numeric, errors="coerce").fillna(0)
-    target = pd.to_numeric(df[_TARGET], errors="coerce").fillna(0)
+    target_values = pd.to_numeric(df[target], errors="coerce").fillna(0)
 
     model = GradientBoostingRegressor(random_state=0)
-    model.fit(features, target)
+    model.fit(features, target_values)
     return pd.Series(model.feature_importances_, index=available).sort_values(ascending=False)

@@ -87,6 +87,8 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
             finalize=variant_hook,
             user_id=request.user_id,
             use_voice_profile=request.use_voice_profile,
+            seo_mode=request.seo_mode,
+            use_google_trends=request.use_google_trends,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -33,6 +33,19 @@ class SimilarPost(BaseModel):
     engagement_percentile: float
     engagement_zscore: float
     cosine_distance: float
+    # Optional follower-normalization (T6 Point 1). Populated only for posts
+    # that went through processors/run_pipeline.py's
+    # --with-profile-enrichment path AND had a resolvable follower count —
+    # None otherwise, so this is a pure additive field: existing callers
+    # that never used profile enrichment see no behavior change.
+    follower_count: Optional[int] = None
+    engagement_rate: Optional[float] = None
+    audience_adjusted_percentile: Optional[float] = None
+    # Optional discoverability metadata for Tier 1 SEO neighbor summaries.
+    hashtag_count: Optional[int] = None
+    word_count: Optional[int] = None
+    topic: Optional[str] = None
+    hook_type: Optional[str] = None
 
 
 class SimilarPostsResponse(BaseModel):
@@ -75,5 +88,20 @@ class EvaluateRequest(BaseModel):
             "Whether to derive and apply the subscriber's voice profile when user_id is given. "
             "Has no effect if user_id is not set. Set to false to scope retrieval to the "
             "subscriber without personalizing the agent prompts."
+        ),
+    )
+    seo_mode: Optional[Literal["corpus", "gemini_only"]] = Field(
+        default=None,
+        description=(
+            "SEO/discoverability diagnostic mode. 'corpus' (default) grounds the SEO "
+            "worker in your scraped dataset; 'gemini_only' uses the legacy static prompt "
+            "for A/B testing."
+        ),
+    )
+    use_google_trends: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). "
+            "Defaults to settings.google_trends_enabled in corpus mode; always off in gemini_only."
         ),
     )

@@ -42,17 +42,22 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
         neighbor_lines = []
         for index, post in enumerate(deps.similar_posts, start=1):
             content = _compact(post.content, limit=500)
-            neighbor_lines.append(
-                "\n".join(
+            parts = [
+                f"Neighbor {index}:",
+                f"- Total engagement: {post.total_engagement}",
+                f"- Engagement percentile: {post.engagement_percentile:.1f}",
+                f"- Likes/comments/shares: {post.likes}/{post.comments}/{post.shares}",
+            ]
+            if post.follower_count is not None:
+                parts.extend(
                     [
-                        f"Neighbor {index}:",
-                        f"- Total engagement: {post.total_engagement}",
-                        f"- Engagement percentile: {post.engagement_percentile:.1f}",
-                        f"- Likes/comments/shares: {post.likes}/{post.comments}/{post.shares}",
-                        f"- Content: {content}",
+                        f"- Author follower count: {post.follower_count}",
+                        f"- Engagement rate (engagement/follower): {post.engagement_rate:.4f}",
+                        f"- Audience-adjusted percentile: {post.audience_adjusted_percentile:.1f}",
                     ]
                 )
-            )
+            parts.append(f"- Content: {content}")
+            neighbor_lines.append("\n".join(parts))
         neighbor_context = "\n\n".join(neighbor_lines)
 
     voice_section = build_voice_profile_section(deps.voice_profile)

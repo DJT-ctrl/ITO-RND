@@ -40,7 +40,8 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
-from agents.schemas import EvaluationDeps, PostEvaluationState
+from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
+from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
 from config.settings import Settings
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
@@ -108,6 +109,23 @@ async def _fetch_voice_profile(state: PostEvaluationState, settings: Settings, u
     state.voice_profile = await asyncio.to_thread(_fetch)
 
 
+async def _gather_discoverability_context(
+    draft_content: str,
+    similar_posts: list,
+    settings: Settings,
+    *,
+    use_google_trends: bool,
+) -> tuple[Optional[dict], list[str]]:
+    """Pre-compute corpus-grounded evidence for the SEO diagnostic worker."""
+    return await asyncio.to_thread(
+        gather_discoverability_context,
+        draft_content,
+        similar_posts,
+        settings,
+        use_google_trends=use_google_trends,
+    )
+
+
 def _as_dict(output: Any) -> dict:
     """Normalize a PydanticAI agent's `result.output` into a plain dict.
 
@@ -130,6 +148,8 @@ async def run_evaluation_cycle(
     finalize: Optional[FinalizeHook] = None,
     user_id: Optional[str] = None,
     use_voice_profile: bool = True,
+    seo_mode: Optional[SeoDiscoverabilityMode] = None,
+    use_google_trends: Optional[bool] = None,
 ) -> PostEvaluationState:
     """Run one full content-evaluation cycle for `draft_content`.
 
@@ -162,6 +182,13 @@ async def run_evaluation_cycle(
             Default True — this is opt-in only in the sense that it does
             nothing without a `user_id`; no separate flag is needed to
             "turn personalization on" once a user_id is supplied.
+        seo_mode: SEO discoverability mode — ``corpus`` (default) grounds the
+            SEO worker in the scraped dataset; ``gemini_only`` uses the
+            legacy static prompt for A/B testing. Falls back to
+            ``settings.seo_discoverability_mode`` when not given.
+        use_google_trends: Tier 2 Google Trends toggle. None uses
+            ``settings.google_trends_enabled`` (on by default in corpus mode).
+            Always off when ``seo_mode`` is ``gemini_only``.
 
     Returns:
         The populated PostEvaluationState. `predictor_result`, `diagnostics`,
@@ -174,10 +201,31 @@ async def run_evaluation_cycle(
     if user_id is not None and use_voice_profile:
         await _fetch_voice_profile(state, settings, user_id)
 
+    resolved_seo_mode: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
+    if resolved_seo_mode not in ("corpus", "gemini_only"):
+        resolved_seo_mode = "corpus"
+
+    discoverability_context = None
+    if resolved_seo_mode == "corpus":
+        resolved_use_google_trends = resolve_use_google_trends(
+            resolved_seo_mode,
+            settings,
+            use_google_trends=use_google_trends,
+        )
+        discoverability_context, context_warnings = await _gather_discoverability_context(
+            draft_content,
+            state.similar_posts,
+            settings,
+            use_google_trends=resolved_use_google_trends,
+        )
+        state.errors.extend(context_warnings)
+
     deps = EvaluationDeps(
         draft_content=draft_content,
         similar_posts=state.similar_posts,
         voice_profile=state.voice_profile,
+        discoverability_context=discoverability_context,
+        seo_mode=resolved_seo_mode,
     )
 
     keys: list[str] = []

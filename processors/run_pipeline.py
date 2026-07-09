@@ -8,9 +8,20 @@ What it does, in order:
   1. Load every raw post scan in data/raw/linkedin_*.json (profile scans
      are skipped — different record shape, merged in separately).
   2. Remove exact-duplicate content (processors/dedup.py).
-  3. Stage 1 — per-post Python features (free, instant, always run).
+  2b. OPTIONAL (--with-profile-enrichment): merge a saved profile scrape
+      (processors/profile_sources.py + processors/profile_enricher.py) onto
+      every raw post BEFORE Stage 1, so follower count / location feed into
+      Stage 1 features below. Off by default — the pipeline is byte-for-byte
+      identical to before this feature existed unless explicitly requested.
+  3. Stage 1 — per-post Python features (free, instant, always run). When
+     profile enrichment merged in follower/location data, this also emits
+     follower_count / author_location_text / author_timezone /
+     engagement_rate and computes hour_of_day/day_of_week in the author's
+     local time instead of UTC (processors/post_timing.py).
   4. Batch step — engagement benchmark (needs the whole set at once,
-     see processors/benchmark.py for why this can't be per-post).
+     see processors/benchmark.py for why this can't be per-post). With
+     --with-profile-enrichment, an additional audience-adjusted benchmark
+     (follower-normalized) is computed alongside the raw one.
   5. Stage 2 — Gemini qualitative tags (optional, one API call per post,
      only runs with --with-gemini since it costs money).
   6. Flag statistically implausible engagement ratios
@@ -24,8 +35,9 @@ What it does, in order:
      if any exist.
 
 Usage:
-    python -m processors.run_pipeline                # Stage 1 + benchmark only
-    python -m processors.run_pipeline --with-gemini   # + Stage 2 Gemini tags
+    python -m processors.run_pipeline                        # Stage 1 + benchmark only
+    python -m processors.run_pipeline --with-gemini           # + Stage 2 Gemini tags
+    python -m processors.run_pipeline --with-profile-enrichment  # + follower-normalized benchmark + local posting time
 """
 
 import argparse
@@ -35,9 +47,16 @@ from pathlib import Path
 from typing import Optional
 
 from config.settings import Settings, load_settings
-from processors.benchmark import add_engagement_benchmark, flag_engagement_anomalies
+from processors.benchmark import (
+    add_audience_adjusted_benchmark,
+    add_engagement_benchmark,
+    flag_engagement_anomalies,
+)
+from processors.corpus_benchmarks import build_snapshot, save_snapshot
 from processors.dedup import dedupe_posts
 from processors.post_analyser import PostAnalyser
+from processors.profile_enricher import enrich_posts_with_follower_data
+from processors.profile_sources import load_profile_records
 from processors.schemas import NormalizedPost
 from storage.processed_store import ProcessedStore
 
@@ -63,11 +82,24 @@ def run_pipeline(
     with_gemini: bool = False,
     settings: Optional[Settings] = None,
     store: Optional[ProcessedStore] = None,
+    with_profile_enrichment: bool = False,
+    profile_file: Optional[str] = None,
 ) -> tuple[Path, Path]:
     """Run the full T1.2 batch pipeline and return (csv_path, jsonl_path).
 
     ``settings``/``store`` are injectable purely so tests can point the
     pipeline at a temp directory instead of the real data/raw + data/processed.
+
+    ``with_profile_enrichment`` is the OPTIONAL follower-normalization path
+    (T6 Point 1): when True, a saved profile scrape (``profile_file``, or
+    the latest ``linkedin_profiles_*.json`` under ``settings.raw_data_dir``
+    if omitted) is merged onto every raw post BEFORE Stage 1 runs, and an
+    additional audience-adjusted benchmark is computed. Raises ``ValueError``
+    if no profile scrape can be found — partial author coverage within a
+    found scrape is fine (some authors just won't get follower/location
+    data), but running this flag with NO profile data at all is treated as
+    a usage error, not a silent no-op. When False (default), behavior is
+    unchanged from before this feature existed.
     """
     settings = settings or load_settings()
     store = store or ProcessedStore()
@@ -84,11 +116,23 @@ def run_pipeline(
     if num_duplicates_removed:
         print(f"Removed {num_duplicates_removed} exact-duplicate post(s) before analysis.")
 
+    if with_profile_enrichment:
+        profile_records = load_profile_records(profile_file, settings.raw_data_dir)
+        raw_posts = enrich_posts_with_follower_data(raw_posts, profile_records)
+        matched = sum(1 for p in raw_posts if p.get("follower_count"))
+        print(
+            f"Profile enrichment: {matched}/{len(raw_posts)} post(s) matched to a "
+            "follower count (business authors are free; unmatched personal authors "
+            "simply won't get follower-normalized fields)."
+        )
+
     # Stage 1: per-post features, always run — free and instant.
     stage1_records = [analyser.compute_python_features(post) for post in raw_posts]
 
     # Batch step: benchmark needs every post's total_engagement at once.
     records = add_engagement_benchmark(stage1_records)
+    if with_profile_enrichment:
+        records = add_audience_adjusted_benchmark(records)
 
     # Stage 2: optional, costs one Gemini API call per post.
     if with_gemini:
@@ -111,6 +155,12 @@ def run_pipeline(
     csv_path = store.save("linkedin", validated_records)
     jsonl_path = store.save_jsonl("linkedin", validated_records)
 
+    try:
+        snapshot = build_snapshot(validated_records)
+        save_snapshot(snapshot)
+    except ValueError:
+        pass
+
     if flagged_records:
         validated_flagged = [
             NormalizedPost.model_validate(record).model_dump() for record in flagged_records
@@ -131,11 +181,30 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also run Stage 2 (Gemini qualitative tags) — one API call per post.",
     )
+    parser.add_argument(
+        "--with-profile-enrichment",
+        action="store_true",
+        help=(
+            "Merge a saved profile scrape onto raw posts for follower-normalized "
+            "benchmarking + local posting time. Requires a saved "
+            "linkedin_profiles_*.json (see processors/run_profile_enrichment.py or "
+            "dashboard/pages/2_Profile_Scraper.py) — fails clearly if none exists."
+        ),
+    )
+    parser.add_argument(
+        "--profile-file",
+        default=None,
+        help="Path to a specific profile scrape (defaults to the latest under data/raw/).",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    csv_path, jsonl_path = run_pipeline(with_gemini=args.with_gemini)
+    csv_path, jsonl_path = run_pipeline(
+        with_gemini=args.with_gemini,
+        with_profile_enrichment=args.with_profile_enrichment,
+        profile_file=args.profile_file,
+    )
     print(f"Wrote {csv_path}")
     print(f"Wrote {jsonl_path}")

@@ -83,6 +83,55 @@ def test_python_features_join_keys():
     assert features["author_public_id"] == "testuser"
 
 
+# ── Stage 1: optional profile-enrichment fields (T6 Point 1) ─────────────────
+
+def test_python_features_enrichment_fields_are_none_by_default():
+    """A post that never went through --with-profile-enrichment must get
+    None for every follower/location field — this is the "old path
+    unchanged" guarantee."""
+    analyser = PostAnalyser(make_settings())
+    features = analyser.compute_python_features(SAMPLE_POST)
+    assert features["follower_count"] is None
+    assert features["author_location_text"] is None
+    assert features["author_timezone"] is None
+    assert features["engagement_rate"] is None
+
+
+def test_python_features_computes_engagement_rate_when_follower_count_present():
+    post = {**SAMPLE_POST, "follower_count": 500}
+    analyser = PostAnalyser(make_settings())
+    features = analyser.compute_python_features(post)
+    # total_engagement = 125, follower_count = 500
+    assert features["engagement_rate"] == round(125 / 500, 4)
+    assert features["follower_count"] == 500
+
+
+def test_python_features_engagement_rate_none_when_follower_count_zero():
+    post = {**SAMPLE_POST, "follower_count": 0}
+    analyser = PostAnalyser(make_settings())
+    features = analyser.compute_python_features(post)
+    assert features["engagement_rate"] is None
+
+
+def test_python_features_uses_local_time_when_location_resolves():
+    post = {**SAMPLE_POST, "location_text": "Long Beach, California, United States"}
+    analyser = PostAnalyser(make_settings())
+    features = analyser.compute_python_features(post)
+    assert features["author_timezone"] == "America/Los_Angeles"
+    assert features["author_location_text"] == "Long Beach, California, United States"
+    # 2026-07-03T12:19:50.913Z -> 05:19 America/Los_Angeles (PDT, UTC-7)
+    assert features["hour_of_day"] == 5
+    assert features["day_of_week"] == "Friday"
+
+
+def test_python_features_falls_back_to_utc_when_location_unresolvable():
+    post = {**SAMPLE_POST, "location_text": "Somewhere, Nowhereland"}
+    analyser = PostAnalyser(make_settings())
+    features = analyser.compute_python_features(post)
+    assert features["author_timezone"] is None
+    assert features["hour_of_day"] == 12  # UTC, same as the non-enriched path
+
+
 # ── Stage 2 (Gemini features) ─────────────────────────────────────────────────
 
 def test_gemini_features_raises_without_key():

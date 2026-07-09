@@ -9,11 +9,20 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _stub_discoverability_gather(monkeypatch):
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+        return None, []
+
+    monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
 
 
 def fake_row(post_id: str = "1") -> dict:

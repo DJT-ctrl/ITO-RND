@@ -11,10 +11,12 @@ sensible output before we build the correlation layer on top.
 """
 
 import json
+import logging
 import sys
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
@@ -23,7 +25,117 @@ from processors.post_analyser import PostAnalyser  # noqa: E402
 from storage.processed_store import ProcessedStore  # noqa: E402
 
 
-# ── Helpers (defined before any Streamlit calls) ──────────────────────────────
+# ── Floating terminal log handler ─────────────────────────────────────────────
+
+class _SessionLogHandler(logging.Handler):
+    """Forwards log records into st.session_state.terminal_log."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            if "terminal_log" in st.session_state:
+                level = record.levelname  # INFO / ERROR / WARNING
+                msg = self.format(record)
+                st.session_state.terminal_log.append((level, msg))
+        except Exception:  # noqa: BLE001
+            pass
+
+
+_handler = _SessionLogHandler()
+_handler.setFormatter(
+    logging.Formatter("%(asctime)s  %(levelname)-5s  %(message)s", datefmt="%H:%M:%S")
+)
+_pa_logger = logging.getLogger("processors.post_analyser")
+if not any(isinstance(h, _SessionLogHandler) for h in _pa_logger.handlers):
+    _pa_logger.addHandler(_handler)
+    _pa_logger.setLevel(logging.DEBUG)
+
+
+def _render_floating_terminal() -> None:
+    """Inject a fixed-position floating terminal panel at bottom-left."""
+    logs: list[tuple[str, str]] = st.session_state.get("terminal_log", [])
+    lines_html = ""
+    for level, msg in logs[-300:]:
+        css_class = "ok" if level == "INFO" else ("err" if level == "ERROR" else "warn")
+        # escape for HTML
+        safe = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        lines_html += f'<div class="tline {css_class}">{safe}</div>\n'
+    if not lines_html:
+        lines_html = '<div class="tline info">No output yet — run analysis to see logs.</div>'
+
+    st.markdown(
+        f"""
+        <style>
+        #ft-wrap {{
+            position: fixed;
+            bottom: 18px;
+            right: 18px;
+            z-index: 99999;
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }}
+        #ft-toggle {{
+            display: none;
+        }}
+        #ft-btn {{
+            background: #111827;
+            color: #34d399;
+            border: 1px solid #34d399;
+            border-radius: 6px;
+            padding: 5px 14px;
+            font-size: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 0.04em;
+            display: inline-block;
+            user-select: none;
+        }}
+        #ft-btn:hover {{ background: #064e3b; }}
+        #ft-panel {{
+            display: none;
+            background: #0a0f1e;
+            border: 1px solid #34d399;
+            border-radius: 6px;
+            margin-bottom: 6px;
+            width: 620px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 10px 14px;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+        }}
+        #ft-toggle:checked ~ #ft-panel {{
+            display: block;
+        }}
+        #ft-toggle:checked ~ #ft-btn::before {{
+            content: "▾ ";
+        }}
+        #ft-toggle:not(:checked) ~ #ft-btn::before {{
+            content: "▸ ";
+        }}
+        .tline {{
+            color: #9ca3af;
+            font-size: 11px;
+            line-height: 1.55;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }}
+        .tline.ok   {{ color: #34d399; }}
+        .tline.err  {{ color: #f87171; }}
+        .tline.warn {{ color: #fbbf24; }}
+        .tline.info {{ color: #60a5fa; }}
+        </style>
+        <div id="ft-wrap">
+            <input type="checkbox" id="ft-toggle">
+            <div id="ft-panel">
+                {lines_html}
+            </div>
+            <label for="ft-toggle" id="ft-btn">Terminal</label>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def _load_profile_lookup(path: Path) -> dict[str, dict]:
     """Build a publicIdentifier → essential fields map from a profile scan."""
@@ -80,6 +192,8 @@ if "gemini_features" not in st.session_state:
     st.session_state.gemini_features = []
 if "combined_records" not in st.session_state:
     st.session_state.combined_records = []
+if "terminal_log" not in st.session_state:
+    st.session_state.terminal_log = []
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
@@ -87,6 +201,7 @@ with st.sidebar:
     st.header("1. Load a post scan")
     data_dir = Path(settings.raw_data_dir)
     post_scans = sorted(data_dir.glob("linkedin_*.json"), reverse=True) if data_dir.exists() else []
+    post_scans = [f for f in post_scans if "profiles" not in f.name]
 
     posts: list[dict] = []
     if post_scans:
@@ -134,6 +249,7 @@ with st.sidebar:
 status = st.empty()
 
 if run_python or run_full:
+    st.session_state.terminal_log = []  # fresh log each run
     try:
         analyser = PostAnalyser(settings)
         subset = posts[: int(max_posts)]
@@ -163,6 +279,7 @@ if run_python or run_full:
         status.success(f"Done — {len(python_records)} post(s) analysed.")
 
     except Exception as exc:
+        _pa_logger.error("Pipeline exception: %s: %s", type(exc).__name__, exc)
         status.error(f"Analysis failed: {exc}")
 
 # ── Output A: Python features ─────────────────────────────────────────────────
@@ -189,4 +306,8 @@ if st.session_state.combined_records:
     st.subheader("Combined — All Features Merged")
     st.caption(label + ". Saved to data/processed/")
     st.dataframe(_strip_join_keys(st.session_state.combined_records), use_container_width=True)
+
+# ── Floating terminal (always rendered) ──────────────────────────────────────
+
+_render_floating_terminal()
 
