@@ -269,6 +269,14 @@ def _find_similar_query(
     return [dict(zip(columns, row)) for row in rows]
 
 
+def count_posts(conn: psycopg.Connection) -> int:
+    """Return the number of rows in the posts table."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM posts")
+        row = cur.fetchone()
+    return int(row[0]) if row else 0
+
+
 def fetch_posts_for_analysis(
     conn: psycopg.Connection,
     limit: int = 500,

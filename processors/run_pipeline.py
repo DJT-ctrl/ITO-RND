@@ -46,18 +46,16 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from config.paths import utc_artifact_stamp
 from config.settings import Settings, load_settings
-from processors.benchmark import (
-    add_audience_adjusted_benchmark,
-    add_engagement_benchmark,
-    flag_engagement_anomalies,
-)
 from processors.corpus_benchmarks import build_snapshot, save_snapshot
 from processors.dedup import dedupe_posts
+from processors.dedup import dedupe_posts
+from processors.finalize_records import analysed_dataset_label, finalize_analysed_records
 from processors.post_analyser import PostAnalyser
 from processors.profile_enricher import enrich_posts_with_follower_data
 from processors.profile_sources import load_profile_records
-from processors.schemas import NormalizedPost
+from storage.pipeline_registry import register_analysed_bundle
 from storage.processed_store import ProcessedStore
 
 
@@ -109,6 +107,14 @@ def run_pipeline(
     if not raw_posts:
         raise ValueError(f"No raw posts found under {settings.raw_data_dir}/linkedin_*.json")
 
+    source_scan_names = sorted(
+        {
+            Path(path).name
+            for path in glob.glob(f"{settings.raw_data_dir}/linkedin_*.json")
+            if "profiles" not in Path(path).name
+        }
+    )
+
     # Remove exact-duplicate content BEFORE Stage 1/benchmark — both are
     # indexed 1:1 off raw_posts, and duplicate content would otherwise
     # double-count in the engagement benchmark and anomaly-detection stats.
@@ -130,48 +136,43 @@ def run_pipeline(
 
     # Stage 1: per-post features, always run — free and instant.
     stage1_records = [analyser.compute_python_features(post) for post in raw_posts]
-
-    # Batch step: benchmark needs every post's total_engagement at once.
-    records = add_engagement_benchmark(stage1_records)
-    if with_profile_enrichment:
-        records = add_audience_adjusted_benchmark(records)
+    records = list(stage1_records)
 
     # Stage 2: optional, costs one Gemini API call per post.
     if with_gemini:
         for post, record in zip(raw_posts, records):
             record.update(analyser.compute_gemini_features(post, record))
 
-    # Flag statistically implausible engagement ratios (e.g. bot/engagement-
-    # pod pollution). Flagged posts are held OUT of the main dataset and
-    # written to a separate review file instead — see
-    # processors/benchmark.py::flag_engagement_anomalies for the detection
-    # logic and /memories/session/plan.md for why this isn't auto-excluded
-    # silently or auto-included unflagged.
-    records = flag_engagement_anomalies(records)
-    clean_records = [r for r in records if not r["engagement_anomaly_flag"]]
-    flagged_records = [r for r in records if r["engagement_anomaly_flag"]]
+    # Batch benchmark + anomaly flags + schema validation (shared with Step 2 UI).
+    validated_records, flagged_records = finalize_analysed_records(records)
+    save_label = analysed_dataset_label(with_gemini=with_gemini)
+    stamp = utc_artifact_stamp()
 
-    # Fail loudly here rather than writing a malformed row that T1.3 chokes on later.
-    validated_records = [NormalizedPost.model_validate(record).model_dump() for record in clean_records]
+    csv_path = store.save(save_label, validated_records, timestamp=stamp)
+    jsonl_path = store.save_jsonl(save_label, validated_records, timestamp=stamp)
+    flagged_path = None
+    if flagged_records:
+        flagged_path = store.save_jsonl(f"{save_label}_flagged", flagged_records, timestamp=stamp)
+        print(
+            f"Held out {len(flagged_records)} post(s) with anomalous engagement ratios "
+            f"for manual review: {flagged_path}"
+        )
 
-    csv_path = store.save("linkedin", validated_records)
-    jsonl_path = store.save_jsonl("linkedin", validated_records)
+    register_analysed_bundle(
+        bundle_id=stamp,
+        source_scans=source_scan_names,
+        analysed_jsonl=jsonl_path.name,
+        analysed_csv=csv_path.name,
+        flagged_jsonl=flagged_path.name if flagged_path else None,
+        with_gemini=with_gemini,
+        post_count=len(validated_records),
+    )
 
     try:
         snapshot = build_snapshot(validated_records)
         save_snapshot(snapshot)
     except ValueError:
         pass
-
-    if flagged_records:
-        validated_flagged = [
-            NormalizedPost.model_validate(record).model_dump() for record in flagged_records
-        ]
-        flagged_path = store.save_jsonl("linkedin_flagged", validated_flagged)
-        print(
-            f"Held out {len(flagged_records)} post(s) with anomalous engagement ratios "
-            f"for manual review: {flagged_path}"
-        )
 
     return csv_path, jsonl_path
 

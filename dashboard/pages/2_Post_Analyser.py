@@ -22,8 +22,12 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path, utc_artifact_stamp  # noqa: E402
 from config.settings import GEMINI_MODEL, load_settings  # noqa: E402
+from processors.corpus_benchmarks import build_snapshot, save_snapshot  # noqa: E402
+from processors.dedup import dedupe_posts  # noqa: E402
+from processors.finalize_records import analysed_dataset_label, finalize_analysed_records  # noqa: E402
 from processors.post_analyser import PostAnalyser, verify_gemini_api  # noqa: E402
 from processors.profile_sources import load_profile_lookup_from_post_scan  # noqa: E402
+from storage.pipeline_registry import register_analysed_bundle  # noqa: E402
 from storage.processed_store import ProcessedStore  # noqa: E402
 
 
@@ -119,6 +123,10 @@ if "paired_profile_path" not in st.session_state:
     st.session_state.paired_profile_path = None
 if "saved_analysis_paths" not in st.session_state:
     st.session_state.saved_analysis_paths = None
+if "source_scans" not in st.session_state:
+    st.session_state.source_scans = []
+if "source_profiles" not in st.session_state:
+    st.session_state.source_profiles = []
 
 PROCESSED_DIR = resolve_data_path("data/processed")
 
@@ -133,22 +141,38 @@ with st.sidebar:
     posts: list[dict] = []
     profile_lookup: dict[str, dict] = {}
     if post_scans:
-        selected_scan = st.selectbox(
-            "Saved collections", ["-- Select --"] + [f.name for f in post_scans]
+        scan_options = [f.name for f in post_scans]
+        selected_scans = st.multiselect(
+            "Saved collections (select one or more to combine)",
+            scan_options,
+            help="Posts from multiple collections are merged and deduplicated before analysis.",
         )
-        if selected_scan != "-- Select --":
-            scan_path = data_dir / selected_scan
-            posts = json.loads(scan_path.read_text())
-            profile_lookup, paired_path = load_profile_lookup_from_post_scan(
-                scan_path, settings.raw_data_dir
-            )
+        if selected_scans:
+            combined: list[dict] = []
+            merged_profiles: dict[str, dict] = {}
+            paired_names: list[str] = []
+            for scan_name in selected_scans:
+                scan_path = data_dir / scan_name
+                combined.extend(json.loads(scan_path.read_text()))
+                pl, paired_path = load_profile_lookup_from_post_scan(
+                    scan_path, settings.raw_data_dir
+                )
+                merged_profiles.update(pl)
+                if paired_path:
+                    paired_names.append(paired_path.name)
+            posts, dupes_removed = dedupe_posts(combined)
+            profile_lookup = merged_profiles
             st.session_state.profile_lookup = profile_lookup
-            st.session_state.paired_profile_path = str(paired_path) if paired_path else None
-            st.info(f"{len(posts)} post(s) loaded.")
-            if paired_path:
-                st.caption(f"Paired profiles: `{paired_path.name}` ({len(profile_lookup)} authors).")
+            st.session_state.source_scans = selected_scans
+            st.session_state.source_profiles = paired_names
+            st.session_state.paired_profile_path = paired_names[0] if paired_names else None
+            st.info(f"{len(posts)} post(s) loaded from {len(selected_scans)} collection(s).")
+            if dupes_removed:
+                st.caption(f"Removed {dupes_removed} exact duplicate(s) across collections.")
+            if paired_names:
+                st.caption(f"Paired profiles: {', '.join(f'`{n}`' for n in paired_names)}.")
             else:
-                st.caption("No paired profile data for this collection.")
+                st.caption("No paired profile data for these collections.")
     else:
         st.warning("No saved collections. Run Scraper Stage first.")
 
@@ -239,13 +263,42 @@ if run_python or run_full:
             python_records, gemini_records, st.session_state.profile_lookup
         )
 
+        validated_records, flagged_records = finalize_analysed_records(
+            st.session_state.combined_records
+        )
+        st.session_state.combined_records = validated_records
+
         store = ProcessedStore(base_dir=str(PROCESSED_DIR))
         stamp = utc_artifact_stamp()
-        save_label = "linkedin_analysed" if run_full else "linkedin_python"
-        csv_path = store.save(save_label, st.session_state.combined_records, timestamp=stamp)
-        jsonl_path = store.save_jsonl(
-            save_label, st.session_state.combined_records, timestamp=stamp
+        save_label = analysed_dataset_label(with_gemini=run_full)
+        csv_path = store.save(save_label, validated_records, timestamp=stamp)
+        jsonl_path = store.save_jsonl(save_label, validated_records, timestamp=stamp)
+        flagged_path = None
+        if flagged_records:
+            flagged_path = store.save_jsonl(
+                f"{save_label}_flagged", flagged_records, timestamp=stamp
+            )
+            _append_log(
+                "WARNING",
+                f"Held out {len(flagged_records)} post(s) with anomalous engagement "
+                f"for review: {flagged_path.name}",
+            )
+        register_analysed_bundle(
+            bundle_id=stamp,
+            source_scans=st.session_state.get("source_scans", []),
+            source_profiles=st.session_state.get("source_profiles", []),
+            analysed_jsonl=jsonl_path.name,
+            analysed_csv=csv_path.name,
+            flagged_jsonl=flagged_path.name if flagged_path else None,
+            with_gemini=run_full,
+            post_count=len(validated_records),
         )
+        try:
+            snapshot = build_snapshot(validated_records)
+            snapshot_path = save_snapshot(snapshot)
+            _append_log("INFO", f"Corpus benchmarks for Pattern Analysis: {snapshot_path.name}")
+        except ValueError:
+            pass
         st.session_state.saved_analysis_paths = {
             "csv": str(csv_path),
             "jsonl": str(jsonl_path),
@@ -322,7 +375,8 @@ if st.session_state.combined_records:
     if saved:
         st.caption(
             f"{label}. Saved to `data/processed/` as "
-            f"`{Path(saved['csv']).name}` and `{Path(saved['jsonl']).name}`."
+            f"`{Path(saved['csv']).name}` and `{Path(saved['jsonl']).name}` "
+            f"({saved['label']}) — ready for Pattern Analysis and Vectorisation."
         )
     else:
         st.caption(label + ". Saved to data/processed/")

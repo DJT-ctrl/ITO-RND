@@ -31,6 +31,7 @@ from processors.profile_enricher import (
 from scrapers.linkedin_profile_scraper import LinkedInProfileScraper
 from scrapers.linkedin_scraper import LinkedInScraper
 from storage.processed_store import ProcessedStore
+from storage.pipeline_registry import register_scrape_bundle
 from storage.profile_store import (
     get_profile,
     is_profile_stale,
@@ -263,6 +264,14 @@ def run_sample_collection(
         enriched_path = processed_store.save(
             "linkedin_enriched", flattened, timestamp=timestamp
         )
+
+    register_scrape_bundle(
+        bundle_id=timestamp,
+        source_scans=[post_path.name],
+        source_profiles=[profile_path.name] if profile_path else [],
+        enriched_csv=enriched_path.name if enriched_path else None,
+        post_count=len(posts),
+    )
 
     return CollectionResult(
         post_path=post_path,

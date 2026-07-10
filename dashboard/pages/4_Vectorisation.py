@@ -1,22 +1,11 @@
 """Throwaway visual test harness for Step 3 — Vector Embedding Generation (T1.3).
 
-Loads a consolidated dataset produced by ``processors/run_pipeline.py``
-(a data/processed/*.jsonl file), re-joins raw post text, and lets you run a
-*manual, cost-controlled* batch through the real Gemini embedding endpoint
-(processors/embedder.py) — capped by "Max posts to embed" so a test run
-never accidentally embeds the whole dataset.
-
-After a run (or when loading a previously saved .npy file) it surfaces the
-sanity checks you'd actually want before trusting the output:
-  - Shape / dtype (should be (n, 3072), float32)
-  - Vector norms (a broken/empty embedding is usually all-zeros -> norm 0)
-  - NaN check
-  - Cosine similarity matrix across the embedded subset, as an eyeball check
-    that semantically similar posts score higher than unrelated ones.
+Loads one or more analysed pipeline bundles, re-joins raw post text scoped to
+each bundle's source scraper file(s), and runs a *manual, cost-controlled*
+batch through the real Gemini embedding endpoint (processors/embedder.py).
 
 Not the product UI — exists purely to validate T1.3's output before T1.5
-(pgvector insertion) is built on top of it. Mirrors the structure of
-dashboard/pages/2_Post_Analyser.py and dashboard/pages/3_Pattern_Analysis.py.
+(pgvector insertion) is built on top of it.
 """
 
 import sys
@@ -27,9 +16,15 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
+from dashboard.pipeline_ui import (  # noqa: E402
+    analysed_filenames_for_bundles,
+    render_bundle_multiselect,
+)
 from processors.embedder import embed_batch, save_embeddings  # noqa: E402
 from processors.run_embeddings import load_and_join  # noqa: E402
+from storage.pipeline_registry import register_embeddings_bundle  # noqa: E402
 
 _MIN_WORD_COUNT = 10
 
@@ -38,9 +33,9 @@ _MIN_WORD_COUNT = 10
 st.set_page_config(page_title="Vectorisation Test Harness", layout="wide")
 st.title("Step 3: Vectorise Posts — Embedding Generation")
 st.caption(
-    "Throwaway visual tool for the T1.3 embedding step. This calls the real "
-    "Gemini embedding endpoint (gemini-embedding-001, 3072-dim) — each run "
-    "costs a small amount of API credit, so runs are capped manually below."
+    "Throwaway visual tool for the T1.3 embedding step. Select analysed "
+    "pipeline bundle(s) from Step 2 — content is re-joined only from those "
+    "bundles' source scraper files."
 )
 
 settings = load_settings()
@@ -48,23 +43,31 @@ settings = load_settings()
 if "embed_result" not in st.session_state:
     st.session_state.embed_result = None
 
-# ── Sidebar: pick dataset + manual controls ───────────────────────────────────
+# ── Sidebar: pick bundle(s) + manual controls ─────────────────────────────────
 
 with st.sidebar:
-    st.header("1. Load a processed dataset")
-    processed_dir = Path("data/processed")
-    dataset_files = sorted(processed_dir.glob("linkedin_*.jsonl"), reverse=True) if processed_dir.exists() else []
+    st.header("1. Load analysed bundle(s)")
+    selected_bundles = render_bundle_multiselect(
+        label="Pipeline bundles (Stage 1 + 2)",
+        min_stage="analysed",
+        key="vector_bundles",
+        require_gemini=True,
+    )
 
     joined_records: list[dict] = []
-    jsonl_path = None
-    if dataset_files:
-        selected_file = st.selectbox("Saved datasets", ["-- Select --"] + [f.name for f in dataset_files])
-        if selected_file != "-- Select --":
-            jsonl_path = processed_dir / selected_file
-            joined_records, _ = load_and_join(str(jsonl_path), settings)
+    jsonl_names: list[str] = []
+    if selected_bundles:
+        jsonl_names = analysed_filenames_for_bundles(selected_bundles)
+        processed_dir = resolve_data_path("data/processed")
+        try:
+            paths = [str(processed_dir / name) for name in jsonl_names]
+            joined_records, _, source_scans = load_and_join(
+                settings=settings, processed_files=paths
+            )
             st.info(f"{len(joined_records)} post(s) loaded and joined with raw text.")
-    else:
-        st.warning("No processed datasets found. Run `python -m processors.run_pipeline` first.")
+            st.caption(f"Source scraper files: {', '.join(source_scans) or 'all raw (legacy)'}")
+        except ValueError as exc:
+            st.error(str(exc))
 
     eligible = [
         r for r in joined_records
@@ -95,17 +98,25 @@ with st.sidebar:
 
 status = st.empty()
 
-if run_clicked:
+if run_clicked and selected_bundles:
     try:
         subset = eligible[: int(max_posts)]
         status.info(f"Embedding {len(subset)} post(s) via Gemini (gemini-embedding-001, 3072-dim)...")
         vectors, skipped = embed_batch(subset, settings)
         out_path = save_embeddings(vectors, "linkedin")
+        primary_bundle = selected_bundles[0]
+        register_embeddings_bundle(
+            bundle_id=primary_bundle.bundle_id,
+            embeddings_npy=str(out_path),
+            embedding_post_ids=[r["post_id"] for r in subset],
+            source_jsonl=jsonl_names[0],
+        )
         st.session_state.embed_result = {
             "vectors": vectors,
             "skipped": skipped,
             "out_path": out_path,
-            "source_file": str(jsonl_path),
+            "source_files": jsonl_names,
+            "bundle_ids": [b.bundle_id for b in selected_bundles],
             "post_ids": [r["post_id"] for r in subset],
         }
         status.success(f"Done. Embedded {len(vectors)} post(s) \u2192 `{out_path}`")
@@ -125,7 +136,8 @@ if st.session_state.embed_result:
     col2.metric("Dimensions", vectors.shape[1] if vectors.ndim == 2 and vectors.shape[0] else 0)
     col3.metric("Skipped (short/blank)", result["skipped"])
     st.write(f"Saved to `{result['out_path']}`")
-    st.write(f"Source dataset: `{result['source_file']}`")
+    st.write(f"Source bundle(s): `{', '.join(result.get('bundle_ids', []))}`")
+    st.write(f"Source dataset(s): `{', '.join(result.get('source_files', []))}`")
 
     if vectors.shape[0] > 0:
         norms = np.linalg.norm(vectors, axis=1)
@@ -153,9 +165,9 @@ if st.session_state.embed_result:
 
 st.markdown("---")
 st.subheader("Inspect a saved embeddings file")
-st.caption("Loads any data/embeddings/*.npy produced by a previous run (this session or `python -m processors.run_embeddings`).")
+st.caption("Loads any data/embeddings/*.npy produced by a previous run.")
 
-embeddings_dir = Path("data/embeddings")
+embeddings_dir = resolve_data_path("data/embeddings")
 embedding_files = sorted(embeddings_dir.glob("*.npy"), reverse=True) if embeddings_dir.exists() else []
 
 if embedding_files:

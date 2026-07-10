@@ -91,6 +91,8 @@ def test_run_pipeline_writes_csv_and_jsonl_with_valid_records(tmp_path):
 
     assert csv_path.exists()
     assert jsonl_path.exists()
+    assert csv_path.name.startswith("linkedin_python_")
+    assert jsonl_path.name.startswith("linkedin_python_")
 
     lines = jsonl_path.read_text().splitlines()
     assert len(lines) == 2

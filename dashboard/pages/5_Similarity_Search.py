@@ -30,6 +30,7 @@ from pgvector.psycopg import register_vector
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
+from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
 from processors.embedder import embed_query  # noqa: E402
 from storage.vector_store import find_similar, get_connection  # noqa: E402
 
@@ -56,6 +57,8 @@ if not settings.database_url:
     missing_config.append("DATABASE_URL")
 
 with st.sidebar:
+    render_corpus_sidebar(settings)
+    st.markdown("---")
     st.header("Query")
     draft_content = st.text_area(
         "Draft post text",

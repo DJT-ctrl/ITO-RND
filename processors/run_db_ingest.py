@@ -27,6 +27,7 @@ import numpy as np
 from config.settings import Settings, load_settings
 from processors.run_embeddings import load_and_join
 from storage.db_backup import create_backup
+from storage.pipeline_registry import register_ingest_bundle
 from storage.vector_store import create_schema, get_connection, insert_posts
 
 
@@ -61,7 +62,7 @@ def run_db_ingest(
         backup_path = create_backup(settings)
         print(f"Backed up posts table to {backup_path} before ingesting.")
 
-    joined_records, jsonl_path = load_and_join(processed_file, settings)
+    joined_records, jsonl_path, _ = load_and_join(processed_file, settings)
 
     # Re-apply embedder.py's exact eligibility filter so records line up
     # 1:1 with the vectors already saved to the .npy file.
@@ -88,6 +89,13 @@ def run_db_ingest(
         conn.close()
 
     print(f"Upserted {count} posts from {jsonl_path.name} + {npy_path.name} into Postgres")
+
+    from storage.pipeline_registry import bundles_for_analysed_files
+
+    bundles = bundles_for_analysed_files([jsonl_path.name])
+    if bundles:
+        register_ingest_bundle(bundle_id=bundles[0].bundle_id, ingested_count=count)
+
     return count
 
 

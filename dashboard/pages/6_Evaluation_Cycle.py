@@ -33,6 +33,7 @@ from agents.predictor import build_predictor_agent  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
 
 _STRATEGY_LABELS = {
     "Dimension-focused (SEO / Clarity / Tone)": "dimension",
@@ -125,6 +126,8 @@ if not settings.database_url:
     missing_config.append("DATABASE_URL")
 
 with st.sidebar:
+    render_corpus_sidebar(settings)
+    st.markdown("---")
     st.header("Draft Post")
     draft_content = st.text_area(
         "Post content",

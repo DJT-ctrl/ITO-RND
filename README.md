@@ -94,3 +94,4 @@ Everything is modular:
 - Post and profile raw files stay separate (`linkedin_*.json` vs `linkedin_profiles_*.json`) but share a timestamp when created together
 - Profile-only backfill for legacy scans: `python -m processors.run_profile_enrichment`
 - Config in .env, never hardcoded
+- For a detailed explanation of the data pipeline stages, state transitions, bundle registry, and lineage design decisions, see [PIPELINE_ARCHITECTURE.md](file:///Users/kevin/ITO%20Testing%20Visual%20Mock/PIPELINE_ARCHITECTURE.md).
