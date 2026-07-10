@@ -25,12 +25,11 @@ Classifying every author up front means the paid profile scraper is only
 ever called for the authors that actually need it — never wasted on
 business pages whose follower count we already have for free.
 
-This module is deliberately standalone: it does NOT touch
-``processors/schemas.py`` (``NormalizedPost``), ``storage/schema.sql``, or
-``processors/benchmark.py``'s ``engagement_rate``. It only produces an
-enriched CSV artifact (see ``processors/run_profile_enrichment.py``). Wiring
-follower-normalized engagement into the main pipeline/DB is future
-T6.2/T6.3 work.
+This module classifies authors and merges follower counts onto raw posts.
+Follower-normalized engagement is computed downstream by
+``processors/run_pipeline.py`` (``--with-profile-enrichment``) and
+``processors/benchmark.py`` (``add_audience_adjusted_benchmark``). Profile
+rows are cached in the ``profiles`` table via ``storage/profile_store.py``.
 """
 
 import re

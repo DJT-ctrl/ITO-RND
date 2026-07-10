@@ -54,9 +54,9 @@
 **Suggested T6 line items:**
 | Phase | Task | Description |
 |-------|------|-------------|
-| T6 | T6.1 | Profile scraper integration — backfill follower counts for all existing authors |
-| T6 | T6.2 | DB schema migration — add `follower_count` column, populate `engagement_rate` |
-| T6 | T6.3 | Benchmark normalization — update scoring pipeline to use reach-adjusted engagement |
-| T6 | T6.4 | Grounded SEO agent — enable live search grounding on the SEO Diagnostic Worker |
-| T6 | T6.5 | Predictor prompt update — surface normalized engagement in neighbor context |
-| T6 | T6.6 | Profiles scrape cache — prevent re-scraping the same author across runs |
+| T6 | T6.1 | Profile scraper integration — backfill follower counts for all existing authors | Done — `processors/run_enriched_backfill.py` + `processors/run_profile_enrichment.py` |
+| T6 | T6.2 | DB schema migration — add `follower_count` column, populate `engagement_rate` | Done — `storage/schema.sql` + enriched pipeline path |
+| T6 | T6.3 | Benchmark normalization — update scoring pipeline to use reach-adjusted engagement | Done — `processors/benchmark.py::add_audience_adjusted_benchmark` |
+| T6 | T6.4 | Grounded SEO agent — enable live search grounding on the SEO Diagnostic Worker | In progress — Tier 1 corpus + Tier 2 Google Trends landed |
+| T6 | T6.5 | Predictor prompt update — surface normalized engagement in neighbor context | Done — deterministic `compute_neighbor_prediction` drives score |
+| T6 | T6.6 | Profiles scrape cache — prevent re-scraping the same author across runs | Done — `storage/profile_store.py` + `profiles` table |

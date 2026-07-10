@@ -41,9 +41,12 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
+from agents.predictor import apply_deterministic_prediction
 from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
 from config.settings import Settings
+from processors.benchmark import compute_neighbor_prediction
 from processors.embedder import embed_query
+from storage.profile_store import get_follower_count
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 
 # A PydanticAI agent sharing our EvaluationDeps as read-only context. T3.2's
@@ -107,6 +110,19 @@ async def _fetch_voice_profile(state: PostEvaluationState, settings: Settings, u
             conn.close()
 
     state.voice_profile = await asyncio.to_thread(_fetch)
+
+
+async def _fetch_draft_follower_count(settings: Settings, user_id: str) -> Optional[int]:
+    """Look up the draft author's follower count from the profiles cache."""
+
+    def _fetch() -> Optional[int]:
+        conn = get_connection(settings)
+        try:
+            return get_follower_count(conn, user_id)
+        finally:
+            conn.close()
+
+    return await asyncio.to_thread(_fetch)
 
 
 async def _gather_discoverability_context(
@@ -201,6 +217,15 @@ async def run_evaluation_cycle(
     if user_id is not None and use_voice_profile:
         await _fetch_voice_profile(state, settings, user_id)
 
+    draft_follower_count: Optional[int] = None
+    if user_id is not None:
+        draft_follower_count = await _fetch_draft_follower_count(settings, user_id)
+
+    neighbor_prediction = compute_neighbor_prediction(
+        state.similar_posts,
+        draft_follower_count=draft_follower_count,
+    )
+
     resolved_seo_mode: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
     if resolved_seo_mode not in ("corpus", "gemini_only"):
         resolved_seo_mode = "corpus"
@@ -226,6 +251,8 @@ async def run_evaluation_cycle(
         voice_profile=state.voice_profile,
         discoverability_context=discoverability_context,
         seo_mode=resolved_seo_mode,
+        neighbor_prediction=neighbor_prediction,
+        draft_follower_count=draft_follower_count,
     )
 
     keys: list[str] = []
@@ -247,6 +274,11 @@ async def run_evaluation_cycle(
             continue
         output = _as_dict(result.output)
         if key == "__predictor__":
+            from agents.predictor import PredictorOutput
+
+            if isinstance(result.output, PredictorOutput) and neighbor_prediction:
+                corrected = apply_deterministic_prediction(result.output, neighbor_prediction)
+                output = corrected.model_dump()
             state.predictor_result = output
         else:
             state.diagnostics[key] = output

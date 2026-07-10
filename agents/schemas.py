@@ -47,6 +47,10 @@ class EvaluationDeps:
     # the SEO worker. None when seo_mode is gemini_only.
     discoverability_context: Optional[dict[str, Any]] = None
     seo_mode: SeoDiscoverabilityMode = "corpus"
+    # T6 Point 1: deterministic neighbor-weighted prediction (processors/benchmark.py)
+    # and optional draft-author follower count from the profiles cache.
+    neighbor_prediction: Optional[dict[str, Any]] = None
+    draft_follower_count: Optional[int] = None
 
 
 class PostEvaluationState(BaseModel):

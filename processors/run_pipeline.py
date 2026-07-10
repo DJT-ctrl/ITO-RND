@@ -117,7 +117,9 @@ def run_pipeline(
         print(f"Removed {num_duplicates_removed} exact-duplicate post(s) before analysis.")
 
     if with_profile_enrichment:
-        profile_records = load_profile_records(profile_file, settings.raw_data_dir)
+        profile_records = load_profile_records(
+            profile_file, settings.raw_data_dir, allow_empty=True
+        )
         raw_posts = enrich_posts_with_follower_data(raw_posts, profile_records)
         matched = sum(1 for p in raw_posts if p.get("follower_count"))
         print(

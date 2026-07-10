@@ -1,8 +1,11 @@
 """Unit tests for the batch engagement benchmark (processors/benchmark.py)."""
 
+from types import SimpleNamespace
+
 from processors.benchmark import (
     add_audience_adjusted_benchmark,
     add_engagement_benchmark,
+    compute_neighbor_prediction,
     flag_engagement_anomalies,
 )
 
@@ -125,6 +128,70 @@ def test_audience_adjusted_treats_zero_follower_count_as_missing():
     by_id = {r["post_id"]: r for r in enriched}
     assert by_id["zero"]["audience_adjusted_percentile"] is None
     assert by_id["valid"]["audience_adjusted_percentile"] is not None
+
+
+# ── compute_neighbor_prediction ──────────────────────────────────────────────
+
+def _neighbor(**kwargs):
+    defaults = {
+        "engagement_percentile": 50.0,
+        "total_engagement": 100,
+        "cosine_distance": 0.05,
+        "audience_adjusted_percentile": None,
+        "engagement_rate": None,
+        "follower_count": None,
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+def test_compute_neighbor_prediction_empty_neighbors():
+    result = compute_neighbor_prediction([])
+    assert result["percentile"] == 50.0
+    assert result["neighbor_count"] == 0
+    assert result["method"] == "raw_fallback"
+
+
+def test_compute_neighbor_prediction_prefers_audience_adjusted_when_majority_have_it():
+    posts = [
+        _neighbor(audience_adjusted_percentile=90.0, engagement_percentile=40.0),
+        _neighbor(audience_adjusted_percentile=80.0, engagement_percentile=30.0),
+        _neighbor(audience_adjusted_percentile=70.0, engagement_percentile=20.0),
+    ]
+    result = compute_neighbor_prediction(posts)
+    assert result["method"] == "audience_adjusted"
+    assert result["coverage"] == 3
+    assert result["percentile"] > 70.0
+
+
+def test_compute_neighbor_prediction_falls_back_to_raw_when_sparse_coverage():
+    posts = [
+        _neighbor(audience_adjusted_percentile=90.0, engagement_percentile=40.0),
+        _neighbor(engagement_percentile=20.0),
+        _neighbor(engagement_percentile=30.0),
+    ]
+    result = compute_neighbor_prediction(posts)
+    assert result["method"] == "raw_fallback"
+    assert result["coverage"] == 1
+
+
+def test_compute_neighbor_prediction_scales_total_engagement_with_draft_followers():
+    posts = [
+        _neighbor(
+            engagement_rate=0.1,
+            follower_count=1000,
+            total_engagement=100,
+            engagement_percentile=50.0,
+        ),
+        _neighbor(
+            engagement_rate=0.2,
+            follower_count=1000,
+            total_engagement=200,
+            engagement_percentile=60.0,
+        ),
+    ]
+    result = compute_neighbor_prediction(posts, draft_follower_count=500)
+    assert result["total_engagement_estimate"] == 75
 
 
 # ── flag_engagement_anomalies ───────────────────────────────────────────────

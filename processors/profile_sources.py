@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 
 def load_profile_records(
-    profile_file: Optional[str], raw_data_dir: str
+    profile_file: Optional[str], raw_data_dir: str, *, allow_empty: bool = False
 ) -> list[dict[str, Any]]:
     """Load a saved profile scrape (list of harvestapi-shaped dicts).
 
@@ -45,6 +45,6 @@ def load_profile_records(
         path = Path(candidates[-1])
 
     records = json.loads(path.read_text())
-    if not records:
+    if not records and not allow_empty:
         raise ValueError(f"Profile file {path} contains no records — nothing to enrich with.")
     return records

@@ -94,6 +94,21 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_zscore DOUBLE PRECI
 -- profile aggregation query in storage/vector_store.get_user_voice_profile().
 CREATE INDEX IF NOT EXISTS posts_user_id_idx ON posts (user_id) WHERE user_id IS NOT NULL;
 
+-- T6.6: profiles scrape cache — one row per author_public_id so profile
+-- scrapes aren't repeated across pipeline runs (see storage/profile_store.py).
+CREATE TABLE IF NOT EXISTS profiles (
+    author_public_id    TEXT PRIMARY KEY,
+    follower_count      INTEGER CHECK (follower_count >= 0),
+    connections_count   INTEGER,
+    headline            TEXT,
+    location_text       TEXT,
+    is_business         BOOLEAN NOT NULL DEFAULT FALSE,
+    linkedin_url        TEXT,
+    scraped_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS profiles_scraped_at_idx ON profiles (scraped_at);
+
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).

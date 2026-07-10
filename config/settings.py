@@ -38,6 +38,8 @@ class Settings:
     google_trends_enabled: bool = True
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
+    # T6.6: re-scrape cached author profiles after this many days.
+    profile_cache_staleness_days: int = 30
 
 
 def load_settings() -> Settings:
@@ -56,6 +58,7 @@ def load_settings() -> Settings:
         google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=True),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
+        profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
     )
 
 

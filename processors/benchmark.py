@@ -31,7 +31,98 @@ follower counts at all.
 """
 
 import math
-from typing import Any
+from typing import Any, Literal, Optional, Protocol, Sequence
+
+
+class _NeighborLike(Protocol):
+    engagement_percentile: float
+    total_engagement: int
+    cosine_distance: float
+    audience_adjusted_percentile: Optional[float]
+    engagement_rate: Optional[float]
+    follower_count: Optional[int]
+
+
+def compute_neighbor_prediction(
+    similar_posts: Sequence[_NeighborLike],
+    *,
+    draft_follower_count: Optional[int] = None,
+) -> dict[str, Any]:
+    """Deterministic reach-normalized prediction from retrieved neighbors.
+
+    Weights each neighbor by inverse cosine distance (closer = more influence).
+    Prefers ``audience_adjusted_percentile`` per neighbor when present; falls
+    back to ``engagement_percentile`` for that neighbor otherwise.
+
+    Returns:
+        percentile — weighted average percentile (0-100)
+        total_engagement_estimate — weighted neighbor average, or rate × draft
+            followers when ``draft_follower_count`` is known
+        method — ``audience_adjusted`` when a majority of neighbors had
+            follower-normalized scores; else ``raw_fallback``
+        coverage — count of neighbors with audience_adjusted_percentile
+        neighbor_count — total neighbors considered
+    """
+    if not similar_posts:
+        return {
+            "percentile": 50.0,
+            "total_engagement_estimate": 0,
+            "method": "raw_fallback",
+            "coverage": 0,
+            "neighbor_count": 0,
+        }
+
+    weights = [1.0 / max(float(post.cosine_distance), 0.001) for post in similar_posts]
+    weight_sum = sum(weights)
+
+    coverage = sum(
+        1 for post in similar_posts if post.audience_adjusted_percentile is not None
+    )
+    method: Literal["audience_adjusted", "raw_fallback"] = (
+        "audience_adjusted" if coverage > len(similar_posts) / 2 else "raw_fallback"
+    )
+
+    weighted_percentile = 0.0
+    for post, weight in zip(similar_posts, weights):
+        percentile = (
+            post.audience_adjusted_percentile
+            if post.audience_adjusted_percentile is not None
+            else post.engagement_percentile
+        )
+        weighted_percentile += percentile * weight
+    weighted_percentile = round(weighted_percentile / weight_sum, 2)
+
+    if draft_follower_count and draft_follower_count > 0:
+        rate_sum = 0.0
+        rate_weight = 0.0
+        for post, weight in zip(similar_posts, weights):
+            if post.engagement_rate is not None and post.follower_count:
+                rate_sum += post.engagement_rate * weight
+                rate_weight += weight
+        if rate_weight > 0:
+            avg_rate = rate_sum / rate_weight
+            total_engagement_estimate = max(0, round(avg_rate * draft_follower_count))
+        else:
+            total_engagement_estimate = _weighted_total_engagement(similar_posts, weights, weight_sum)
+    else:
+        total_engagement_estimate = _weighted_total_engagement(similar_posts, weights, weight_sum)
+
+    return {
+        "percentile": weighted_percentile,
+        "total_engagement_estimate": total_engagement_estimate,
+        "method": method,
+        "coverage": coverage,
+        "neighbor_count": len(similar_posts),
+    }
+
+
+def _weighted_total_engagement(
+    similar_posts: Sequence[_NeighborLike],
+    weights: list[float],
+    weight_sum: float,
+) -> int:
+    total = sum(post.total_engagement * weight for post, weight in zip(similar_posts, weights))
+    return max(0, round(total / weight_sum))
 
 
 def add_engagement_benchmark(records: list[dict[str, Any]]) -> list[dict[str, Any]]:

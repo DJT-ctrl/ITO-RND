@@ -297,7 +297,9 @@ def test_user_id_scopes_neighbor_fetch_and_populates_voice_profile():
     p1, p2, p3, p4 = _patch_neighbor_fetch(rows)
     with p1, p2, p3, p4, patch(
         "agents.orchestrator.get_user_voice_profile", return_value=profile
-    ) as mock_voice:
+    ) as mock_voice, patch(
+        "agents.orchestrator.get_follower_count", return_value=1200
+    ):
         state = asyncio.run(
             run_evaluation_cycle(
                 "draft text",
@@ -326,7 +328,9 @@ def test_no_user_id_never_calls_voice_profile():
 
 def test_use_voice_profile_false_skips_profile_even_with_user_id():
     p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
-    with p1, p2, p3, p4, patch("agents.orchestrator.get_user_voice_profile") as mock_voice:
+    with p1, p2, p3, p4, patch("agents.orchestrator.get_user_voice_profile") as mock_voice, patch(
+        "agents.orchestrator.get_follower_count", return_value=None
+    ):
         state = asyncio.run(
             run_evaluation_cycle(
                 "draft text", fake_settings(), user_id="user-1", use_voice_profile=False

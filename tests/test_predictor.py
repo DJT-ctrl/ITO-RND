@@ -8,7 +8,12 @@ from pydantic_ai.models.test import TestModel
 
 from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
-from agents.predictor import PredictorOutput, build_predictor_agent, build_predictor_prompt
+from agents.predictor import (
+    PredictorOutput,
+    apply_deterministic_prediction,
+    build_predictor_agent,
+    build_predictor_prompt,
+)
 from agents.schemas import EvaluationDeps
 from api.schemas import SimilarPost
 from config.settings import Settings
@@ -104,14 +109,100 @@ def test_predictor_prompt_includes_audience_adjusted_lines_when_present():
         engagement_rate=0.052,
         audience_adjusted_percentile=91.0,
     )
-    deps = EvaluationDeps(draft_content="Draft post.", similar_posts=[post])
+    deps = EvaluationDeps(
+        draft_content="Draft post.",
+        similar_posts=[post],
+        neighbor_prediction={
+            "percentile": 88.5,
+            "total_engagement_estimate": 40,
+            "method": "audience_adjusted",
+            "coverage": 1,
+            "neighbor_count": 1,
+        },
+    )
 
     prompt = build_predictor_prompt(deps)
 
     assert "Author follower count: 500" in prompt
     assert "Engagement rate (engagement/follower): 0.0520" in prompt
-    assert "Audience-adjusted percentile" in prompt
-    assert "91.0" in prompt
+    assert "Audience-adjusted percentile: 91.0" in prompt
+    assert "Deterministic prediction" in prompt
+    assert "audience-adjusted (reach-normalized)" in prompt
+    assert "88.5" in prompt
+
+
+def test_predictor_prompt_prioritizes_audience_adjusted_reasoning_when_method_is_adjusted():
+    post = SimilarPost(
+        post_id="abc",
+        content="Strong launch post.",
+        likes=20,
+        comments=4,
+        shares=2,
+        total_engagement=26,
+        engagement_percentile=82.0,
+        engagement_zscore=1.1,
+        cosine_distance=0.04,
+        audience_adjusted_percentile=91.0,
+        follower_count=500,
+        engagement_rate=0.052,
+    )
+    deps = EvaluationDeps(
+        draft_content="Draft post.",
+        similar_posts=[post],
+        neighbor_prediction={
+            "percentile": 88.5,
+            "total_engagement_estimate": 40,
+            "method": "audience_adjusted",
+            "coverage": 1,
+            "neighbor_count": 1,
+        },
+    )
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "audience-adjusted percentile is plausible" in prompt
+    assert "raw view/like totals" in prompt
+
+
+def test_predictor_prompt_includes_draft_author_follower_context():
+    deps = EvaluationDeps(
+        draft_content="Draft post.",
+        similar_posts=[fake_post("abc")],
+        draft_follower_count=1200,
+        neighbor_prediction={
+            "percentile": 70.0,
+            "total_engagement_estimate": 50,
+            "method": "raw_fallback",
+            "coverage": 0,
+            "neighbor_count": 1,
+        },
+    )
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "Draft author reach context" in prompt
+    assert "1,200 followers" in prompt
+
+
+def test_apply_deterministic_prediction_overrides_llm_numbers():
+    output = PredictorOutput(
+        predicted_engagement_percentile=99.0,
+        predicted_total_engagement=999,
+        reasoning="Because neighbors look strong.",
+    )
+    corrected = apply_deterministic_prediction(
+        output,
+        {
+            "percentile": 72.5,
+            "total_engagement_estimate": 48,
+            "method": "audience_adjusted",
+            "coverage": 2,
+            "neighbor_count": 2,
+        },
+    )
+    assert corrected.predicted_engagement_percentile == 72.5
+    assert corrected.predicted_total_engagement == 48
+    assert corrected.reasoning == "Because neighbors look strong."
 
 
 def test_predictor_prompt_includes_voice_profile_when_present():

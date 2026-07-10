@@ -7,11 +7,9 @@ actor (business authors' follower counts come free from data already
 scraped — no wasted credits), merges everything together, and saves ONE
 enriched CSV with a row per post.
 
-Deliberately standalone (per T6 Point 1 planning decision): this does NOT
-touch NormalizedPost/processors/schemas.py, storage/schema.sql, or
-processors/benchmark.py's engagement_rate. It only produces a merged CSV
-artifact. Wiring follower-normalized engagement into the main pipeline/DB
-is future T6.2/T6.3 work.
+When DATABASE_URL is set, fresh follower counts are also upserted into the
+``profiles`` scrape cache (storage/profile_store.py). For the full enriched
+T1.2 + optional DB ingest path, use processors/run_enriched_backfill.py.
 
 Usage:
     python -m processors.run_profile_enrichment
@@ -33,6 +31,8 @@ from processors.profile_enricher import (
 )
 from scrapers.linkedin_profile_scraper import LinkedInProfileScraper
 from storage.processed_store import ProcessedStore
+from storage.profile_store import sync_profiles_from_enriched_posts
+from storage.vector_store import create_schema, get_connection
 
 # Only these flat fields are kept in the output CSV — the raw post JSON's
 # nested author/engagement/postedAt/job/socialContent/comments objects are
@@ -125,6 +125,15 @@ def run_profile_enrichment(
         f"{business_count} business-authored post(s) enriched for free "
         "(no extra scraper credits)."
     )
+
+    if settings.database_url:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            synced = sync_profiles_from_enriched_posts(conn, enriched)
+            print(f"Synced {synced} author profile(s) to the profiles cache.")
+        finally:
+            conn.close()
 
     flattened = [_flatten_for_csv(post) for post in enriched]
     return store.save("linkedin_enriched", flattened)
