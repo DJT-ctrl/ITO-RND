@@ -1,0 +1,36 @@
+# systemd unit that brings the whole ITO monolith stack up on boot and takes
+# it down on shutdown, wrapping `docker compose up -d`. This is the "Linux
+# Systemd" half of the deployment: Docker Compose defines the stack, systemd
+# supervises it as a first-class service on the EC2 instance.
+#
+# Install (adjust WorkingDirectory to where the repo lives on the instance):
+#   sudo cp deploy/ito-stack.service /etc/systemd/system/ito-stack.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ito-stack.service
+#
+# Operate:
+#   systemctl status ito-stack        # is the stack up?
+#   journalctl -u ito-stack -f        # boot/compose logs
+#   sudo systemctl restart ito-stack  # recreate the stack
+#   sudo systemctl stop ito-stack     # compose down
+
+[Unit]
+Description=ITO monolith stack (Postgres + FastAPI + telemetry) via Docker Compose
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+# Path to the repo on the instance — change if you clone it elsewhere.
+WorkingDirectory=/opt/ito-rnd
+# Pull/build then start detached. --remove-orphans keeps the stack clean when
+# services are renamed/removed between deploys.
+ExecStart=/usr/bin/docker compose up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose down
+# Building images on first boot can take a while — don't let systemd time out.
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

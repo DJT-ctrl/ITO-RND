@@ -1,3 +1,29 @@
+# ITO monolith stack — Postgres + FastAPI + local telemetry, all on one
+# instance, brought up with a single command:
+#
+#     docker compose up -d
+#
+# Services:
+#   db            Postgres 16 + pgvector (durable data, T1.4/T1.5)
+#   migrate       one-shot: applies storage/schema.sql, then exits
+#   api           FastAPI app (api.main:app) on :8000, /metrics for Prometheus
+#   prometheus    scrapes api + cadvisor + node-exporter on :9090
+#   grafana       dashboards on :3000 (Prometheus datasource auto-provisioned)
+#   cadvisor      per-container CPU/mem/net/disk metrics on :8080
+#   node-exporter host CPU/mem/disk metrics on :9100
+#
+# Config comes from a repo-root .env (copy .env.example). It's optional at
+# `up` time (required: false) so the stack still starts for a first look;
+# GEMINI_API_KEY etc. are only needed when you actually call the API.
+
+# `api` and `migrate` run the exact same image. Only `api` carries the `build:`
+# section so the image is built exactly once; `migrate` just references the
+# resulting tag (compose builds all buildable services before starting any
+# container, so the tag exists by the time `migrate` needs it). Both building
+# the same tag concurrently races on export ("image already exists").
+x-api-image: &api-image
+  image: ito-rnd-api:local
+
 services:
   db:
     # Official pgvector-enabled Postgres image (pgvector extension pre-built in).
@@ -16,10 +42,127 @@ services:
     ports:
       # Bind to localhost only — never expose Postgres on 0.0.0.0. On EC2,
       # access should additionally be restricted via the security group
-      # (VPC-internal only, no public inbound rule on 5432).
-      - "127.0.0.1:5432:5432"
+      # (VPC-internal only, no public inbound rule on 5432). The host port is
+      # configurable (DB_HOST_PORT) so the stack still comes up on a machine
+      # where 5432 is already taken; the API reaches Postgres over the compose
+      # network regardless of this mapping.
+      - "127.0.0.1:${DB_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ito} -d ${POSTGRES_DB:-ito_posts}"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  migrate:
+    # One-shot: create the pgvector extension + posts table + HNSW index
+    # (storage/schema.sql via storage.vector_store.create_schema), then exit.
+    # Idempotent — every statement is IF NOT EXISTS, safe to re-run each `up`.
+    # Data ingestion (processors.run_db_ingest) is a separate manual step;
+    # see deploy/README.md.
+    <<: *api-image
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ito}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/${POSTGRES_DB:-ito_posts}
+    command:
+      - python
+      - -c
+      - "from config.settings import load_settings; from storage.vector_store import create_schema, get_connection; c = get_connection(load_settings()); create_schema(c); c.close(); print('schema ready')"
+
+  api:
+    <<: *api-image
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Secrets (GEMINI_API_KEY, APIFY_*, LINKEDIN_COOKIES) come from .env.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Override the .env DATABASE_URL (which points at localhost for
+      # host-side scripts) so the container reaches Postgres over the compose
+      # network by service name. `environment` wins over `env_file`.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ito}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/${POSTGRES_DB:-ito_posts}
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    depends_on:
+      - api
+    volumes:
+      - ./deploy/telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Cap retention so the TSDB can't slowly fill the disk on a small box.
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Single-instance internal tool: no public sign-up, no phone-home.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/telemetry/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/telemetry/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_HOST_PORT:-3000}:3000"
+
+  cadvisor:
+    # Per-container resource metrics (CPU/mem/net/disk). Read-only host mounts.
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  node-exporter:
+    # Host-level metrics (CPU/mem/disk/filesystem).
+    image: prom/node-exporter:v1.8.2
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    volumes:
+      # `:ro` (not `:ro,rslave`) — rslave mount propagation is a Linux-host
+      # optimization that Docker Desktop's VM rejects. Plain read-only is
+      # portable and sufficient here; on a bare-metal EC2 host you may switch
+      # this back to `:ro,rslave` to also see later-mounted filesystems.
+      - /:/host:ro
+    ports:
+      - "127.0.0.1:9100:9100"
+
+volumes:
+  prometheus_data:
+  grafana_data:

@@ -12,7 +12,7 @@ from pydantic_ai import Agent, RunContext
 from agents.discoverability import format_discoverability_context_section
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 
-DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
+DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 
 class DiagnosticOutput(BaseModel):

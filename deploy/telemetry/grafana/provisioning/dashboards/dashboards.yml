@@ -1,0 +1,17 @@
+# Tells Grafana to load any dashboard JSON found in /var/lib/grafana/dashboards
+# (mounted from deploy/telemetry/grafana/dashboards/). Mounted read-only into
+# the `grafana` service (see docker-compose.yml).
+
+apiVersion: 1
+
+providers:
+  - name: ITO
+    orgId: 1
+    folder: ITO
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

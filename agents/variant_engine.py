@@ -46,7 +46,7 @@ from config.settings import Settings
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
 
-DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
+DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 VariantStrategy = Literal["dimension", "narrative", "tiered"]
 

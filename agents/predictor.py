@@ -16,7 +16,7 @@ from pydantic_ai import Agent, RunContext
 
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 
-DEFAULT_MODEL = "google-gla:gemini-2.5-flash"
+DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 
 class PredictorOutput(BaseModel):

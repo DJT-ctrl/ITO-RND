@@ -1,0 +1,42 @@
+# Keep the API image small and the build context clean. The container only
+# needs the code api.main imports at runtime (api, agents, processors,
+# storage, config) + requirements.txt.
+
+# Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+
+# VCS / IDE / OS cruft
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Secrets — never bake into an image (injected at runtime via env_file)
+.env
+.env.local
+
+# Data & generated artifacts (the API reads from Postgres, not these files)
+data/
+
+# Not needed inside the API image
+tests/
+dashboard/
+deploy/
+First Ideas/
+*.md
+docker-compose.yml
+Dockerfile
+.dockerignore

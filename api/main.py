@@ -34,6 +34,21 @@ diagnostic_agents = build_diagnostic_agents()
 
 app = FastAPI(title="ITO Post Similarity API")
 
+# Telemetry: expose Prometheus metrics at /metrics for the local Prometheus
+# scraper (see docker-compose.yml's `prometheus` service + deploy/telemetry/).
+# This publishes request rate, latency histograms, and status-code counters
+# for every route — the app-level half of the monolith stack's telemetry
+# (cAdvisor/node-exporter cover the container/host half).
+#
+# Imported optionally so the app — and the existing mocked test suite — still
+# runs if prometheus-fastapi-instrumentator isn't installed in a given env.
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
+except ImportError:
+    pass
+
 
 @app.get("/health")
 def health() -> dict[str, str]:
