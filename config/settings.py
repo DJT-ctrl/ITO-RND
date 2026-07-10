@@ -8,11 +8,59 @@ change how configuration is sourced later (e.g. a secrets manager).
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
-load_dotenv()
+from config.paths import PROJECT_ROOT, project_root, resolve_data_path, utc_artifact_stamp
+
+# Re-export path helpers for older imports (prefer config.paths in new code).
+__all__ = [
+    "AGENT_GEMINI_MODEL",
+    "GEMINI_MODEL",
+    "PYDANTIC_AI_GEMINI_MODEL",
+    "Settings",
+    "load_settings",
+    "project_root",
+    "pydantic_ai_gemini_model",
+    "resolve_data_path",
+    "sync_google_api_key",
+    "utc_artifact_stamp",
+]
+
+# Always load repo-root .env regardless of Streamlit/shell working directory.
+_PROJECT_ROOT = PROJECT_ROOT
+load_dotenv(_PROJECT_ROOT / ".env")
+
+# google-genai model id (post_analyser, embedder, etc.)
+GEMINI_MODEL = "gemini-2.5-flash-lite"
+
+# pydantic-ai evaluation agents — full flash by default for reasoning quality;
+# override with AGENT_GEMINI_MODEL in .env to match GEMINI_MODEL if you want.
+AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:
+    """Format a Gemini model id for pydantic-ai's Google GLA provider."""
+    raw = model_id or AGENT_GEMINI_MODEL
+    if raw.startswith("google-gla:"):
+        return raw
+    if raw.startswith("google:"):
+        raw = raw.split(":", 1)[1]
+    return f"google-gla:{raw}"
+
+
+PYDANTIC_AI_GEMINI_MODEL = pydantic_ai_gemini_model()
+
+
+def sync_google_api_key() -> None:
+    """pydantic-ai's Google provider reads GOOGLE_API_KEY — mirror GEMINI_API_KEY."""
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    if gemini_key:
+        os.environ.setdefault("GOOGLE_API_KEY", gemini_key)
+
+
+sync_google_api_key()
 
 
 @dataclass(frozen=True)
@@ -43,7 +91,8 @@ class Settings:
 
 
 def load_settings() -> Settings:
-    load_dotenv(override=True)
+    load_dotenv(_PROJECT_ROOT / ".env", override=True)
+    sync_google_api_key()
     return Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
         apify_actor_id=os.getenv("APIFY_ACTOR_ID", ""),

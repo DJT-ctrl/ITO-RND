@@ -41,6 +41,12 @@ def test_save_jsonl_writes_one_json_object_per_line(tmp_path):
     assert parsed == SAMPLE_RECORDS
 
 
+def test_save_jsonl_accepts_explicit_timestamp(tmp_path):
+    store = ProcessedStore(base_dir=str(tmp_path))
+    path = store.save_jsonl("linkedin_python", SAMPLE_RECORDS, timestamp="2026-07-10_120000Z")
+    assert path.name == "linkedin_python_2026-07-10_120000Z.jsonl"
+
+
 def test_save_jsonl_raises_on_empty_records(tmp_path):
     store = ProcessedStore(base_dir=str(tmp_path))
     with pytest.raises(ValueError):

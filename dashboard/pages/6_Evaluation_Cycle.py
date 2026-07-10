@@ -32,7 +32,7 @@ from agents.orchestrator import _fetch_voice_profile, _gather_discoverability_co
 from agents.predictor import build_predictor_agent  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
-from config.settings import load_settings  # noqa: E402
+from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
 
 _STRATEGY_LABELS = {
     "Dimension-focused (SEO / Clarity / Tone)": "dimension",
@@ -108,8 +108,9 @@ st.caption(
 )
 
 settings = load_settings()
-predictor_agent = build_predictor_agent()
-diagnostic_agents = build_diagnostic_agents()
+_eval_model = pydantic_ai_gemini_model()
+predictor_agent = build_predictor_agent(_eval_model)
+diagnostic_agents = build_diagnostic_agents(_eval_model)
 
 # T4.4: session state holds the active draft so variant apply can overwrite it.
 if "draft_text" not in st.session_state:
@@ -133,6 +134,7 @@ with st.sidebar:
         "historical posts, predicts engagement, and runs SEO/clarity/tone diagnostics.",
     )
     st.subheader("Options")
+    st.caption(f"Agent model: `{_eval_model}`")
     strategy_choice = st.selectbox(
         "Variant strategy",
         options=list(_STRATEGY_LABELS.keys()),
@@ -189,6 +191,7 @@ with st.sidebar:
 if run_clicked and draft_content.strip():
     variant_hook = build_variant_engine(
         predictor_agent,
+        model=_eval_model,
         strategy=variant_strategy,
         reembed_neighbors=reembed_neighbors,
         settings=settings,

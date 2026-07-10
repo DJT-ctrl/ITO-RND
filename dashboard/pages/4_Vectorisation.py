@@ -16,7 +16,7 @@ sanity checks you'd actually want before trusting the output:
 
 Not the product UI — exists purely to validate T1.3's output before T1.5
 (pgvector insertion) is built on top of it. Mirrors the structure of
-dashboard/pages/3_Post_Analyser.py and dashboard/pages/4_Pattern_Analysis.py.
+dashboard/pages/2_Post_Analyser.py and dashboard/pages/3_Pattern_Analysis.py.
 """
 
 import sys

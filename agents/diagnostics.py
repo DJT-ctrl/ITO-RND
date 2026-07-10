@@ -11,8 +11,7 @@ from pydantic_ai import Agent, RunContext
 
 from agents.discoverability import format_discoverability_context_section
 from agents.schemas import EvaluationDeps, build_voice_profile_section
-
-DEFAULT_MODEL = "google:gemini-2.5-flash"
+from config.settings import pydantic_ai_gemini_model
 
 
 class DiagnosticOutput(BaseModel):
@@ -99,23 +98,24 @@ def build_seo_prompt(deps: EvaluationDeps) -> str:
     return f"{section}\n\n{base}"
 
 
-def build_seo_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, DiagnosticOutput]:
-    return _build_seo_agent(model)
+def build_seo_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
+    return _build_seo_agent(pydantic_ai_gemini_model() if model is None else model)
 
 
-def build_clarity_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, DiagnosticOutput]:
-    return _build_diagnostic_agent("clarity", model)
+def build_clarity_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
+    return _build_diagnostic_agent("clarity", pydantic_ai_gemini_model() if model is None else model)
 
 
-def build_tone_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, DiagnosticOutput]:
-    return _build_diagnostic_agent("tone", model)
+def build_tone_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
+    return _build_diagnostic_agent("tone", pydantic_ai_gemini_model() if model is None else model)
 
 
-def build_diagnostic_agents(model: Any = DEFAULT_MODEL) -> dict[str, Agent[EvaluationDeps, DiagnosticOutput]]:
+def build_diagnostic_agents(model: Any = None) -> dict[str, Agent[EvaluationDeps, DiagnosticOutput]]:
+    resolved = pydantic_ai_gemini_model() if model is None else model
     return {
-        "seo": build_seo_agent(model),
-        "clarity": build_clarity_agent(model),
-        "tone": build_tone_agent(model),
+        "seo": build_seo_agent(resolved),
+        "clarity": build_clarity_agent(resolved),
+        "tone": build_tone_agent(resolved),
     }
 
 

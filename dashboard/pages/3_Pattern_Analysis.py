@@ -9,7 +9,7 @@ most involved:
 
 Not the product UI — exists purely to eyeball whether the pipeline's
 output actually shows real, sane patterns before building anything on top
-of it. Mirrors the structure of dashboard/pages/3_Post_Analyser.py.
+of it. Mirrors the structure of dashboard/pages/2_Post_Analyser.py.
 """
 
 import json

@@ -15,15 +15,20 @@ Two deliberate stages keep costs down and hallucinations out:
 """
 
 import json
+import logging
 import re
+import time
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
-from config.settings import Settings
+from config.settings import GEMINI_MODEL, Settings
 from processors.post_timing import build_post_timing_fields, infer_timezone_from_location
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -32,6 +37,10 @@ from processors.post_timing import build_post_timing_fields, infer_timezone_from
 
 _HOOK_TYPES = ("question", "bold_statement", "story", "list", "announcement", "other")
 _TONES = ("professional", "casual", "emotional", "humorous", "urgent")
+_GEMINI_FEATURE_KEYS = ("hook_type", "tone", "topic", "has_explicit_cta", "writing_style")
+DEFAULT_GEMINI_MODEL = GEMINI_MODEL
+_MAX_GEMINI_RETRIES = 2
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 # Covers the most common Unicode emoji blocks without pulling in a full library.
 _EMOJI_RE = re.compile(
@@ -47,27 +56,44 @@ _EMOJI_RE = re.compile(
     flags=re.UNICODE,
 )
 
-# Gemini prompt — pre-computed stats are injected so the model never has to
-# recount numbers, keeping it focused on language understanding only.
-_GEMINI_PROMPT = """\
+# Gemini prompt — uses __PLACEHOLDER__ tokens (not str.format) so post text
+# with curly braces cannot break prompt construction.
+_GEMINI_PROMPT_TEMPLATE = """\
 Analyse the LinkedIn post below and return ONLY a JSON object with these keys:
 
-{{
-  "hook_type": one of [{hook_types}],
-  "tone": one of [{tones}],
+{
+  "hook_type": one of [__HOOK_TYPES__],
+  "tone": one of [__TONES__],
   "topic": "2–4 word label for what this post is about",
   "has_explicit_cta": true or false  (true only if the author explicitly tells readers to DO something, e.g. "comment below", "DM me", "click the link"),
   "writing_style": "one sentence describing how this post is structured"
-}}
+}
 
 POST TEXT:
-\"\"\"{content}\"\"\"
+\"\"\"__CONTENT__\"\"\"
 
 Pre-computed context (do NOT re-derive — use for broader understanding only):
-- word_count: {word_count}
-- hashtag_count: {hashtag_count}
-- has_media: {has_media}
+- word_count: __WORD_COUNT__
+- hashtag_count: __HASHTAG_COUNT__
+- has_media: __HAS_MEDIA__
 """
+
+
+def _build_gemini_prompt(
+    *,
+    content: str,
+    word_count: int,
+    hashtag_count: int,
+    has_media: bool,
+) -> str:
+    return (
+        _GEMINI_PROMPT_TEMPLATE.replace("__HOOK_TYPES__", ", ".join(_HOOK_TYPES))
+        .replace("__TONES__", ", ".join(_TONES))
+        .replace("__CONTENT__", content)
+        .replace("__WORD_COUNT__", str(word_count))
+        .replace("__HASHTAG_COUNT__", str(hashtag_count))
+        .replace("__HAS_MEDIA__", str(has_media))
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -88,6 +114,13 @@ class PostAnalyser:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._model = None  # lazy — only initialised if Stage 2 is called
+        self.last_error: Optional[str] = None
+
+    def _fail(self, message: str) -> dict[str, None]:
+        """Record a Stage 2 failure and return the standard empty feature dict."""
+        self.last_error = message
+        logger.error(message)
+        return self._empty_gemini_features()
 
     def _ensure_gemini(self) -> None:
         """Initialise the Gemini client on first use. Raises if key is absent."""
@@ -96,7 +129,61 @@ class PostAnalyser:
         if not self._settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is not set (check your .env file).")
         self._client = genai.Client(api_key=self._settings.gemini_api_key)
-        self._model = True  # sentinel — client is the real handle
+        self._model = DEFAULT_GEMINI_MODEL
+
+    @staticmethod
+    def _empty_gemini_features() -> dict[str, None]:
+        return {k: None for k in _GEMINI_FEATURE_KEYS}
+
+    @staticmethod
+    def _extract_response_text(response: Any) -> str:
+        text = getattr(response, "text", None)
+        if text:
+            return text.strip()
+        candidates = getattr(response, "candidates", None) or []
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            parts = getattr(content, "parts", None) or []
+            for part in parts:
+                part_text = getattr(part, "text", None)
+                if part_text:
+                    return part_text.strip()
+        return ""
+
+    def _call_gemini(self, prompt: str) -> str:
+        """Call Gemini with short retries on transient API errors."""
+        last_error: Optional[Exception] = None
+        for attempt in range(_MAX_GEMINI_RETRIES + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.0,
+                    ),
+                )
+                return self._extract_response_text(response)
+            except genai_errors.APIError as exc:
+                last_error = exc
+                status = getattr(exc, "status_code", None)
+                if status not in _RETRYABLE_STATUS_CODES or attempt >= _MAX_GEMINI_RETRIES:
+                    raise
+                wait_s = 2 ** attempt
+                logger.warning(
+                    "Gemini transient error (%s) — retrying in %ss (attempt %s/%s)",
+                    status,
+                    wait_s,
+                    attempt + 1,
+                    _MAX_GEMINI_RETRIES,
+                )
+                time.sleep(wait_s)
+            except Exception as exc:  # noqa: BLE001 — surfaced by caller
+                last_error = exc
+                raise
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("Gemini call failed without an error")
 
     # ── Stage 1 ───────────────────────────────────────────────────────────────
 
@@ -169,25 +256,65 @@ class PostAnalyser:
         Returns empty placeholders (not raises) on a bad response so one
         problematic post never kills the whole batch.
         """
+        self.last_error = None
         self._ensure_gemini()
+        post_id = post.get("id") or python_features.get("post_id") or "unknown"
         content: str = post.get("content") or ""
-        prompt = _GEMINI_PROMPT.format(
-            hook_types=", ".join(_HOOK_TYPES),
-            tones=", ".join(_TONES),
+        if not content.strip():
+            return self._fail(f"Post {post_id}: empty content — skipping Gemini Stage 2")
+
+        prompt = _build_gemini_prompt(
             content=content,
             word_count=python_features["word_count"],
             hashtag_count=python_features["hashtag_count"],
             has_media=python_features["has_media"],
         )
         try:
-            response = self._client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
-                config=genai_types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.0,
-                ),
+            raw_text = self._call_gemini(prompt)
+            if not raw_text:
+                return self._fail(f"Post {post_id}: Gemini returned empty response (model={self._model})")
+
+            parsed = json.loads(raw_text)
+            if not isinstance(parsed, dict):
+                return self._fail(
+                    f"Post {post_id}: Gemini JSON was {type(parsed).__name__}, expected object — "
+                    f"raw={raw_text[:200]!r}"
+                )
+
+            missing = [k for k in _GEMINI_FEATURE_KEYS if k not in parsed]
+            if missing:
+                logger.warning(
+                    "Post %s: Gemini JSON missing keys %s — raw=%r",
+                    post_id,
+                    missing,
+                    raw_text[:200],
+                )
+
+            return {key: parsed.get(key) for key in _GEMINI_FEATURE_KEYS}
+        except json.JSONDecodeError as exc:
+            return self._fail(
+                f"Post {post_id}: invalid Gemini JSON ({exc}) — "
+                f"raw={raw_text[:200]!r}" if "raw_text" in locals() else f"Post {post_id}: invalid Gemini JSON ({exc})"
             )
-            return json.loads(response.text)
-        except Exception:  # noqa: BLE001 — bad response should never crash a batch
-            return {k: None for k in ("hook_type", "tone", "topic", "has_explicit_cta", "writing_style")}
+        except Exception as exc:  # noqa: BLE001 — one bad post must not kill the batch
+            return self._fail(f"Post {post_id}: Gemini Stage 2 failed — {type(exc).__name__}: {exc}")
+
+
+def verify_gemini_api(settings: Settings) -> tuple[bool, str]:
+    """Cheap probe — confirms the configured model/key work before a batch run."""
+    if not settings.gemini_api_key:
+        return False, "GEMINI_API_KEY is not set (check .env in the project root)."
+    analyser = PostAnalyser(settings)
+    probe_post = {
+        "id": "gemini-probe",
+        "content": "Quick connectivity probe — reply with JSON only.",
+        "engagement": {},
+        "postImages": [],
+        "author": {},
+        "postedAt": {},
+    }
+    python_features = analyser.compute_python_features(probe_post)
+    result = analyser.compute_gemini_features(probe_post, python_features)
+    if result.get("hook_type"):
+        return True, f"Model `{DEFAULT_GEMINI_MODEL}` responded OK."
+    return False, analyser.last_error or "Probe returned empty features."

@@ -42,11 +42,9 @@ from pydantic_ai import Agent
 
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
 from api.schemas import SimilarPost
-from config.settings import Settings
+from config.settings import Settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
-
-DEFAULT_MODEL = "google:gemini-2.5-flash"
 
 VariantStrategy = Literal["dimension", "narrative", "tiered"]
 
@@ -196,7 +194,7 @@ Return only structured data matching the required output schema: exactly 3 varia
 """.strip()
 
 
-def build_variant_generation_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, VariantDraftSet]:
+def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, VariantDraftSet]:
     """Create the variant-generation agent.
 
     Unlike the T3.2/T3.3 agents, this one has no `@agent.system_prompt`
@@ -205,7 +203,8 @@ def build_variant_generation_agent(model: Any = DEFAULT_MODEL) -> Agent[Evaluati
     PostEvaluationState, not just EvaluationDeps) is passed directly as the
     run's user prompt instead.
     """
-    return Agent(model, deps_type=EvaluationDeps, output_type=VariantDraftSet)
+    resolved = pydantic_ai_gemini_model() if model is None else model
+    return Agent(resolved, deps_type=EvaluationDeps, output_type=VariantDraftSet)
 
 
 def _fallback_scores(state: PostEvaluationState) -> Tuple[float, int]:
@@ -260,7 +259,7 @@ async def _score_variant(
 
 def build_variant_engine(
     predictor_agent: Agent,
-    model: Any = DEFAULT_MODEL,
+    model: Any = None,
     strategy: VariantStrategy = "dimension",
     reembed_neighbors: bool = False,
     settings: Optional[Settings] = None,

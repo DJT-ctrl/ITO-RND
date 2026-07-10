@@ -1,7 +1,7 @@
 """Batch entry point that finishes T1.2: normalization + engagement benchmark.
 
 This is the real pipeline the product depends on — deliberately separate
-from ``dashboard/pages/3_Post_Analyser.py``, which stays a throwaway
+from ``dashboard/pages/2_Post_Analyser.py``, which stays a throwaway
 interactive harness for testing one saved scan at a time.
 
 What it does, in order:
@@ -68,7 +68,7 @@ def load_raw_posts(raw_data_dir: str) -> list[dict]:
     ``linkedin_profiles_*.json`` scans are explicitly excluded — those hold
     author profile records (a different shape entirely), not posts. Profile
     data is merged in separately, the same way the Streamlit harness does
-    it (see ``_load_profile_lookup`` in dashboard/pages/3_Post_Analyser.py).
+    it (see profile auto-pairing in dashboard/pages/2_Post_Analyser.py).
     """
     posts: list[dict] = []
     for path in sorted(glob.glob(f"{raw_data_dir}/linkedin_*.json")):
@@ -189,8 +189,8 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Merge a saved profile scrape onto raw posts for follower-normalized "
             "benchmarking + local posting time. Requires a saved "
-            "linkedin_profiles_*.json (see processors/run_profile_enrichment.py or "
-            "dashboard/pages/2_Profile_Scraper.py) — fails clearly if none exists."
+            "linkedin_profiles_*.json from processors/run_sample_collection.py "
+            "(or run_profile_enrichment.py for backfill) — fails clearly if none exists."
         ),
     )
     parser.add_argument(

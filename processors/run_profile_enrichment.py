@@ -1,20 +1,18 @@
-"""Standalone CLI for T6 Point 1's author follower enrichment.
+"""Profile-only backfill CLI for existing post scans (legacy / repair path).
+
+New collections should use processors/run_sample_collection.py, which runs
+post search and profile enrichment together. This module remains for:
+  - Old post-only scans created before unified collection
+  - Re-running profile enrichment after a partial collection failure
 
 Loads a raw post-scan JSON (data/raw/linkedin_*.json), classifies every
-author as personal vs. business (processors/profile_enricher.py), scrapes
-ONLY the personal-profile authors via the harvestapi/linkedin-profile-scraper
-actor (business authors' follower counts come free from data already
-scraped — no wasted credits), merges everything together, and saves ONE
-enriched CSV with a row per post.
-
-When DATABASE_URL is set, fresh follower counts are also upserted into the
-``profiles`` scrape cache (storage/profile_store.py). For the full enriched
-T1.2 + optional DB ingest path, use processors/run_enriched_backfill.py.
+author as personal vs. business, scrapes personal authors via Apify, merges
+follower data, and saves enriched CSV + profile JSON.
 
 Usage:
     python -m processors.run_profile_enrichment
     python -m processors.run_profile_enrichment --raw-file data/raw/linkedin_20260703T162118Z.json
-    python -m processors.run_profile_enrichment --limit 20   # cheap manual test run
+    python -m processors.run_profile_enrichment --limit 20
 """
 
 import argparse
@@ -24,20 +22,10 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config.settings import Settings, load_settings
-from processors.profile_enricher import (
-    clean_profile_url,
-    collect_personal_profile_urls,
-    enrich_posts_with_follower_data,
-)
-from scrapers.linkedin_profile_scraper import LinkedInProfileScraper
+from processors.profile_sources import extract_scan_timestamp
+from processors.run_sample_collection import run_profile_backfill
 from storage.processed_store import ProcessedStore
-from storage.profile_store import sync_profiles_from_enriched_posts
-from storage.vector_store import create_schema, get_connection
 
-# Only these flat fields are kept in the output CSV — the raw post JSON's
-# nested author/engagement/postedAt/job/socialContent/comments objects are
-# dropped entirely (unneeded for follower enrichment, and CSV can't
-# represent them cleanly anyway).
 _OUTPUT_FIELDS = (
     "post_id",
     "linkedin_url",
@@ -70,15 +58,12 @@ def _latest_raw_scan(raw_data_dir: str) -> Path:
 
 
 def _flatten_for_csv(enriched_post: dict[str, Any]) -> dict[str, Any]:
-    """Strip an enriched (raw JSON + merged fields) post down to the flat,
-    CSV-friendly output columns — dropping the bulky nested raw JSON.
-    """
+    from processors.profile_enricher import clean_profile_url
+
     author = enriched_post.get("author") or {}
     flat = {
         "post_id": enriched_post.get("id") or "",
         "linkedin_url": enriched_post.get("linkedinUrl") or "",
-        # Business authors' publicIdentifier is null — universalName is
-        # their stable identifier instead (confirmed against real data).
         "author_public_id": author.get("publicIdentifier") or author.get("universalName") or "",
         "author_name": author.get("name") or "",
         "author_linkedin_url": clean_profile_url(author.get("linkedinUrl") or ""),
@@ -95,48 +80,35 @@ def run_profile_enrichment(
     store: Optional[ProcessedStore] = None,
     limit: Optional[int] = None,
 ) -> Path:
-    """Load a raw post scan, enrich every post with author follower data,
-    and save one flattened CSV (one row per post). Returns the saved path.
-
-    ``limit`` caps how many personal-profile URLs are sent to the paid
-    scraper — useful for a cheap manual test run before enriching an
-    entire dataset. ``None`` (default) scrapes every personal author found.
-    """
+    """Enrich an existing post scan with author follower data. Returns enriched CSV path."""
     settings = settings or load_settings()
     store = store or ProcessedStore()
 
     raw_path = Path(raw_file) if raw_file else _latest_raw_scan(settings.raw_data_dir)
     posts = json.loads(raw_path.read_text())
+    timestamp = extract_scan_timestamp(raw_path)
 
-    personal_urls = collect_personal_profile_urls(posts)
-    if limit is not None:
-        personal_urls = personal_urls[:limit]
-
-    profile_records: list[dict] = []
-    if personal_urls:
-        scraper = LinkedInProfileScraper(settings)
-        profile_records = scraper.fetch_samples({"profileUrls": personal_urls})
-
-    enriched = enrich_posts_with_follower_data(posts, profile_records)
-    business_count = sum(1 for p in enriched if p["is_business"])
-    print(
-        f"Loaded {len(posts)} post(s) from {raw_path.name}: "
-        f"{len(personal_urls)} unique personal author(s) scraped, "
-        f"{business_count} business-authored post(s) enriched for free "
-        "(no extra scraper credits)."
+    result = run_profile_backfill(
+        posts,
+        settings=settings,
+        profile_url_limit=limit,
+        timestamp=timestamp,
     )
 
-    if settings.database_url:
-        conn = get_connection(settings)
-        try:
-            create_schema(conn)
-            synced = sync_profiles_from_enriched_posts(conn, enriched)
-            print(f"Synced {synced} author profile(s) to the profiles cache.")
-        finally:
-            conn.close()
+    personal_count = sum(1 for p in result.enriched_posts if not p.get("is_business"))
+    business_count = sum(1 for p in result.enriched_posts if p.get("is_business"))
+    print(
+        f"Loaded {len(posts)} post(s) from {raw_path.name}: "
+        f"{personal_count} personal-authored, {business_count} business-authored."
+    )
+    if result.profile_path:
+        print(f"Saved profile scrape: {result.profile_path}")
 
-    flattened = [_flatten_for_csv(post) for post in enriched]
-    return store.save("linkedin_enriched", flattened)
+    if result.enriched_path:
+        return result.enriched_path
+
+    flattened = [_flatten_for_csv(post) for post in result.enriched_posts]
+    return store.save("linkedin_enriched", flattened, timestamp=timestamp or None)
 
 
 def _parse_args() -> argparse.Namespace:

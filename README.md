@@ -1,18 +1,24 @@
 # Social Media Prediction Tool - Phase 1
 
-## Current Status: Step 1 - Sample Collection Module
+## Current Status: Step 1 - Unified Sample Collection
 
-This is a modular LinkedIn post scraper using Apify's `harvestapi/linkedin-post-search` actor.
+Step 1 runs **post search** and **author profile enrichment** together on every
+new collection via `processors/run_sample_collection.py` and `dashboard/app.py`.
 
 ### What's Built
 
 ```
-config/settings.py        - Environment configuration loader
-scrapers/base_scraper.py  - Abstract interface for future platforms
-scrapers/linkedin_scraper.py - LinkedIn scraper implementation
-storage/sample_store.py   - Raw sample persistence (timestamped JSON)
-dashboard/app.py          - Streamlit visual test harness
-tests/                    - Mocked unit tests (no API cost)
+config/settings.py              - Environment configuration loader
+scrapers/base_scraper.py        - Abstract interface for future platforms
+scrapers/linkedin_scraper.py    - LinkedIn post-search scraper
+scrapers/linkedin_profile_scraper.py - Personal-author profile scraper
+processors/run_sample_collection.py  - Unified post + profile collection
+processors/profile_enricher.py  - Author classification + follower merge
+storage/sample_store.py         - Raw sample persistence (timestamped JSON)
+dashboard/app.py                    - Streamlit entry (sidebar: Scraper Stage, …)
+dashboard/pages/1_Scraper_Stage.py - Scraper stage test harness
+dashboard/pages/2_Post_Analyser.py - Streamlit Step 2 analysis harness
+tests/                          - Mocked unit tests (no API cost)
 ```
 
 ### Quick Start
@@ -27,25 +33,32 @@ tests/                    - Mocked unit tests (no API cost)
    streamlit run dashboard/app.py
    ```
 
-3. **Test the scraper:**
+3. **Run a collection (posts + author profiles):**
    - Enter a search query (e.g., "ai marketing", "hiring software engineer")
    - Set max posts limit (start with 10-20 for testing)
    - Choose sort order (relevance or date)
    - Choose time filter if needed
-   - Click "Run Scraper"
+   - Click **Run Collection**
    - View results in table + raw JSON format
-   - Confirm file saved to `data/raw/`
+   - Confirm files saved to `data/raw/` (posts + profiles) and `data/processed/` (enriched CSV)
+
+4. **CLI equivalent:**
+   ```bash
+   python -m processors.run_sample_collection --search "ai marketing" --max-posts 20
+   ```
 
 ### LinkedIn Actor Details
 
-**Actor:** `harvestapi/linkedin-post-search`
+**Post search actor:** `harvestapi/linkedin-post-search` (`APIFY_ACTOR_ID`)
+
+**Profile actor:** `harvestapi/linkedin-profile-scraper` (`APIFY_PROFILE_ACTOR_ID`)
+- Only personal-profile authors are scraped (company follower counts come free from post data)
 
 **Key Features:**
 - Search posts by keywords (supports Boolean operators)
-- No LinkedIn account/cookies required
+- No LinkedIn account/cookies required for post search
 - Fast response times
-- $2 per 1k posts
-- Can filter by author companies, profiles, time ranges
+- $2 per 1k posts (post search); profile scrape billed separately per author
 
 **Input Parameters (configured in dashboard):**
 - `searchQueries` - Array of search terms (required)
@@ -55,11 +68,10 @@ tests/                    - Mocked unit tests (no API cost)
 
 **Output Data Includes:**
 - Post content and LinkedIn URL
-- Author information (name, profile, company)
+- Author information (name, profile, company, follower count when enriched)
 - Engagement metrics (likes, comments, shares, reactions)
 - Posted timestamp
 - Images/media
-- Optionally: reactions and comments (costs extra)
 
 ### Running Tests
 
@@ -71,16 +83,14 @@ All tests use mocked Apify client - no API charges.
 
 ### Next Steps
 
-After validating scraper output:
-- **Step 2:** "Make sense of samples" - AI pipeline to detect trends/patterns
-- **Step 3:** Convert to structured dataset (CSV)
-- **Step 4:** Personalization/fine-tuning
-- **Step 5:** Client post evaluation
+After validating collection output:
+- **Step 2:** "Make sense of samples" — analysis pipeline (`dashboard/pages/2_Post_Analyser.py`)
+- **Step 3+:** Pattern analysis, vectorisation, similarity search, evaluation cycle
 
 ### Architecture Notes
 
 Everything is modular:
 - Adding TikTok/Instagram/X scrapers = new `BaseScraper` subclass
-- No downstream code needs to change when platforms are added
-- Raw samples stored untouched - normalization is Step 2's job
+- Post and profile raw files stay separate (`linkedin_*.json` vs `linkedin_profiles_*.json`) but share a timestamp when created together
+- Profile-only backfill for legacy scans: `python -m processors.run_profile_enrichment`
 - Config in .env, never hardcoded

@@ -7,19 +7,29 @@ of this module on purpose so storage stays dumb and reusable across
 platforms.
 """
 
+from __future__ import annotations
+
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from config.paths import resolve_data_path, utc_artifact_stamp
 
 
 class SampleStore:
     def __init__(self, base_dir: str = "data/raw"):
-        self._base_dir = Path(base_dir)
+        self._base_dir = resolve_data_path(base_dir)
 
-    def save(self, platform: str, samples: list[dict[str, Any]]) -> Path:
+    def save(
+        self,
+        platform: str,
+        samples: list[dict[str, Any]],
+        *,
+        timestamp: str | None = None,
+    ) -> Path:
         self._base_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        if timestamp is None:
+            timestamp = utc_artifact_stamp()
         file_path = self._base_dir / f"{platform}_{timestamp}.json"
         file_path.write_text(json.dumps(samples, indent=2, ensure_ascii=False))
         return file_path

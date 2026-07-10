@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from config.settings import Settings
-from processors.post_analyser import PostAnalyser
+from processors.post_analyser import PostAnalyser, _build_gemini_prompt
 
 
 def make_settings(**overrides) -> Settings:
@@ -152,7 +152,7 @@ def test_gemini_features_returns_parsed_json():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = fake_response
     analyser._client = mock_client
-    analyser._model = True  # mark as initialised
+    analyser._model = "gemini-2.5-flash"
 
     result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
 
@@ -169,8 +169,46 @@ def test_gemini_features_returns_nulls_on_bad_response():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = bad_response
     analyser._client = mock_client
-    analyser._model = True
+    analyser._model = "gemini-2.5-flash"
 
     result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
     assert result["hook_type"] is None
     assert result["tone"] is None
+
+
+def test_gemini_features_logs_api_error_and_returns_nulls():
+    from google.genai import errors as genai_errors
+
+    analyser = PostAnalyser(make_settings())
+    python_features = analyser.compute_python_features(SAMPLE_POST)
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = genai_errors.ClientError(
+        404,
+        {"error": {"message": "model not found"}},
+        None,
+    )
+    analyser._client = mock_client
+    analyser._model = "gemini-2.5-flash"
+
+    result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
+    assert result["hook_type"] is None
+    assert "model not found" in (analyser.last_error or "")
+
+
+def test_build_gemini_prompt_handles_curly_braces_in_content():
+    prompt = _build_gemini_prompt(
+        content="Use {mustache} and {{escaped}} in your posts",
+        word_count=5,
+        hashtag_count=1,
+        has_media=False,
+    )
+    assert "Use {mustache} and {{escaped}} in your posts" in prompt
+    assert "__CONTENT__" not in prompt
+
+
+def test_verify_gemini_api_reports_missing_key():
+    from processors.post_analyser import verify_gemini_api
+
+    ok, message = verify_gemini_api(make_settings(gemini_api_key=""))
+    assert ok is False
+    assert "GEMINI_API_KEY" in message

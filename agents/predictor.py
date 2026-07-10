@@ -15,8 +15,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from agents.schemas import EvaluationDeps, build_voice_profile_section
-
-DEFAULT_MODEL = "google:gemini-2.5-flash"
+from config.settings import pydantic_ai_gemini_model
 
 
 class PredictorOutput(BaseModel):
@@ -113,10 +112,11 @@ def apply_deterministic_prediction(
     )
 
 
-def build_predictor_agent(model: Any = DEFAULT_MODEL) -> Agent[EvaluationDeps, PredictorOutput]:
+def build_predictor_agent(model: Any = None) -> Agent[EvaluationDeps, PredictorOutput]:
     """Create the T3.2 Predictor Agent."""
+    resolved_model = pydantic_ai_gemini_model() if model is None else model
     agent: Agent[EvaluationDeps, PredictorOutput] = Agent(
-        model,
+        resolved_model,
         deps_type=EvaluationDeps,
         output_type=PredictorOutput,
     )
