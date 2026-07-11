@@ -59,6 +59,10 @@ def test_run_due_validations_success(
         prediction_delta=-5.0,
         accuracy_score=95.0,
         corpus_sample_size=3,
+        likes_delta=-2.0,
+        comments_delta=1.0,
+        shares_delta=0.0,
+        total_engagement_delta=-1.0,
     )
 
     batch = run_due_validations(settings, limit=10)

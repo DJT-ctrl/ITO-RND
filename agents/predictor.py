@@ -31,6 +31,21 @@ class PredictorOutput(BaseModel):
         ge=0,
         description="Predicted raw total engagement count (likes + comments + shares).",
     )
+    predicted_likes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted like count from neighbor-weighted breakdown.",
+    )
+    predicted_comments: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted comment count from neighbor-weighted breakdown.",
+    )
+    predicted_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted share count from neighbor-weighted breakdown.",
+    )
     reasoning: str = Field(
         ...,
         min_length=1,
@@ -98,6 +113,9 @@ Reason about:
 Return only structured data matching the required output schema:
 - predicted_engagement_percentile: use exactly {deps.neighbor_prediction.get("percentile", 50.0) if deps.neighbor_prediction else "the deterministic score above"}.
 - predicted_total_engagement: use exactly {deps.neighbor_prediction.get("total_engagement_estimate", 0) if deps.neighbor_prediction else "the deterministic estimate above"}.
+- predicted_likes: use exactly {deps.neighbor_prediction.get("predicted_likes", 0) if deps.neighbor_prediction else 0}.
+- predicted_comments: use exactly {deps.neighbor_prediction.get("predicted_comments", 0) if deps.neighbor_prediction else 0}.
+- predicted_shares: use exactly {deps.neighbor_prediction.get("predicted_shares", 0) if deps.neighbor_prediction else 0}.
 - reasoning: concise comparative explanation grounded in the retrieved neighbors and the deterministic score.
 """.strip()
 
@@ -112,6 +130,9 @@ def apply_deterministic_prediction(
     return PredictorOutput(
         predicted_engagement_percentile=float(neighbor_prediction["percentile"]),
         predicted_total_engagement=int(neighbor_prediction["total_engagement_estimate"]),
+        predicted_likes=int(neighbor_prediction.get("predicted_likes", 0)),
+        predicted_comments=int(neighbor_prediction.get("predicted_comments", 0)),
+        predicted_shares=int(neighbor_prediction.get("predicted_shares", 0)),
         reasoning=output.reasoning,
     )
 
@@ -147,6 +168,7 @@ def _format_deterministic_score_section(neighbor_prediction: Optional[dict[str, 
 Deterministic prediction (computed from neighbors — do not override):
 - Predicted percentile: {neighbor_prediction["percentile"]:.1f}
 - Predicted total engagement: {neighbor_prediction["total_engagement_estimate"]}
+- Predicted likes / comments / shares: {neighbor_prediction.get("predicted_likes", 0)} / {neighbor_prediction.get("predicted_comments", 0)} / {neighbor_prediction.get("predicted_shares", 0)}
 - Scoring method: {method_label}
 - Follower-normalized neighbor coverage: {coverage}/{neighbor_count}
 """

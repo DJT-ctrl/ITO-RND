@@ -22,6 +22,9 @@ from validation_pipeline.store import insert_prediction, prediction_exists
 class PredictionOutput(BaseModel):
     predicted_engagement_percentile: float
     predicted_total_engagement: Optional[int] = None
+    predicted_likes: Optional[int] = None
+    predicted_comments: Optional[int] = None
+    predicted_shares: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     reasoning: Optional[str] = None
@@ -56,6 +59,9 @@ async def predict_for_post(
         return PredictionOutput(
             predicted_engagement_percentile=output.predicted_engagement_percentile,
             predicted_total_engagement=output.predicted_total_engagement,
+            predicted_likes=output.predicted_likes,
+            predicted_comments=output.predicted_comments,
+            predicted_shares=output.predicted_shares,
             prediction_method=neighbor_prediction.get("method") if neighbor_prediction else None,
             neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
             reasoning=output.reasoning,
@@ -74,6 +80,9 @@ async def predict_for_post(
         ),
         predicted_total_engagement=data.get("predicted_total_engagement")
         or neighbor_prediction.get("total_engagement_estimate"),
+        predicted_likes=data.get("predicted_likes", neighbor_prediction.get("predicted_likes")),
+        predicted_comments=data.get("predicted_comments", neighbor_prediction.get("predicted_comments")),
+        predicted_shares=data.get("predicted_shares", neighbor_prediction.get("predicted_shares")),
         prediction_method=neighbor_prediction.get("method") if neighbor_prediction else None,
         neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
         reasoning=data.get("reasoning"),
@@ -95,6 +104,9 @@ def save_prediction(
         posted_at=post.posted_at,
         predicted_engagement_percentile=prediction.predicted_engagement_percentile,
         predicted_total_engagement=prediction.predicted_total_engagement,
+        predicted_likes=prediction.predicted_likes,
+        predicted_comments=prediction.predicted_comments,
+        predicted_shares=prediction.predicted_shares,
         prediction_method=prediction.prediction_method,
         neighbor_count=prediction.neighbor_count,
         validation_due_at=validation_due_at,

@@ -40,6 +40,9 @@ def test_insert_prediction_returns_record():
         posted_at=created_at,
         predicted_engagement_percentile=72.5,
         predicted_total_engagement=40,
+        predicted_likes=30,
+        predicted_comments=8,
+        predicted_shares=2,
         prediction_method="raw_fallback",
         neighbor_count=10,
         validation_due_at=created_at,
@@ -48,5 +51,6 @@ def test_insert_prediction_returns_record():
     record = insert_prediction(conn, new)
     assert record.prediction_id == prediction_id
     assert record.predicted_engagement_percentile == 72.5
+    assert record.predicted_likes == 30
     assert record.status == "scheduled"
     conn.commit.assert_called_once()

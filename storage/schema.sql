@@ -120,6 +120,9 @@ CREATE TABLE IF NOT EXISTS predictions (
 
     predicted_engagement_percentile  DOUBLE PRECISION NOT NULL,
     predicted_total_engagement       INTEGER,
+    predicted_likes                  INTEGER,
+    predicted_comments               INTEGER,
+    predicted_shares                 INTEGER,
     prediction_method                TEXT,
     neighbor_count                   INTEGER,
 
@@ -134,6 +137,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     actual_engagement_percentile DOUBLE PRECISION,
     prediction_delta        DOUBLE PRECISION,
     accuracy_score          DOUBLE PRECISION,
+    likes_delta             DOUBLE PRECISION,
+    comments_delta          DOUBLE PRECISION,
+    shares_delta            DOUBLE PRECISION,
+    total_engagement_delta  DOUBLE PRECISION,
     validation_error        TEXT,
 
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -157,6 +164,14 @@ CREATE TABLE IF NOT EXISTS prediction_engagement_snapshots (
 
 CREATE INDEX IF NOT EXISTS prediction_snapshots_prediction_id_idx
     ON prediction_engagement_snapshots (prediction_id);
+
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_likes INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_comments INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_shares INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS likes_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS comments_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS shares_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS total_engagement_delta DOUBLE PRECISION;
 
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5

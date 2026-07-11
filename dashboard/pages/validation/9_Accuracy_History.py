@@ -9,11 +9,14 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
-from validation_pipeline.ui import load_predictions, render_accuracy_summary  # noqa: E402
+from validation_pipeline.ui import load_predictions, render_accuracy_summary, render_predictions_table  # noqa: E402
 
 st.set_page_config(page_title="Accuracy History", layout="wide")
 st.title("Validation Pipeline — Accuracy History")
-st.caption("How closely predicted engagement percentiles match actual outcomes after re-scrape.")
+st.caption(
+    "Percentile and per-metric count accuracy after scheduled re-scrape "
+    "(likes, comments, shares)."
+)
 
 settings = load_settings()
 
@@ -27,21 +30,22 @@ st.divider()
 st.subheader("Recent validated predictions")
 validated = load_predictions(settings, status="validated", limit=50)
 if validated:
-    rows = []
+    render_predictions_table(validated)
+    count_rows = []
     for p in validated:
-        rows.append(
+        if p.likes_delta is None:
+            continue
+        count_rows.append(
             {
                 "post_id": p.linkedin_post_id,
-                "predicted": p.predicted_engagement_percentile,
-                "actual": p.actual_engagement_percentile,
-                "delta": p.prediction_delta,
-                "accuracy": p.accuracy_score,
-                "validated_at": p.validated_at,
+                "likes_Δ": abs(p.likes_delta or 0),
+                "comments_Δ": abs(p.comments_delta or 0),
+                "shares_Δ": abs(p.shares_delta or 0),
+                "total_Δ": abs(p.total_engagement_delta or 0),
             }
         )
-    df = pd.DataFrame(rows)
-    if "accuracy" in df.columns and not df["accuracy"].dropna().empty:
-        st.bar_chart(df.set_index("post_id")[["accuracy"]], height=280)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    if count_rows:
+        st.subheader("Absolute count error by post")
+        st.bar_chart(pd.DataFrame(count_rows).set_index("post_id"), height=280)
 else:
     st.info("No validated predictions yet.")

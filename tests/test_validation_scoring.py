@@ -11,17 +11,23 @@ from validation_pipeline.scoring import (
 )
 
 
-def _prediction(percentile: float) -> PredictionRecord:
+def _prediction(percentile: float, **kwargs) -> PredictionRecord:
     now = datetime.now(timezone.utc)
-    return PredictionRecord(
+    defaults = dict(
         prediction_id=uuid4(),
         linkedin_post_id="post-1",
         linkedin_url="https://linkedin.com/posts/1",
         content="hello",
         posted_at=now,
         predicted_engagement_percentile=percentile,
+        predicted_total_engagement=40,
+        predicted_likes=30,
+        predicted_comments=8,
+        predicted_shares=2,
         validation_due_at=now,
     )
+    defaults.update(kwargs)
+    return PredictionRecord(**defaults)
 
 
 def test_compute_corpus_percentile_empty_corpus():
@@ -48,6 +54,10 @@ def test_compute_validation_scores_delta_and_accuracy():
     scores = compute_validation_scores(actuals, prediction, corpus)
     assert scores.prediction_delta == round(scores.actual_engagement_percentile - 70.0, 2)
     assert scores.accuracy_score == round(max(0.0, 100.0 - abs(scores.prediction_delta)), 2)
+    assert scores.likes_delta == -20.0
+    assert scores.comments_delta == -6.0
+    assert scores.shares_delta == -1.0
+    assert scores.total_engagement_delta == -27.0
 
 
 def test_corpus_size_warning():

@@ -198,6 +198,9 @@ def test_apply_deterministic_prediction_overrides_llm_numbers():
         {
             "percentile": 72.5,
             "total_engagement_estimate": 48,
+            "predicted_likes": 35,
+            "predicted_comments": 10,
+            "predicted_shares": 3,
             "method": "audience_adjusted",
             "coverage": 2,
             "neighbor_count": 2,
@@ -205,6 +208,9 @@ def test_apply_deterministic_prediction_overrides_llm_numbers():
     )
     assert corrected.predicted_engagement_percentile == 72.5
     assert corrected.predicted_total_engagement == 48
+    assert corrected.predicted_likes == 35
+    assert corrected.predicted_comments == 10
+    assert corrected.predicted_shares == 3
     assert corrected.reasoning == "Because neighbors look strong."
 
 
@@ -271,6 +277,9 @@ def test_predictor_and_diagnostics_integrate_with_orchestrator():
     assert set(state.predictor_result) == {
         "predicted_engagement_percentile",
         "predicted_total_engagement",
+        "predicted_likes",
+        "predicted_comments",
+        "predicted_shares",
         "reasoning",
     }
     assert set(state.diagnostics) == {"seo", "clarity", "tone"}

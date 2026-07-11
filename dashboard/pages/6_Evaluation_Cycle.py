@@ -296,6 +296,16 @@ with results_tab:
             diag = state.diagnostics.get(name, {})
             sc[idx].metric(name.title(), f"{diag.get('score', 0):.1f}/10")
 
+        if predictor.get("predicted_likes") is not None:
+            breakdown_cols = st.columns(4)
+            breakdown_cols[0].metric("Pred. Likes", predictor.get("predicted_likes", "—"))
+            breakdown_cols[1].metric("Pred. Comments", predictor.get("predicted_comments", "—"))
+            breakdown_cols[2].metric("Pred. Shares", predictor.get("predicted_shares", "—"))
+            breakdown_cols[3].metric(
+                "Pred. Total",
+                predictor.get("predicted_total_engagement", "—"),
+            )
+
         st.divider()
 
         # Predictor + Diagnostics side-by-side

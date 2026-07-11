@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Optional, Sequence
 
 import psycopg
 
@@ -41,6 +41,12 @@ def compute_corpus_percentile(
     return _percentile_rank(log_values, score)
 
 
+def _metric_delta(actual: int, predicted: Optional[int]) -> float:
+    if predicted is None:
+        return float(actual)
+    return round(float(actual - predicted), 2)
+
+
 def compute_validation_scores(
     actuals: EngagementActuals,
     prediction: PredictionRecord,
@@ -54,6 +60,12 @@ def compute_validation_scores(
         prediction_delta=delta,
         accuracy_score=accuracy,
         corpus_sample_size=len(corpus_totals),
+        likes_delta=_metric_delta(actuals.likes, prediction.predicted_likes),
+        comments_delta=_metric_delta(actuals.comments, prediction.predicted_comments),
+        shares_delta=_metric_delta(actuals.shares, prediction.predicted_shares),
+        total_engagement_delta=_metric_delta(
+            actuals.total_engagement, prediction.predicted_total_engagement
+        ),
     )
 
 

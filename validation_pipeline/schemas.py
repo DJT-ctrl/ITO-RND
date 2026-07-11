@@ -9,6 +9,13 @@ from pydantic import BaseModel, Field
 PredictionStatus = Literal["scheduled", "validating", "validated", "failed", "skipped"]
 
 
+class EngagementForecast(BaseModel):
+    predicted_likes: int = Field(ge=0)
+    predicted_comments: int = Field(ge=0)
+    predicted_shares: int = Field(ge=0)
+    predicted_total_engagement: int = Field(ge=0)
+
+
 class PredictionRecord(BaseModel):
     prediction_id: UUID
     linkedin_post_id: str
@@ -19,6 +26,9 @@ class PredictionRecord(BaseModel):
 
     predicted_engagement_percentile: float
     predicted_total_engagement: Optional[int] = None
+    predicted_likes: Optional[int] = None
+    predicted_comments: Optional[int] = None
+    predicted_shares: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
 
@@ -33,6 +43,10 @@ class PredictionRecord(BaseModel):
     actual_engagement_percentile: Optional[float] = None
     prediction_delta: Optional[float] = None
     accuracy_score: Optional[float] = None
+    likes_delta: Optional[float] = None
+    comments_delta: Optional[float] = None
+    shares_delta: Optional[float] = None
+    total_engagement_delta: Optional[float] = None
     validation_error: Optional[str] = None
 
     created_at: Optional[datetime] = None
@@ -46,6 +60,9 @@ class NewPrediction(BaseModel):
     posted_at: datetime
     predicted_engagement_percentile: float
     predicted_total_engagement: Optional[int] = None
+    predicted_likes: Optional[int] = None
+    predicted_comments: Optional[int] = None
+    predicted_shares: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     validation_due_at: datetime
@@ -63,6 +80,10 @@ class ValidationScores(BaseModel):
     prediction_delta: float
     accuracy_score: float
     corpus_sample_size: int
+    likes_delta: float
+    comments_delta: float
+    shares_delta: float
+    total_engagement_delta: float
 
 
 class ValidationResult(BaseModel):
@@ -107,4 +128,9 @@ class AccuracyAggregates(BaseModel):
     median_absolute_error: Optional[float] = None
     pct_within_10: Optional[float] = None
     mean_accuracy_score: Optional[float] = None
+    mae_likes: Optional[float] = None
+    mae_comments: Optional[float] = None
+    mae_shares: Optional[float] = None
+    mae_total_engagement: Optional[float] = None
+    pct_total_within_20pct: Optional[float] = None
     time_series: list[dict[str, Any]] = Field(default_factory=list)
