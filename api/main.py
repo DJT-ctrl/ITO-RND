@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException
 from pgvector.psycopg import register_vector
 
 from agents.diagnostics import build_diagnostic_agents
+from agents.observability import configure_observability
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
@@ -29,6 +30,7 @@ from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
 
 settings = load_settings()
+configure_observability(settings)
 _eval_model = pydantic_ai_gemini_model()
 predictor_agent = build_predictor_agent(_eval_model)
 diagnostic_agents = build_diagnostic_agents(_eval_model)

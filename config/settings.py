@@ -88,6 +88,11 @@ class Settings:
     google_trends_geo: str = ""
     # T6.6: re-scrape cached author profiles after this many days.
     profile_cache_staleness_days: int = 30
+    # Self-hosted Langfuse trace engine. Instrumentation activates only when
+    # both keys are present (opt-in).
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3001"
 
 
 def load_settings() -> Settings:
@@ -108,6 +113,9 @@ def load_settings() -> Settings:
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
+        langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
+        langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
+        langfuse_host=os.getenv("LANGFUSE_HOST", "http://localhost:3001"),
     )
 
 
