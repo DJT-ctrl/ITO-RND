@@ -14,6 +14,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from config.settings import pydantic_ai_gemini_model
 
@@ -63,7 +64,7 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
                     parts.append(
                         f"- Audience-adjusted percentile: {post.audience_adjusted_percentile:.1f}"
                     )
-            parts.append(f"- Content: {content}")
+            parts.append(f"- Content:\n{wrap_untrusted_text(content)}")
             neighbor_lines.append("\n".join(parts))
         neighbor_context = "\n\n".join(neighbor_lines)
 
@@ -71,8 +72,11 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     deterministic_section = _format_deterministic_score_section(deps.neighbor_prediction)
     draft_author_section = _format_draft_author_section(deps.draft_follower_count)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
+    draft_section = wrap_untrusted_text(deps.draft_content)
 
     return f"""
+{PROMPT_DATA_PREAMBLE}
+
 You are the Predictor Agent for a LinkedIn post evaluation pipeline.
 
 Your task: explain how the draft will perform by comparing it with the nearest
@@ -81,7 +85,7 @@ has already been computed deterministically from those neighbors — your job is
 to write clear comparative reasoning, not to invent a different score.
 {voice_section}{draft_author_section}{deterministic_section}
 Draft post:
-{deps.draft_content}
+{draft_section}
 
 Nearest historical posts:
 {neighbor_context}

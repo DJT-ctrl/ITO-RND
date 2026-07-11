@@ -203,6 +203,7 @@ def test_build_gemini_prompt_handles_curly_braces_in_content():
         has_media=False,
     )
     assert "Use {mustache} and {{escaped}} in your posts" in prompt
+    assert "<post_content>" in prompt
     assert "__CONTENT__" not in prompt
 
 

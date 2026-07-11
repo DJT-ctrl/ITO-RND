@@ -16,6 +16,7 @@ from agents.variant_engine import (
     build_variant_generation_agent,
     build_variant_prompt,
 )
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE
 from api.schemas import SimilarPost
 
 
@@ -95,6 +96,8 @@ def test_prompt_includes_predictor_diagnostics_and_neighbors():
 
     prompt = build_variant_prompt("dimension", deps, state)
 
+    assert PROMPT_DATA_PREAMBLE in prompt
+    assert "<post_content>" in prompt
     assert "Middling hook, no CTA." in prompt
     assert "no hashtags" in prompt
     assert "loosen tone" in prompt

@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal, Optional
 
+from agents.prompt_safety import wrap_untrusted_text
 from api.schemas import SimilarPost
 
 SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
@@ -169,7 +170,7 @@ def summarize_neighbors_for_seo(similar_posts: list[SimilarPost]) -> str:
         if post.hook_type:
             parts.append(f"- Hook type: {post.hook_type}")
         snippet = _compact(post.content, limit=120)
-        parts.append(f"- Opening snippet: {snippet}")
+        parts.append(f"- Opening snippet:\n{wrap_untrusted_text(snippet)}")
         lines.append("\n".join(parts))
 
     return "\n\n".join(lines)
@@ -187,8 +188,14 @@ def format_discoverability_context_section(context: dict[str, Any]) -> str:
     if deterministic:
         signal_lines = []
         for signal in deterministic.get("signals", []):
+            value = signal.get("value")
+            if signal["check"] == "opening_line" and isinstance(value, str):
+                value_display = wrap_untrusted_text(value)
+            else:
+                value_display = value
             signal_lines.append(
                 f"- {signal['check']}: {signal['status']} — {signal.get('note', '')}"
+                + (f" (value: {value_display})" if value_display is not None else "")
             )
         sections.append(
             "Deterministic draft checks (pre-computed, do not re-derive):\n"

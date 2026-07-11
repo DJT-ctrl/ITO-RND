@@ -14,6 +14,7 @@ from agents.predictor import (
     build_predictor_agent,
     build_predictor_prompt,
 )
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE
 from agents.schemas import EvaluationDeps
 from api.schemas import SimilarPost
 from config.settings import Settings
@@ -67,6 +68,8 @@ def test_predictor_prompt_includes_neighbor_context():
 
     prompt = build_predictor_prompt(deps)
 
+    assert PROMPT_DATA_PREAMBLE in prompt
+    assert "<post_content>" in prompt
     assert "Draft post about a product launch" in prompt
     assert "Neighbor 1" in prompt
     assert "Total engagement: 26" in prompt

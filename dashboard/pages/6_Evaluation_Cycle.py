@@ -30,6 +30,7 @@ from agents.diagnostics import build_diagnostic_agents  # noqa: E402
 # imported directly here so we can run each stage separately for T4.2.
 from agents.orchestrator import _fetch_voice_profile, _gather_discoverability_context, _gather_similar_posts  # noqa: E402
 from agents.predictor import build_predictor_agent  # noqa: E402
+from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
@@ -84,8 +85,8 @@ async def _run_concurrent_eval(
     )
     keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
     coros = [
-        predictor.run(state.draft_content, deps=deps),
-        *(agent.run(state.draft_content, deps=deps) for agent in diagnostics.values()),
+        predictor.run(build_evaluation_user_message(state.draft_content), deps=deps),
+        *(agent.run(build_evaluation_user_message(state.draft_content), deps=deps) for agent in diagnostics.values()),
     ]
     results = await asyncio.gather(*coros, return_exceptions=True)
     for key, result in zip(keys, results):
@@ -159,9 +160,10 @@ with st.sidebar:
     seo_mode = _SEO_MODE_LABELS[seo_mode_choice]
     use_google_trends = st.checkbox(
         "Include Google Trends",
-        value=True,
+        value=settings.google_trends_enabled,
         disabled=seo_mode == "gemini_only",
-        help="Adds web-wide search momentum for keywords from your draft. Not LinkedIn-specific. "
+        help="Optional: adds web-wide search momentum for keywords from your draft. "
+        "Not LinkedIn-specific — off by default so corpus evidence stays primary. "
         "Disabled in Gemini-only baseline mode.",
     )
     st.subheader("Personalization")

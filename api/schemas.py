@@ -102,6 +102,6 @@ class EvaluateRequest(BaseModel):
         default=None,
         description=(
             "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). "
-            "Defaults to settings.google_trends_enabled in corpus mode; always off in gemini_only."
+            "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
         ),
     )

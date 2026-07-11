@@ -23,48 +23,49 @@ from pathlib import Path
 from typing import Any, Optional
 
 from config.settings import Settings, load_settings
-from processors.profile_enricher import (
-    collect_personal_profile_urls,
-    enrich_posts_with_follower_data,
-)
+from processors.profile_enricher import enrich_posts_with_follower_data
 from processors.profile_sources import load_profile_records
 from processors.run_db_ingest import run_db_ingest
 from processors.run_pipeline import load_raw_posts, run_pipeline
-from scrapers.linkedin_profile_scraper import LinkedInProfileScraper
+from processors.run_sample_collection import (
+    _harvestapi_from_cache,
+    _merge_profile_records,
+    _resolve_profile_records,
+    _unique_personal_author_ids,
+)
 from storage.profile_store import (
     get_profile,
     is_profile_stale,
-    profile_record_from_harvestapi,
     sync_profiles_from_enriched_posts,
-    upsert_profile,
 )
 from storage.vector_store import create_schema, get_connection
 
 
-def _unique_personal_author_ids(posts: list[dict[str, Any]]) -> list[str]:
-    ids: set[str] = set()
-    for post in posts:
-        author = post.get("author") or {}
-        if author.get("type") == "company":
+def _load_disk_profile_records(
+    settings: Settings, profile_file: Optional[str]
+) -> list[dict[str, Any]]:
+    if profile_file:
+        return load_profile_records(profile_file, settings.raw_data_dir)
+    candidates = sorted(glob.glob(f"{settings.raw_data_dir}/linkedin_profiles_*.json"))
+    if candidates:
+        return json.loads(Path(candidates[-1]).read_text())
+    return []
+
+
+def _cached_records_from_db(
+    conn,
+    posts: list[dict[str, Any]],
+    *,
+    staleness_days: int,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for author_id in _unique_personal_author_ids(posts):
+        cached = get_profile(conn, author_id)
+        if is_profile_stale(cached, staleness_days=staleness_days):
             continue
-        public_id = author.get("publicIdentifier")
-        if public_id:
-            ids.add(public_id)
-    return sorted(ids)
-
-
-def _urls_for_author_ids(posts: list[dict[str, Any]], author_ids: set[str]) -> list[str]:
-    from processors.profile_enricher import clean_profile_url
-
-    urls: set[str] = set()
-    for post in posts:
-        author = post.get("author") or {}
-        if author.get("publicIdentifier") not in author_ids:
-            continue
-        url = author.get("linkedinUrl") or ""
-        if url:
-            urls.add(clean_profile_url(url))
-    return sorted(urls)
+        if cached and cached.get("follower_count") is not None:
+            records.append(_harvestapi_from_cache(cached))
+    return records
 
 
 def _save_profile_scrape(raw_data_dir: str, records: list[dict[str, Any]]) -> Path:
@@ -74,17 +75,6 @@ def _save_profile_scrape(raw_data_dir: str, records: list[dict[str, Any]]) -> Pa
     path = Path(raw_data_dir) / f"linkedin_profiles_{timestamp}.json"
     path.write_text(json.dumps(records, indent=2))
     return path
-
-
-def _merge_profile_records(
-    existing: list[dict[str, Any]], fresh: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    by_id = {record.get("publicIdentifier"): record for record in existing if record.get("publicIdentifier")}
-    for record in fresh:
-        public_id = record.get("publicIdentifier")
-        if public_id:
-            by_id[public_id] = record
-    return list(by_id.values())
 
 
 def run_enriched_backfill(
@@ -103,54 +93,49 @@ def run_enriched_backfill(
     if not raw_posts:
         raise ValueError(f"No raw posts found under {settings.raw_data_dir}/linkedin_*.json")
 
-    profile_records: list[dict[str, Any]] = []
-    if profile_file:
-        profile_records = load_profile_records(profile_file, settings.raw_data_dir)
+    disk_records = _load_disk_profile_records(settings, profile_file) if (
+        profile_file or skip_scrape
+    ) else []
+
+    if skip_scrape:
+        profile_records = list(disk_records)
+        if settings.database_url:
+            conn = get_connection(settings)
+            try:
+                create_schema(conn)
+                cached = _cached_records_from_db(
+                    conn,
+                    raw_posts,
+                    staleness_days=settings.profile_cache_staleness_days,
+                )
+                profile_records = _merge_profile_records(profile_records, cached)
+                enriched_for_cache = enrich_posts_with_follower_data(
+                    raw_posts, profile_records
+                )
+                sync_profiles_from_enriched_posts(conn, enriched_for_cache)
+            finally:
+                conn.close()
     else:
-        candidates = sorted(glob.glob(f"{settings.raw_data_dir}/linkedin_profiles_*.json"))
-        if candidates:
-            profile_records = json.loads(Path(candidates[-1]).read_text())
+        resolved, _, _ = _resolve_profile_records(
+            raw_posts,
+            settings,
+            use_profile_cache=bool(settings.database_url),
+            profile_url_limit=None,
+        )
+        profile_records = (
+            _merge_profile_records(disk_records, resolved) if disk_records else resolved
+        )
 
-    if settings.database_url:
-        conn = get_connection(settings)
-        try:
-            create_schema(conn)
-            personal_ids = _unique_personal_author_ids(raw_posts)
-            stale_ids: set[str] = set()
-            for author_id in personal_ids:
-                cached = get_profile(conn, author_id)
-                if is_profile_stale(
-                    cached, staleness_days=settings.profile_cache_staleness_days
-                ):
-                    stale_ids.add(author_id)
-
-            if not skip_scrape and stale_ids:
-                urls = _urls_for_author_ids(raw_posts, stale_ids)
-                if urls:
-                    scraper = LinkedInProfileScraper(settings)
-                    fresh_records = scraper.fetch_samples({"profileUrls": urls})
-                    profile_records = _merge_profile_records(profile_records, fresh_records)
-                    for record in fresh_records:
-                        row = profile_record_from_harvestapi(record)
-                        if row:
-                            upsert_profile(conn, row)
-
-            enriched_for_cache = enrich_posts_with_follower_data(raw_posts, profile_records)
-            sync_profiles_from_enriched_posts(conn, enriched_for_cache)
-        finally:
-            conn.close()
-    elif not skip_scrape:
-        personal_urls = collect_personal_profile_urls(raw_posts)
-        if personal_urls:
-            scraper = LinkedInProfileScraper(settings)
-            fresh_records = scraper.fetch_samples({"profileUrls": personal_urls})
-            profile_records = _merge_profile_records(profile_records, fresh_records)
-
-    if not profile_records and not skip_scrape:
-        personal_urls = collect_personal_profile_urls(raw_posts)
-        if personal_urls:
-            scraper = LinkedInProfileScraper(settings)
-            profile_records = scraper.fetch_samples({"profileUrls": personal_urls})
+        if settings.database_url:
+            conn = get_connection(settings)
+            try:
+                create_schema(conn)
+                enriched_for_cache = enrich_posts_with_follower_data(
+                    raw_posts, profile_records
+                )
+                sync_profiles_from_enriched_posts(conn, enriched_for_cache)
+            finally:
+                conn.close()
 
     if profile_records:
         saved_profile_path = _save_profile_scrape(settings.raw_data_dir, profile_records)

@@ -82,8 +82,8 @@ class Settings:
     # Tier 1 discoverability: corpus-grounded SEO (default) or gemini_only baseline.
     seo_discoverability_mode: str = "corpus"
     corpus_benchmark_ttl_hours: int = 24
-    # Tier 2 discoverability: Google Trends via pytrends (on by default in corpus mode).
-    google_trends_enabled: bool = True
+    # Tier 2 discoverability: Google Trends via pytrends (opt-in; off by default).
+    google_trends_enabled: bool = False
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
     # T6.6: re-scrape cached author profiles after this many days.
@@ -104,7 +104,7 @@ def load_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", ""),
         seo_discoverability_mode=os.getenv("SEO_DISCOVERABILITY_MODE", "corpus"),
         corpus_benchmark_ttl_hours=int(os.getenv("CORPUS_BENCHMARK_TTL_HOURS", "24")),
-        google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=True),
+        google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=False),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),

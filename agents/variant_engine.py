@@ -40,6 +40,7 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
 from api.schemas import SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
@@ -147,9 +148,9 @@ def _build_neighbor_context(deps: EvaluationDeps) -> str:
         return "No comparable historical posts were found."
     lines = []
     for index, post in enumerate(deps.similar_posts[:5], start=1):
+        content = wrap_untrusted_text(_compact(post.content, limit=300))
         lines.append(
-            f"Neighbor {index}: engagement percentile {post.engagement_percentile:.1f} — "
-            f"{_compact(post.content, limit=300)}"
+            f"Neighbor {index}: engagement percentile {post.engagement_percentile:.1f} —\n{content}"
         )
     return "\n".join(lines)
 
@@ -165,8 +166,11 @@ def build_variant_prompt(strategy: VariantStrategy, deps: EvaluationDeps, state:
     """
     spec = _STRATEGY_SPECS[strategy]
     voice_section = build_voice_profile_section(deps.voice_profile)
+    draft_section = wrap_untrusted_text(deps.draft_content)
 
     return f"""
+{PROMPT_DATA_PREAMBLE}
+
 You are the Variant Optimisation Engine in a LinkedIn post evaluation pipeline.
 
 Your task: rewrite the draft post into exactly 3 distinctly tuned alternatives, using the
@@ -176,7 +180,7 @@ Strategy: {spec['title']}
 {spec['instructions']}
 {voice_section}
 Draft post:
-{deps.draft_content}
+{draft_section}
 
 Predictor assessment:
 {_build_predictor_context(state)}
@@ -254,7 +258,7 @@ async def _score_variant(
     else:
         neighbors = state.similar_posts
     deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors, voice_profile=state.voice_profile)
-    return await predictor_agent.run(item.variant_text, deps=deps)
+    return await predictor_agent.run(build_evaluation_user_message(item.variant_text), deps=deps)
 
 
 def build_variant_engine(

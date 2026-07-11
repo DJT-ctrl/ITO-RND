@@ -42,6 +42,7 @@ from pydantic_ai import Agent
 
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
 from agents.predictor import apply_deterministic_prediction
+from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
 from config.settings import Settings
 from processors.benchmark import compute_neighbor_prediction
@@ -203,7 +204,7 @@ async def run_evaluation_cycle(
             legacy static prompt for A/B testing. Falls back to
             ``settings.seo_discoverability_mode`` when not given.
         use_google_trends: Tier 2 Google Trends toggle. None uses
-            ``settings.google_trends_enabled`` (on by default in corpus mode).
+            ``settings.google_trends_enabled`` (off by default; opt in via env or request).
             Always off when ``seo_mode`` is ``gemini_only``.
 
     Returns:
@@ -259,10 +260,10 @@ async def run_evaluation_cycle(
     coros: list[Awaitable[Any]] = []
     if predictor is not None:
         keys.append("__predictor__")
-        coros.append(predictor.run(draft_content, deps=deps))
+        coros.append(predictor.run(build_evaluation_user_message(draft_content), deps=deps))
     for name, agent in (diagnostics or {}).items():
         keys.append(name)
-        coros.append(agent.run(draft_content, deps=deps))
+        coros.append(agent.run(build_evaluation_user_message(draft_content), deps=deps))
 
     results = await asyncio.gather(*coros, return_exceptions=True)
 
