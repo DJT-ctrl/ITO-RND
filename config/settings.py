@@ -8,6 +8,7 @@ change how configuration is sourced later (e.g. a secrets manager).
 import json
 import os
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -88,6 +89,18 @@ class Settings:
     google_trends_geo: str = ""
     # T6.6: re-scrape cached author profiles after this many days.
     profile_cache_staleness_days: int = 30
+    # Prediction validation pipeline (validation_pipeline/).
+    validation_window_hours: int = 48
+    validation_dev_window_minutes: Optional[int] = None
+    validation_max_posts_per_run: int = 20
+    validation_min_post_age_hours: int = 0
+    validation_data_dir: str = "data/validation"
+
+    def validation_window(self) -> timedelta:
+        """Delay between post publish time and scheduled re-scrape validation."""
+        if self.validation_dev_window_minutes is not None:
+            return timedelta(minutes=self.validation_dev_window_minutes)
+        return timedelta(hours=self.validation_window_hours)
 
 
 def load_settings() -> Settings:
@@ -108,6 +121,11 @@ def load_settings() -> Settings:
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
+        validation_window_hours=int(os.getenv("VALIDATION_WINDOW_HOURS", "48")),
+        validation_dev_window_minutes=_env_optional_int("VALIDATION_DEV_WINDOW_MINUTES"),
+        validation_max_posts_per_run=int(os.getenv("VALIDATION_MAX_POSTS_PER_RUN", "20")),
+        validation_min_post_age_hours=int(os.getenv("VALIDATION_MIN_POST_AGE_HOURS", "0")),
+        validation_data_dir=os.getenv("VALIDATION_DATA_DIR", "data/validation"),
     )
 
 
@@ -116,6 +134,13 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_optional_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return int(raw)
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

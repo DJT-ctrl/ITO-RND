@@ -35,6 +35,7 @@ from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
+from validation_pipeline.ui import render_accuracy_summary  # noqa: E402
 
 _STRATEGY_LABELS = {
     "Dimension-focused (SEO / Clarity / Tone)": "dimension",
@@ -262,125 +263,136 @@ if run_clicked and draft_content.strip():
     st.session_state.draft_text = draft_content.strip()
     st.rerun()
 
-# ── Results ────────────────────────────────────────────────────────────────────
+# ── Results + Accuracy History ───────────────────────────────────────────────
 
-if st.session_state.eval_result is not None:
-    state = st.session_state.eval_result
-    predictor = state.predictor_result or {}
+st.divider()
+results_tab, accuracy_tab = st.tabs(["Evaluation Results", "Accuracy History"])
 
-    # T4.3 — Top scorecard
-    st.subheader("Scorecard")
-    sc = st.columns(5)
-    sc[0].metric(
-        "Predicted Percentile",
-        f"{predictor.get('predicted_engagement_percentile', 0):.0f}",
-        help="Where this post is predicted to rank vs all historical posts (0–100).",
+with accuracy_tab:
+    st.caption(
+        "Read-only summary from the Validation Pipeline — "
+        "predicted vs actual engagement after scheduled re-scrape."
     )
-    sc[1].metric(
-        "Predicted Engagements",
-        predictor.get("predicted_total_engagement", "—"),
-    )
-    for idx, name in enumerate(["seo", "clarity", "tone"], start=2):
-        diag = state.diagnostics.get(name, {})
-        sc[idx].metric(name.title(), f"{diag.get('score', 0):.1f}/10")
+    render_accuracy_summary(settings, compact=True)
 
-    st.divider()
+with results_tab:
+    if st.session_state.eval_result is not None:
+        state = st.session_state.eval_result
+        predictor = state.predictor_result or {}
 
-    # Predictor + Diagnostics side-by-side
-    left, right = st.columns(2)
+        # T4.3 — Top scorecard
+        st.subheader("Scorecard")
+        sc = st.columns(5)
+        sc[0].metric(
+            "Predicted Percentile",
+            f"{predictor.get('predicted_engagement_percentile', 0):.0f}",
+            help="Where this post is predicted to rank vs all historical posts (0–100).",
+        )
+        sc[1].metric(
+            "Predicted Engagements",
+            predictor.get("predicted_total_engagement", "—"),
+        )
+        for idx, name in enumerate(["seo", "clarity", "tone"], start=2):
+            diag = state.diagnostics.get(name, {})
+            sc[idx].metric(name.title(), f"{diag.get('score', 0):.1f}/10")
 
-    with left:
-        st.subheader("Predictor Analysis")
-        if predictor:
-            st.write(predictor.get("reasoning", "No reasoning returned."))
+        st.divider()
+
+        # Predictor + Diagnostics side-by-side
+        left, right = st.columns(2)
+
+        with left:
+            st.subheader("Predictor Analysis")
+            if predictor:
+                st.write(predictor.get("reasoning", "No reasoning returned."))
+            else:
+                st.info("No predictor result.")
+
+        with right:
+            st.subheader("Diagnostics")
+            if not state.diagnostics:
+                st.info("No diagnostic results.")
+            else:
+                for name in ["seo", "clarity", "tone"]:
+                    diag = state.diagnostics.get(name)
+                    if not diag:
+                        continue
+                    score = diag.get("score", 0)
+                    with st.expander(f"**{name.title()}** — {score:.1f}/10", expanded=True):
+                        st.progress(score / 10.0)
+                        for section, heading, icon in [
+                            ("advantages", "Strengths", "+"),
+                            ("flaws", "Issues", "−"),
+                            ("improvements", "Suggestions", "→"),
+                        ]:
+                            items = diag.get(section, [])
+                            if items:
+                                st.markdown(f"**{heading}**")
+                                for item in items:
+                                    st.markdown(f"{icon} {item}")
+
+        if state.errors:
+            with st.expander(f"⚠ {len(state.errors)} error(s)", expanded=False):
+                for err in state.errors:
+                    st.error(err)
+
+        st.divider()
+
+        # T4.3 + T4.4 — Variants with one-click apply
+        st.subheader(f"Variants ({len(state.variants)})")
+        original_pct = predictor.get("predicted_engagement_percentile")
+
+        if not state.variants:
+            st.info("No variants were generated.")
         else:
-            st.info("No predictor result.")
+            for i, variant in enumerate(state.variants, start=1):
+                with st.container(border=True):
+                    header_col, metric_col = st.columns([3, 1])
+                    with header_col:
+                        label = "Top Variant" if i == 1 else f"Variant {i}"
+                        st.markdown(f"**{label}** &nbsp; `{variant.get('strategy_label', '')}`")
+                        st.write(variant.get("rationale", ""))
+                    with metric_col:
+                        pct = variant.get("predicted_engagement_percentile", 0)
+                        delta = (
+                            f"{pct - original_pct:+.0f}" if original_pct is not None else None
+                        )
+                        st.metric("Percentile", f"{pct:.0f}", delta=delta)
+                        st.metric(
+                            "Engagements",
+                            variant.get("predicted_total_engagement", "—"),
+                        )
 
-    with right:
-        st.subheader("Diagnostics")
-        if not state.diagnostics:
-            st.info("No diagnostic results.")
-        else:
-            for name in ["seo", "clarity", "tone"]:
-                diag = state.diagnostics.get(name)
-                if not diag:
-                    continue
-                score = diag.get("score", 0)
-                with st.expander(f"**{name.title()}** — {score:.1f}/10", expanded=True):
-                    st.progress(score / 10.0)
-                    for section, heading, icon in [
-                        ("advantages", "Strengths", "+"),
-                        ("flaws", "Issues", "−"),
-                        ("improvements", "Suggestions", "→"),
-                    ]:
-                        items = diag.get(section, [])
-                        if items:
-                            st.markdown(f"**{heading}**")
-                            for item in items:
-                                st.markdown(f"{icon} {item}")
-
-    if state.errors:
-        with st.expander(f"⚠ {len(state.errors)} error(s)", expanded=False):
-            for err in state.errors:
-                st.error(err)
-
-    st.divider()
-
-    # T4.3 + T4.4 — Variants with one-click apply
-    st.subheader(f"Variants ({len(state.variants)})")
-    original_pct = predictor.get("predicted_engagement_percentile")
-
-    if not state.variants:
-        st.info("No variants were generated.")
-    else:
-        for i, variant in enumerate(state.variants, start=1):
-            with st.container(border=True):
-                header_col, metric_col = st.columns([3, 1])
-                with header_col:
-                    label = "Top Variant" if i == 1 else f"Variant {i}"
-                    st.markdown(f"**{label}** &nbsp; `{variant.get('strategy_label', '')}`")
-                    st.write(variant.get("rationale", ""))
-                with metric_col:
-                    pct = variant.get("predicted_engagement_percentile", 0)
-                    delta = (
-                        f"{pct - original_pct:+.0f}" if original_pct is not None else None
-                    )
-                    st.metric("Percentile", f"{pct:.0f}", delta=delta)
-                    st.metric(
-                        "Engagements",
-                        variant.get("predicted_total_engagement", "—"),
+                    st.text_area(
+                        f"v{i}",
+                        value=variant.get("variant_text", ""),
+                        height=110,
+                        label_visibility="collapsed",
                     )
 
-                st.text_area(
-                    f"v{i}",
-                    value=variant.get("variant_text", ""),
-                    height=110,
-                    label_visibility="collapsed",
+                    # T4.4: one-click apply — loads variant text back into the draft input
+                    if st.button(f"Use Variant {i}", key=f"apply_{i}", type="secondary"):
+                        st.session_state.draft_text = variant.get("variant_text", "")
+                        st.session_state.eval_result = None
+                        st.rerun()
+
+        st.divider()
+        with st.expander(
+            f"Similar posts used as context ({len(state.similar_posts)} retrieved)",
+            expanded=False,
+        ):
+            for j, post in enumerate(state.similar_posts[:5], start=1):
+                st.markdown(
+                    f"**#{j}** &nbsp; `{post.post_id}` · "
+                    f"p{post.engagement_percentile:.0f} · "
+                    f"distance={post.cosine_distance:.3f}"
                 )
+                preview = post.content[:300]
+                if len(post.content) > 300:
+                    preview += "…"
+                st.caption(preview)
+                if j < min(5, len(state.similar_posts)):
+                    st.divider()
 
-                # T4.4: one-click apply — loads variant text back into the draft input
-                if st.button(f"Use Variant {i}", key=f"apply_{i}", type="secondary"):
-                    st.session_state.draft_text = variant.get("variant_text", "")
-                    st.session_state.eval_result = None
-                    st.rerun()
-
-    st.divider()
-    with st.expander(
-        f"Similar posts used as context ({len(state.similar_posts)} retrieved)",
-        expanded=False,
-    ):
-        for j, post in enumerate(state.similar_posts[:5], start=1):
-            st.markdown(
-                f"**#{j}** &nbsp; `{post.post_id}` · "
-                f"p{post.engagement_percentile:.0f} · "
-                f"distance={post.cosine_distance:.3f}"
-            )
-            preview = post.content[:300]
-            if len(post.content) > 300:
-                preview += "…"
-            st.caption(preview)
-            if j < min(5, len(state.similar_posts)):
-                st.divider()
-
-else:
-    st.info("Enter your draft post in the sidebar and click **Evaluate Post**.")
+    else:
+        st.info("Enter your draft post in the sidebar and click **Evaluate Post**.")
