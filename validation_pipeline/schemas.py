@@ -117,13 +117,6 @@ class CollectPredictResult(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-class CorpusImportResult(BaseModel):
-    imported: int = 0
-    skipped: int = 0
-    predictions: list[PredictionRecord] = Field(default_factory=list)
-    errors: list[str] = Field(default_factory=list)
-
-
 class CollectedPost(BaseModel):
     linkedin_post_id: str
     linkedin_url: str

@@ -9,12 +9,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import BaseModel, Field
+
 from config.paths import resolve_data_path
 from config.settings import Settings, load_settings
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.predict import predict_for_post, save_prediction
-from validation_pipeline.schemas import CollectedPost, CorpusImportResult
+from validation_pipeline.schemas import CollectedPost, PredictionRecord
 from validation_pipeline.store import prediction_exists
+
+
+class CorpusImportResult(BaseModel):
+    imported: int = 0
+    skipped: int = 0
+    predictions: list[PredictionRecord] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
 
 def _parse_posted_at(value: Any) -> datetime:
