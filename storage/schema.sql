@@ -109,6 +109,70 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 CREATE INDEX IF NOT EXISTS profiles_scraped_at_idx ON profiles (scraped_at);
 
+-- Prediction validation pipeline: tracked live posts with scheduled re-scrape.
+CREATE TABLE IF NOT EXISTS predictions (
+    prediction_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    linkedin_post_id        TEXT NOT NULL,
+    linkedin_url            TEXT NOT NULL,
+    author_public_id        TEXT NOT NULL DEFAULT '',
+    content                 TEXT NOT NULL,
+    posted_at               TIMESTAMPTZ NOT NULL,
+
+    predicted_engagement_percentile  DOUBLE PRECISION NOT NULL,
+    predicted_total_engagement       INTEGER,
+    predicted_likes                  INTEGER,
+    predicted_comments               INTEGER,
+    predicted_shares                 INTEGER,
+    prediction_method                TEXT,
+    neighbor_count                   INTEGER,
+
+    status                  TEXT NOT NULL DEFAULT 'scheduled',
+    validation_due_at       TIMESTAMPTZ NOT NULL,
+    validated_at            TIMESTAMPTZ,
+
+    actual_likes            INTEGER,
+    actual_comments         INTEGER,
+    actual_shares           INTEGER,
+    actual_total_engagement INTEGER,
+    actual_engagement_percentile DOUBLE PRECISION,
+    prediction_delta        DOUBLE PRECISION,
+    accuracy_score          DOUBLE PRECISION,
+    likes_delta             DOUBLE PRECISION,
+    comments_delta          DOUBLE PRECISION,
+    shares_delta            DOUBLE PRECISION,
+    total_engagement_delta  DOUBLE PRECISION,
+    validation_error        TEXT,
+
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS predictions_linkedin_post_id_idx
+    ON predictions (linkedin_post_id);
+
+CREATE INDEX IF NOT EXISTS predictions_status_due_idx
+    ON predictions (status, validation_due_at);
+
+CREATE TABLE IF NOT EXISTS prediction_engagement_snapshots (
+    snapshot_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prediction_id   UUID NOT NULL REFERENCES predictions(prediction_id),
+    scraped_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    likes           INTEGER NOT NULL,
+    comments        INTEGER NOT NULL,
+    shares          INTEGER NOT NULL,
+    total_engagement INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS prediction_snapshots_prediction_id_idx
+    ON prediction_engagement_snapshots (prediction_id);
+
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_likes INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_comments INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_shares INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS likes_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS comments_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS shares_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS total_engagement_delta DOUBLE PRECISION;
+
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).

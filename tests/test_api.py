@@ -19,10 +19,15 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _stub_discoverability_gather(monkeypatch):
-    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
         return None, []
 
     monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
+
+
+@pytest.fixture(autouse=True)
+def _stub_telemetry_persist(monkeypatch):
+    monkeypatch.setattr("agents.orchestrator.save_run_metadata", lambda metadata, settings: None)
 
 
 def fake_row(post_id: str = "1") -> dict:
@@ -44,7 +49,10 @@ class _AgentStub:
         self._output = output
 
     async def run(self, prompt: str, deps) -> SimpleNamespace:
-        return SimpleNamespace(output=self._output)
+        return SimpleNamespace(
+            output=self._output,
+            usage=lambda: SimpleNamespace(input_tokens=100, output_tokens=50, requests=1),
+        )
 
 
 def test_health_check():
@@ -58,7 +66,7 @@ def test_health_check():
 @patch("api.main.find_similar")
 @patch("api.main.embed_query")
 def test_similar_posts_valid_request(mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector):
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1"), fake_row("2")]
     mock_get_connection.return_value = MagicMock()
 
@@ -82,7 +90,7 @@ def test_similar_posts_valid_request(mock_embed_query, mock_find_similar, mock_g
 @patch("api.main.find_similar")
 @patch("api.main.embed_query")
 def test_similar_posts_forwards_user_id(mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector):
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
 
@@ -139,7 +147,7 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
 ):
     """T3.2/T3.3: /evaluate wires registered agents into the orchestrator."""
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1"), fake_row("2")]
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
@@ -161,6 +169,9 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     assert body["diagnostics"] == {"seo": {"score": 7.0}}
     assert body["variants"] == []
     assert body["errors"] == []
+    assert body["run_metadata"] is not None
+    assert body["run_metadata"]["total_input_tokens"] >= 0
+    assert len(body["run_metadata"]["steps"]) >= 1
 
 
 @patch("api.main.build_variant_engine")
@@ -174,7 +185,7 @@ def test_evaluate_endpoint_passes_selected_variant_strategy(
     """T3.4: variant_strategy from the request body is forwarded to
     build_variant_engine(), and its resulting hook's output ends up in the
     response's `variants` field."""
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
@@ -205,7 +216,7 @@ def test_evaluate_endpoint_passes_reembed_variant_neighbors_flag(
 ):
     """T3.4: reembed_variant_neighbors from the request body is forwarded to
     build_variant_engine() as reembed_neighbors."""
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
@@ -233,7 +244,7 @@ def test_evaluate_endpoint_passes_reembed_variant_neighbors_flag(
 def test_evaluate_endpoint_defaults_variant_strategy_to_dimension(
     mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
 ):
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
@@ -265,7 +276,7 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
     """Personalization: user_id/use_voice_profile from the request body
     reach find_similar() (tenant-scoped retrieval) — the voice profile
     fetch itself is exercised directly in tests/test_orchestrator.py."""
-    mock_embed_query.return_value = np.zeros(3072, dtype=np.float32)
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize

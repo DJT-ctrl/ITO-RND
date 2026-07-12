@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from agents.discoverability import format_discoverability_context_section
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from config.settings import pydantic_ai_gemini_model
 
@@ -64,14 +65,17 @@ def build_diagnostic_prompt(name: str, deps: EvaluationDeps) -> str:
     """Build one diagnostic worker's prompt."""
     spec = _DIAGNOSTIC_SPECS[name]
     voice_section = build_voice_profile_section(deps.voice_profile)
+    draft_section = wrap_untrusted_text(deps.draft_content)
     return f"""
+{PROMPT_DATA_PREAMBLE}
+
 You are the {spec['title']} Diagnostic Worker in a LinkedIn post evaluation pipeline.
 
 Your focus:
 {spec['focus']}
 {voice_section}
 Draft post:
-{deps.draft_content}
+{draft_section}
 
 Return only structured data matching the required output schema:
 - score: number from 0 to 10.

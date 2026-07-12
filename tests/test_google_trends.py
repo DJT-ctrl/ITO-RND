@@ -166,6 +166,11 @@ def test_is_cache_stale_respects_ttl():
     assert _is_cache_stale(stale, ttl_hours=12) is True
 
 
+def test_resolve_use_google_trends_off_by_default():
+    settings = make_settings(google_trends_enabled=False)
+    assert resolve_use_google_trends("corpus", settings) is False
+
+
 def test_resolve_use_google_trends_off_in_gemini_only_mode():
     settings = make_settings(google_trends_enabled=True)
     assert resolve_use_google_trends("gemini_only", settings) is False

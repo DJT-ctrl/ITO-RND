@@ -28,6 +28,7 @@ from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, Simil
 from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
+from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()
 configure_observability(settings)
@@ -61,7 +62,7 @@ def health() -> dict[str, str]:
 @app.post("/api/v1/similar-posts", response_model=SimilarPostsResponse)
 def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
     try:
-        query_vector = embed_query(request.content, settings)
+        query_vector, _prompt_tokens = embed_query(request.content, settings)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -87,14 +88,21 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
 @app.post("/api/v1/evaluate", response_model=PostEvaluationState)
 async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
     """Run the async evaluation cycle end-to-end over HTTP."""
-    # Building the hook is pure Python (no I/O until it's awaited inside the
-    # cycle's finalize stage), so it's cheap to construct fresh per request
-    # with the caller-selected strategy rather than fixing one at startup.
+    resolved_seo_mode = request.seo_mode or settings.seo_discoverability_mode
+    collector = RunMetadataCollector(
+        settings=settings,
+        user_id=request.user_id,
+        agent_model=_eval_model,
+        variant_strategy=request.variant_strategy,
+        reembed_variant_neighbors=request.reembed_variant_neighbors,
+        seo_mode=resolved_seo_mode,
+    )
     variant_hook = build_variant_engine(
         predictor_agent,
         strategy=request.variant_strategy,
         reembed_neighbors=request.reembed_variant_neighbors,
         settings=settings,
+        collector=collector,
     )
     try:
         return await run_evaluation_cycle(
@@ -107,6 +115,9 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
             use_voice_profile=request.use_voice_profile,
             seo_mode=request.seo_mode,
             use_google_trends=request.use_google_trends,
+            collector=collector,
+            variant_strategy=request.variant_strategy,
+            reembed_variant_neighbors=request.reembed_variant_neighbors,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

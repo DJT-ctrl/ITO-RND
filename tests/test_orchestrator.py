@@ -30,10 +30,15 @@ from config.settings import Settings
 def _stub_discoverability_gather(monkeypatch):
     """Avoid DB/cache access in orchestrator tests unless explicitly overridden."""
 
-    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
         return None, []
 
     monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
+
+
+@pytest.fixture(autouse=True)
+def _stub_telemetry_persist(monkeypatch):
+    monkeypatch.setattr("agents.orchestrator.save_run_metadata", lambda metadata, settings: None)
 
 
 def fake_row(post_id: str = "1") -> dict:
@@ -74,7 +79,10 @@ class _SleepyAgent:
 
     async def run(self, prompt: str, deps) -> SimpleNamespace:
         await asyncio.sleep(self._sleep_s)
-        return SimpleNamespace(output=self._output)
+        return SimpleNamespace(
+            output=self._output,
+            usage=lambda: SimpleNamespace(input_tokens=10, output_tokens=5, requests=1),
+        )
 
 
 class _RaisingAgent:
@@ -88,7 +96,7 @@ def _patch_neighbor_fetch(rows: list[dict]):
     """Patch the 4 collaborators agents.orchestrator._gather_similar_posts
     uses, so tests never touch a real DB or the Gemini API."""
     return (
-        patch("agents.orchestrator.embed_query", return_value=np.zeros(3072, dtype=np.float32)),
+        patch("agents.orchestrator.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)),
         patch("agents.orchestrator.find_similar", return_value=rows),
         patch("agents.orchestrator.get_connection", return_value=MagicMock()),
         patch("agents.orchestrator.register_vector"),
@@ -141,6 +149,20 @@ def test_predictor_result_written_separately_from_diagnostics():
     assert state.diagnostics == {"seo": {"seo_score": 5}}
 
 
+def test_run_metadata_populated_with_step_telemetry():
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4:
+        predictor = _SleepyAgent({"engagement_score": 88}, sleep_s=0.01)
+        state = asyncio.run(run_evaluation_cycle("draft text", fake_settings(), predictor=predictor))
+
+    assert state.run_metadata is not None
+    step_ids = {step.step_id for step in state.run_metadata.steps}
+    assert "retrieval.embed_query" in step_ids
+    assert "retrieval.vector_search" in step_ids
+    assert "agent.predictor" in step_ids
+    assert state.run_metadata.total_input_tokens >= 10
+
+
 def test_no_state_leaks_between_separate_calls():
     p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
     with p1, p2, p3, p4:
@@ -181,7 +203,7 @@ def test_seo_mode_gemini_only_skips_discoverability_gather():
 def test_corpus_seo_mode_populates_discoverability_context(monkeypatch, _stub_discoverability_gather):
     p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
 
-    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False):
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
         return (
             {
                 "corpus_benchmark_text": "- Corpus size: 10 posts",

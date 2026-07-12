@@ -8,6 +8,7 @@ change how configuration is sourced later (e.g. a secrets manager).
 import json
 import os
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -82,8 +83,8 @@ class Settings:
     # Tier 1 discoverability: corpus-grounded SEO (default) or gemini_only baseline.
     seo_discoverability_mode: str = "corpus"
     corpus_benchmark_ttl_hours: int = 24
-    # Tier 2 discoverability: Google Trends via pytrends (on by default in corpus mode).
-    google_trends_enabled: bool = True
+    # Tier 2 discoverability: Google Trends via pytrends (opt-in; off by default).
+    google_trends_enabled: bool = False
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
     # T6.6: re-scrape cached author profiles after this many days.
@@ -93,6 +94,23 @@ class Settings:
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
     langfuse_host: str = "http://localhost:3001"
+    # Prediction validation pipeline (validation_pipeline/).
+    validation_window_hours: int = 48
+    validation_dev_window_minutes: Optional[int] = None
+    validation_max_posts_per_run: int = 20
+    validation_min_post_age_hours: int = 0
+    validation_data_dir: str = "data/validation"
+    # Evaluation-cycle telemetry (telemetry/).
+    telemetry_data_dir: str = "data/telemetry"
+    eval_cost_warning_usd: float = 0.10
+    eval_latency_warning_ms: int = 60000
+    eval_step_latency_warning_ms: int = 20000
+
+    def validation_window(self) -> timedelta:
+        """Delay between post publish time and scheduled re-scrape validation."""
+        if self.validation_dev_window_minutes is not None:
+            return timedelta(minutes=self.validation_dev_window_minutes)
+        return timedelta(hours=self.validation_window_hours)
 
 
 def load_settings() -> Settings:
@@ -109,13 +127,22 @@ def load_settings() -> Settings:
         database_url=os.getenv("DATABASE_URL", ""),
         seo_discoverability_mode=os.getenv("SEO_DISCOVERABILITY_MODE", "corpus"),
         corpus_benchmark_ttl_hours=int(os.getenv("CORPUS_BENCHMARK_TTL_HOURS", "24")),
-        google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=True),
+        google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=False),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
         langfuse_public_key=os.getenv("LANGFUSE_PUBLIC_KEY", ""),
         langfuse_secret_key=os.getenv("LANGFUSE_SECRET_KEY", ""),
         langfuse_host=os.getenv("LANGFUSE_HOST", "http://localhost:3001"),
+        validation_window_hours=int(os.getenv("VALIDATION_WINDOW_HOURS", "48")),
+        validation_dev_window_minutes=_env_optional_int("VALIDATION_DEV_WINDOW_MINUTES"),
+        validation_max_posts_per_run=int(os.getenv("VALIDATION_MAX_POSTS_PER_RUN", "20")),
+        validation_min_post_age_hours=int(os.getenv("VALIDATION_MIN_POST_AGE_HOURS", "0")),
+        validation_data_dir=os.getenv("VALIDATION_DATA_DIR", "data/validation"),
+        telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
+        eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
+        eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
+        eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
     )
 
 
@@ -124,6 +151,13 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_optional_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    return int(raw)
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

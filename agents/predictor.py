@@ -14,6 +14,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from config.settings import pydantic_ai_gemini_model
 
@@ -29,6 +30,21 @@ class PredictorOutput(BaseModel):
         ...,
         ge=0,
         description="Predicted raw total engagement count (likes + comments + shares).",
+    )
+    predicted_likes: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted like count from neighbor-weighted breakdown.",
+    )
+    predicted_comments: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted comment count from neighbor-weighted breakdown.",
+    )
+    predicted_shares: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Predicted share count from neighbor-weighted breakdown.",
     )
     reasoning: str = Field(
         ...,
@@ -63,7 +79,7 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
                     parts.append(
                         f"- Audience-adjusted percentile: {post.audience_adjusted_percentile:.1f}"
                     )
-            parts.append(f"- Content: {content}")
+            parts.append(f"- Content:\n{wrap_untrusted_text(content)}")
             neighbor_lines.append("\n".join(parts))
         neighbor_context = "\n\n".join(neighbor_lines)
 
@@ -71,8 +87,11 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     deterministic_section = _format_deterministic_score_section(deps.neighbor_prediction)
     draft_author_section = _format_draft_author_section(deps.draft_follower_count)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
+    draft_section = wrap_untrusted_text(deps.draft_content)
 
     return f"""
+{PROMPT_DATA_PREAMBLE}
+
 You are the Predictor Agent for a LinkedIn post evaluation pipeline.
 
 Your task: explain how the draft will perform by comparing it with the nearest
@@ -81,7 +100,7 @@ has already been computed deterministically from those neighbors — your job is
 to write clear comparative reasoning, not to invent a different score.
 {voice_section}{draft_author_section}{deterministic_section}
 Draft post:
-{deps.draft_content}
+{draft_section}
 
 Nearest historical posts:
 {neighbor_context}
@@ -94,6 +113,9 @@ Reason about:
 Return only structured data matching the required output schema:
 - predicted_engagement_percentile: use exactly {deps.neighbor_prediction.get("percentile", 50.0) if deps.neighbor_prediction else "the deterministic score above"}.
 - predicted_total_engagement: use exactly {deps.neighbor_prediction.get("total_engagement_estimate", 0) if deps.neighbor_prediction else "the deterministic estimate above"}.
+- predicted_likes: use exactly {deps.neighbor_prediction.get("predicted_likes", 0) if deps.neighbor_prediction else 0}.
+- predicted_comments: use exactly {deps.neighbor_prediction.get("predicted_comments", 0) if deps.neighbor_prediction else 0}.
+- predicted_shares: use exactly {deps.neighbor_prediction.get("predicted_shares", 0) if deps.neighbor_prediction else 0}.
 - reasoning: concise comparative explanation grounded in the retrieved neighbors and the deterministic score.
 """.strip()
 
@@ -108,6 +130,9 @@ def apply_deterministic_prediction(
     return PredictorOutput(
         predicted_engagement_percentile=float(neighbor_prediction["percentile"]),
         predicted_total_engagement=int(neighbor_prediction["total_engagement_estimate"]),
+        predicted_likes=int(neighbor_prediction.get("predicted_likes", 0)),
+        predicted_comments=int(neighbor_prediction.get("predicted_comments", 0)),
+        predicted_shares=int(neighbor_prediction.get("predicted_shares", 0)),
         reasoning=output.reasoning,
     )
 
@@ -143,6 +168,7 @@ def _format_deterministic_score_section(neighbor_prediction: Optional[dict[str, 
 Deterministic prediction (computed from neighbors — do not override):
 - Predicted percentile: {neighbor_prediction["percentile"]:.1f}
 - Predicted total engagement: {neighbor_prediction["total_engagement_estimate"]}
+- Predicted likes / comments / shares: {neighbor_prediction.get("predicted_likes", 0)} / {neighbor_prediction.get("predicted_comments", 0)} / {neighbor_prediction.get("predicted_shares", 0)}
 - Scoring method: {method_label}
 - Follower-normalized neighbor coverage: {coverage}/{neighbor_count}
 """

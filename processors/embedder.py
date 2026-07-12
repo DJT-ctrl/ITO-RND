@@ -79,13 +79,24 @@ def embed_batch(records: list[dict[str, Any]], settings: Settings) -> tuple[np.n
     all_vectors: list[list[float]] = []
     for start in range(0, len(contents), _BATCH_SIZE):
         batch = contents[start : start + _BATCH_SIZE]
-        all_vectors.extend(_embed_with_retry(client, batch))
+        batch_vectors, _ = _embed_with_retry(client, batch)
+        all_vectors.extend(batch_vectors)
 
     vectors = np.array(all_vectors, dtype=np.float32)
     return vectors, skipped
 
 
-def embed_query(text: str, settings: Settings) -> np.ndarray:
+def _prompt_token_count(response: Any, batch: list[str]) -> int:
+    """Read token usage from embed response, or estimate from text length."""
+    usage = getattr(response, "usage_metadata", None)
+    if usage is not None:
+        count = getattr(usage, "prompt_token_count", None)
+        if count is not None:
+            return int(count)
+    return max(1, sum(len(text) for text in batch) // 4)
+
+
+def embed_query(text: str, settings: Settings) -> tuple[np.ndarray, int]:
     """Embed a single query string for similarity search against stored posts.
 
     Uses task_type="RETRIEVAL_QUERY" (not "RETRIEVAL_DOCUMENT", which
@@ -105,11 +116,13 @@ def embed_query(text: str, settings: Settings) -> np.ndarray:
         raise ValueError("GEMINI_API_KEY is not set (check your .env file).")
 
     client = genai.Client(api_key=settings.gemini_api_key)
-    vectors = _embed_with_retry(client, [text], task_type="RETRIEVAL_QUERY")
-    return np.array(vectors[0], dtype=np.float32)
+    vectors, prompt_tokens = _embed_with_retry(client, [text], task_type="RETRIEVAL_QUERY")
+    return np.array(vectors[0], dtype=np.float32), prompt_tokens
 
 
-def _embed_with_retry(client: "genai.Client", batch: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
+def _embed_with_retry(
+    client: "genai.Client", batch: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
+) -> tuple[list[list[float]], int]:
     """Call the embedding endpoint for one batch, retrying transient errors.
 
     Retries on HTTP 429 (rate limit) and 5xx (server error) with
@@ -127,7 +140,8 @@ def _embed_with_retry(client: "genai.Client", batch: list[str], task_type: str =
                     output_dimensionality=_OUTPUT_DIMENSIONALITY,
                 ),
             )
-            return [embedding.values for embedding in response.embeddings]
+            vectors = [embedding.values for embedding in response.embeddings]
+            return vectors, _prompt_token_count(response, batch)
         except genai_errors.APIError as exc:
             retryable = exc.code == 429 or 500 <= exc.code < 600
             if not retryable or attempt == _MAX_ATTEMPTS:

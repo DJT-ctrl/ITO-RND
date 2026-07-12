@@ -14,6 +14,7 @@ from agents.predictor import (
     build_predictor_agent,
     build_predictor_prompt,
 )
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE
 from agents.schemas import EvaluationDeps
 from api.schemas import SimilarPost
 from config.settings import Settings
@@ -52,7 +53,7 @@ def fake_settings() -> Settings:
 
 def _patch_neighbor_fetch(rows: list[dict]):
     return (
-        patch("agents.orchestrator.embed_query", return_value=np.zeros(3072, dtype=np.float32)),
+        patch("agents.orchestrator.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)),
         patch("agents.orchestrator.find_similar", return_value=rows),
         patch("agents.orchestrator.get_connection", return_value=MagicMock()),
         patch("agents.orchestrator.register_vector"),
@@ -67,6 +68,8 @@ def test_predictor_prompt_includes_neighbor_context():
 
     prompt = build_predictor_prompt(deps)
 
+    assert PROMPT_DATA_PREAMBLE in prompt
+    assert "<post_content>" in prompt
     assert "Draft post about a product launch" in prompt
     assert "Neighbor 1" in prompt
     assert "Total engagement: 26" in prompt
@@ -195,6 +198,9 @@ def test_apply_deterministic_prediction_overrides_llm_numbers():
         {
             "percentile": 72.5,
             "total_engagement_estimate": 48,
+            "predicted_likes": 35,
+            "predicted_comments": 10,
+            "predicted_shares": 3,
             "method": "audience_adjusted",
             "coverage": 2,
             "neighbor_count": 2,
@@ -202,6 +208,9 @@ def test_apply_deterministic_prediction_overrides_llm_numbers():
     )
     assert corrected.predicted_engagement_percentile == 72.5
     assert corrected.predicted_total_engagement == 48
+    assert corrected.predicted_likes == 35
+    assert corrected.predicted_comments == 10
+    assert corrected.predicted_shares == 3
     assert corrected.reasoning == "Because neighbors look strong."
 
 
@@ -268,6 +277,9 @@ def test_predictor_and_diagnostics_integrate_with_orchestrator():
     assert set(state.predictor_result) == {
         "predicted_engagement_percentile",
         "predicted_total_engagement",
+        "predicted_likes",
+        "predicted_comments",
+        "predicted_shares",
         "reasoning",
     }
     assert set(state.diagnostics) == {"seo", "clarity", "tone"}

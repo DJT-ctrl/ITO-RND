@@ -44,19 +44,13 @@
 
 ## 3 — Profiles Table + Scrape Cache
 
-**The gap:** The profile scraper (`scrapers/linkedin_profile_scraper.py`) has no caching layer. If the same author appears across 40 posts, a naive run scrapes them 40 times. The scraper itself already enforces a 500-profile/day limit because scraping more risks getting the LinkedIn account flagged. Without a cache, doubling the scraping footprint means burning that daily budget on duplicate lookups.
+**Status:** Resolved (T6.6, 2026-07-11)
 
-**What's needed:** A `profiles` table keyed by `author_public_id`, storing follower count and a scrape timestamp. Before any profile fetch, check this table first and only re-scrape when the record is stale (e.g. older than 30 days).
-
-**What this also enables:**
-- The backfill pass for existing posts (T6.1) becomes a single lookup-and-scrape, not a per-post scrape
-- Follower count history over time (scrape multiple timestamps → track audience growth)
-
-**Key tasks:**
-- Add `profiles` table to `storage/schema.sql`
-- Add `get_profile()` / `upsert_profile()` to `storage/` layer
-- Update the profile scraper runner to check the cache before firing an Apify run
-- Set a configurable staleness window (default 30 days)
+**Implementation:**
+- `profiles` table in `storage/schema.sql` (keyed by `author_public_id`, stores `follower_count` + `scraped_at`)
+- CRUD + staleness helpers in `storage/profile_store.py`
+- Cache-first resolution in `processors/run_sample_collection.py::_resolve_profile_records()` (also used by `run_profile_backfill` and `run_enriched_backfill`)
+- Configurable staleness via `PROFILE_CACHE_STALENESS_DAYS` (default 30) in `config/settings.py`
 
 ---
 

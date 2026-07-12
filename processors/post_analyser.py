@@ -25,6 +25,11 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
+from agents.prompt_safety import (
+    PROMPT_DATA_PREAMBLE,
+    escape_tag_breakout,
+    sanitize_known_injection_patterns,
+)
 from config.settings import GEMINI_MODEL, Settings
 from processors.post_timing import build_post_timing_fields, infer_timezone_from_location
 
@@ -59,6 +64,8 @@ _EMOJI_RE = re.compile(
 # Gemini prompt — uses __PLACEHOLDER__ tokens (not str.format) so post text
 # with curly braces cannot break prompt construction.
 _GEMINI_PROMPT_TEMPLATE = """\
+__PREAMBLE__
+
 Analyse the LinkedIn post below and return ONLY a JSON object with these keys:
 
 {
@@ -70,7 +77,9 @@ Analyse the LinkedIn post below and return ONLY a JSON object with these keys:
 }
 
 POST TEXT:
-\"\"\"__CONTENT__\"\"\"
+<post_content>
+__CONTENT__
+</post_content>
 
 Pre-computed context (do NOT re-derive — use for broader understanding only):
 - word_count: __WORD_COUNT__
@@ -86,10 +95,12 @@ def _build_gemini_prompt(
     hashtag_count: int,
     has_media: bool,
 ) -> str:
+    safe_content = sanitize_known_injection_patterns(escape_tag_breakout(content))
     return (
-        _GEMINI_PROMPT_TEMPLATE.replace("__HOOK_TYPES__", ", ".join(_HOOK_TYPES))
+        _GEMINI_PROMPT_TEMPLATE.replace("__PREAMBLE__", PROMPT_DATA_PREAMBLE)
+        .replace("__HOOK_TYPES__", ", ".join(_HOOK_TYPES))
         .replace("__TONES__", ", ".join(_TONES))
-        .replace("__CONTENT__", content)
+        .replace("__CONTENT__", safe_content)
         .replace("__WORD_COUNT__", str(word_count))
         .replace("__HASHTAG_COUNT__", str(hashtag_count))
         .replace("__HAS_MEDIA__", str(has_media))

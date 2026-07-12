@@ -90,7 +90,7 @@ if run_clicked:
     try:
         status.info("Embedding draft text via Gemini (task_type=RETRIEVAL_QUERY)...")
         embed_start = time.perf_counter()
-        query_vector = embed_query(draft_content, settings)
+        query_vector, _prompt_tokens = embed_query(draft_content, settings)
         embed_ms = (time.perf_counter() - embed_start) * 1000
 
         status.info("Running cosine-distance query against the posts table...")

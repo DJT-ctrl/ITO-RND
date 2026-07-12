@@ -11,6 +11,8 @@ from apify_client import ApifyClient
 
 from config.settings import Settings
 from scrapers.base_scraper import BaseScraper
+from scrapers.result import ScrapeResult
+from telemetry.apify import apify_run_record_from_response, save_apify_run
 
 
 class LinkedInScraper(BaseScraper):
@@ -25,7 +27,23 @@ class LinkedInScraper(BaseScraper):
         self._settings = settings
         self._client = client or ApifyClient(settings.apify_api_token)
 
-    def fetch_samples(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+    def fetch_samples(
+        self,
+        params: dict[str, Any],
+        *,
+        context: Optional[str] = None,
+        persist_telemetry: bool = True,
+    ) -> ScrapeResult:
         run = self._client.actor(self._settings.apify_actor_id).call(run_input=params)
         dataset_id = run["defaultDatasetId"]
-        return self._client.dataset(dataset_id).list_items().items
+        items = self._client.dataset(dataset_id).list_items().items
+        record = apify_run_record_from_response(
+            run,
+            actor_id=self._settings.apify_actor_id,
+            scraper="linkedin_posts",
+            item_count=len(items),
+            context=context,
+        )
+        if persist_telemetry:
+            save_apify_run(record, self._settings)
+        return ScrapeResult(items=items, run_record=record)

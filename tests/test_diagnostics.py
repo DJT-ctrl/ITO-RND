@@ -13,6 +13,7 @@ from agents.diagnostics import (
     build_seo_prompt,
     build_tone_agent,
 )
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE
 from agents.schemas import EvaluationDeps
 
 
@@ -32,6 +33,8 @@ def test_diagnostic_prompts_are_distinct_and_include_draft():
     tone_prompt = build_diagnostic_prompt("tone", deps)
 
     assert "Draft post about hiring" in seo_prompt
+    assert PROMPT_DATA_PREAMBLE in seo_prompt
+    assert "<post_content>" in seo_prompt
     assert "keyword" in seo_prompt.lower()
     assert "main point" in clarity_prompt.lower()
     assert "brand persona" in tone_prompt.lower()

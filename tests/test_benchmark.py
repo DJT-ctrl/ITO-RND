@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from processors.benchmark import (
     add_audience_adjusted_benchmark,
     add_engagement_benchmark,
+    compute_neighbor_engagement_breakdown,
     compute_neighbor_prediction,
     flag_engagement_anomalies,
 )
@@ -135,6 +136,9 @@ def test_audience_adjusted_treats_zero_follower_count_as_missing():
 def _neighbor(**kwargs):
     defaults = {
         "engagement_percentile": 50.0,
+        "likes": 80,
+        "comments": 15,
+        "shares": 5,
         "total_engagement": 100,
         "cosine_distance": 0.05,
         "audience_adjusted_percentile": None,
@@ -150,6 +154,9 @@ def test_compute_neighbor_prediction_empty_neighbors():
     assert result["percentile"] == 50.0
     assert result["neighbor_count"] == 0
     assert result["method"] == "raw_fallback"
+    assert result["predicted_likes"] == 0
+    assert result["predicted_comments"] == 0
+    assert result["predicted_shares"] == 0
 
 
 def test_compute_neighbor_prediction_prefers_audience_adjusted_when_majority_have_it():
@@ -181,17 +188,55 @@ def test_compute_neighbor_prediction_scales_total_engagement_with_draft_follower
             engagement_rate=0.1,
             follower_count=1000,
             total_engagement=100,
+            likes=80,
+            comments=15,
+            shares=5,
             engagement_percentile=50.0,
         ),
         _neighbor(
             engagement_rate=0.2,
             follower_count=1000,
             total_engagement=200,
+            likes=160,
+            comments=30,
+            shares=10,
             engagement_percentile=60.0,
         ),
     ]
     result = compute_neighbor_prediction(posts, draft_follower_count=500)
     assert result["total_engagement_estimate"] == 75
+    assert (
+        result["predicted_likes"]
+        + result["predicted_comments"]
+        + result["predicted_shares"]
+        == result["total_engagement_estimate"]
+    )
+
+
+def test_compute_neighbor_prediction_includes_reconciled_breakdown():
+    posts = [
+        _neighbor(likes=100, comments=20, shares=10, total_engagement=130),
+        _neighbor(likes=50, comments=10, shares=5, total_engagement=65),
+    ]
+    result = compute_neighbor_prediction(posts)
+    assert result["predicted_likes"] >= 0
+    assert result["predicted_comments"] >= 0
+    assert result["predicted_shares"] >= 0
+    assert (
+        result["predicted_likes"]
+        + result["predicted_comments"]
+        + result["predicted_shares"]
+        == result["total_engagement_estimate"]
+    )
+
+
+def test_compute_neighbor_engagement_breakdown_reconciles_to_total():
+    posts = [
+        _neighbor(likes=90, comments=8, shares=2, total_engagement=100),
+        _neighbor(likes=45, comments=4, shares=1, total_engagement=50),
+    ]
+    breakdown = compute_neighbor_engagement_breakdown(posts, total_engagement_estimate=99)
+    assert breakdown["predicted_likes"] + breakdown["predicted_comments"] + breakdown["predicted_shares"] == 99
 
 
 # ── flag_engagement_anomalies ───────────────────────────────────────────────

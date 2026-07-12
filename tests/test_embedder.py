@@ -32,6 +32,7 @@ def fake_embed_response(n: int, dim: int = 3072):
     """Build a MagicMock shaped like an EmbedContentResponse for n posts."""
     response = MagicMock()
     response.embeddings = [MagicMock(values=[0.1] * dim) for _ in range(n)]
+    response.usage_metadata = MagicMock(prompt_token_count=42)
     return response
 
 
@@ -151,9 +152,10 @@ def test_embed_query_uses_retrieval_query_task_type():
     assert call_kwargs["contents"] == ["some draft text"]
 
 
-def test_embed_query_returns_1d_vector():
+def test_embed_query_returns_1d_vector_and_token_count():
     with patch("processors.embedder.genai.Client") as mock_client_cls:
         mock_client_cls.return_value.models.embed_content.return_value = fake_embed_response(1)
-        vector = embed_query("some draft text", make_settings())
+        vector, prompt_tokens = embed_query("some draft text", make_settings())
 
     assert vector.shape == (3072,)
+    assert prompt_tokens == 42

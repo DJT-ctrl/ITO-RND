@@ -36,11 +36,83 @@ from typing import Any, Literal, Optional, Protocol, Sequence
 
 class _NeighborLike(Protocol):
     engagement_percentile: float
+    likes: int
+    comments: int
+    shares: int
     total_engagement: int
     cosine_distance: float
     audience_adjusted_percentile: Optional[float]
     engagement_rate: Optional[float]
     follower_count: Optional[int]
+
+
+def _neighbor_weights(similar_posts: Sequence[_NeighborLike]) -> tuple[list[float], float]:
+    weights = [1.0 / max(float(post.cosine_distance), 0.001) for post in similar_posts]
+    return weights, sum(weights)
+
+
+def _weighted_engagement_breakdown(
+    similar_posts: Sequence[_NeighborLike],
+    weights: list[float],
+    weight_sum: float,
+) -> tuple[int, int, int]:
+    """Inverse-distance-weighted likes, comments, shares from neighbors."""
+    likes = sum(post.likes * weight for post, weight in zip(similar_posts, weights))
+    comments = sum(post.comments * weight for post, weight in zip(similar_posts, weights))
+    shares = sum(post.shares * weight for post, weight in zip(similar_posts, weights))
+    return (
+        max(0, round(likes / weight_sum)),
+        max(0, round(comments / weight_sum)),
+        max(0, round(shares / weight_sum)),
+    )
+
+
+def _reconcile_breakdown_to_total(
+    likes: int,
+    comments: int,
+    shares: int,
+    total_engagement_estimate: int,
+) -> tuple[int, int, int]:
+    """Scale component counts so they sum to the headline total estimate."""
+    component_sum = likes + comments + shares
+    if total_engagement_estimate <= 0:
+        return 0, 0, 0
+    if component_sum <= 0:
+        return total_engagement_estimate, 0, 0
+    if component_sum == total_engagement_estimate:
+        return likes, comments, shares
+    scale = total_engagement_estimate / component_sum
+    scaled_likes = max(0, round(likes * scale))
+    scaled_comments = max(0, round(comments * scale))
+    scaled_shares = max(0, round(shares * scale))
+    remainder = total_engagement_estimate - (scaled_likes + scaled_comments + scaled_shares)
+    if remainder != 0:
+        scaled_likes = max(0, scaled_likes + remainder)
+    return scaled_likes, scaled_comments, scaled_shares
+
+
+def compute_neighbor_engagement_breakdown(
+    similar_posts: Sequence[_NeighborLike],
+    *,
+    total_engagement_estimate: int,
+) -> dict[str, int]:
+    """Weighted likes/comments/shares forecast, reconciled to total estimate."""
+    if not similar_posts:
+        return {
+            "predicted_likes": 0,
+            "predicted_comments": 0,
+            "predicted_shares": 0,
+        }
+    weights, weight_sum = _neighbor_weights(similar_posts)
+    likes, comments, shares = _weighted_engagement_breakdown(similar_posts, weights, weight_sum)
+    likes, comments, shares = _reconcile_breakdown_to_total(
+        likes, comments, shares, total_engagement_estimate
+    )
+    return {
+        "predicted_likes": likes,
+        "predicted_comments": comments,
+        "predicted_shares": shares,
+    }
 
 
 def compute_neighbor_prediction(
@@ -67,13 +139,15 @@ def compute_neighbor_prediction(
         return {
             "percentile": 50.0,
             "total_engagement_estimate": 0,
+            "predicted_likes": 0,
+            "predicted_comments": 0,
+            "predicted_shares": 0,
             "method": "raw_fallback",
             "coverage": 0,
             "neighbor_count": 0,
         }
 
-    weights = [1.0 / max(float(post.cosine_distance), 0.001) for post in similar_posts]
-    weight_sum = sum(weights)
+    weights, weight_sum = _neighbor_weights(similar_posts)
 
     coverage = sum(
         1 for post in similar_posts if post.audience_adjusted_percentile is not None
@@ -107,9 +181,14 @@ def compute_neighbor_prediction(
     else:
         total_engagement_estimate = _weighted_total_engagement(similar_posts, weights, weight_sum)
 
+    breakdown = compute_neighbor_engagement_breakdown(
+        similar_posts,
+        total_engagement_estimate=total_engagement_estimate,
+    )
     return {
         "percentile": weighted_percentile,
         "total_engagement_estimate": total_engagement_estimate,
+        **breakdown,
         "method": method,
         "coverage": coverage,
         "neighbor_count": len(similar_posts),
