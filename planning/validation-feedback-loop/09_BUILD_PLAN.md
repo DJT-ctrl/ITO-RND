@@ -52,10 +52,13 @@ Validated rows → mean_delta → calibrate percentile (A)
 - [x] A/B settings: `VALIDATION_FEEDBACK_INJECTION_ENABLED`, `VALIDATION_FEEDBACK_INJECTION_LIMIT`
 - [x] Telemetry fields on neighbor dict: `feedback_injected`, `feedback_count`
 - [x] Tests: `tests/test_feedback_retrieve.py`
+- [x] Streamlit **Feedback Loop** page + Accuracy History calibration/coverage
+- [x] Manual actions: generate missing feedback, refresh clusters, regenerate one
 - [ ] Gemini context caching — deferred until stable prefix cost justifies it
 
 **Code landed:**
-- `feedback/retrieve.py`
+- `feedback/retrieve.py`, `feedback/ui.py`
+- `dashboard/pages/validation/10_Feedback_Loop.py`
 - `agents/schemas.py` / `agents/predictor.py` injection
 - Settings for injection enable + limit
 

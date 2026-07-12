@@ -23,7 +23,8 @@ st.set_page_config(page_title="Validation Collect", layout="wide")
 st.title("Validation Pipeline — Collect & Predict")
 st.caption(
     "Scrape fresh posts or reuse a Scraper Stage collection, run the predictor, "
-    "and schedule validation (default 48h)."
+    "and schedule validation (default 48h). Calibration + feedback injection "
+    "apply at predict time when enabled — see **Feedback Loop**."
 )
 
 settings = load_settings()

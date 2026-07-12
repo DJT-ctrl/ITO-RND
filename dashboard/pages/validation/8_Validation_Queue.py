@@ -19,7 +19,9 @@ st.set_page_config(page_title="Validation Queue", layout="wide")
 st.title("Validation Pipeline — Queue")
 st.caption(
     "Compare baseline (T0), predicted, and actual engagement. "
-    "Re-scrape uses direct LinkedIn post URLs in one batched Apify call."
+    "Re-scrape uses direct LinkedIn post URLs in one batched Apify call. "
+    "After validate, template feedback is stored automatically — manage it on "
+    "**Feedback Loop**."
 )
 
 settings = load_settings()

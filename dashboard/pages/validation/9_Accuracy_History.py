@@ -9,13 +9,19 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
-from validation_pipeline.ui import load_predictions, render_accuracy_summary, render_predictions_table  # noqa: E402
+from feedback.ui import render_calibration_panel, render_coverage_panel  # noqa: E402
+from validation_pipeline.ui import (  # noqa: E402
+    load_predictions,
+    render_accuracy_summary,
+    render_predictions_table,
+)
 
 st.set_page_config(page_title="Accuracy History", layout="wide")
 st.title("Validation Pipeline — Accuracy History")
 st.caption(
     "Percentile and per-metric count accuracy after scheduled re-scrape "
-    "(likes, comments, shares)."
+    "(likes, comments, shares). Feedback/calibration details live on "
+    "**Feedback Loop**."
 )
 
 settings = load_settings()
@@ -25,6 +31,15 @@ if not settings.database_url:
     st.stop()
 
 render_accuracy_summary(settings, compact=False)
+
+st.divider()
+render_calibration_panel(settings)
+st.divider()
+render_coverage_panel(settings)
+st.info(
+    "For clusters, lesson text, and **manual** generate/refresh actions, "
+    "open **Feedback Loop** in the Validation Pipeline nav."
+)
 
 st.divider()
 st.subheader("Recent validated predictions")
