@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Any, Optional
+from uuid import UUID
 
 from pgvector.psycopg import register_vector
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from config.settings import Settings, load_settings, pydantic_ai_gemini_model
 from feedback.calibration import apply_calibration
+from feedback.retrieve import fetch_cluster_feedback, format_feedback_context_block
 from feedback.routing import assign_cluster_id
 from feedback.store import resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
@@ -116,6 +118,38 @@ def _apply_calibration_to_neighbor_prediction(
     return calibrated
 
 
+def _load_feedback_context(
+    settings: Settings,
+    *,
+    content: str,
+    follower_count: Optional[int] = None,
+    exclude_prediction_id: Optional[UUID] = None,
+) -> tuple[Optional[str], Optional[str], int]:
+    """Fetch cluster feedback for prompt injection. Fail open → empty context."""
+    if not settings.validation_feedback_injection_enabled:
+        return None, None, 0
+
+    cluster_id = assign_cluster_id(content, follower_count)
+    try:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            records = fetch_cluster_feedback(
+                conn,
+                cluster_id,
+                limit=settings.validation_feedback_injection_limit,
+                exclude_prediction_id=exclude_prediction_id,
+            )
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Feedback retrieval failed; predicting without feedback block")
+        return None, cluster_id, 0
+
+    block = format_feedback_context_block(records, cluster_id=cluster_id)
+    return (block or None), cluster_id, len(records)
+
+
 async def predict_for_post(
     post: CollectedPost,
     settings: Settings,
@@ -134,11 +168,24 @@ async def predict_for_post(
         content=post.content,
         follower_count=post.follower_count,
     )
+    feedback_context, feedback_cluster_id, feedback_count = _load_feedback_context(
+        settings,
+        content=post.content,
+        follower_count=post.follower_count,
+    )
+    if neighbor_prediction is not None:
+        neighbor_prediction = dict(neighbor_prediction)
+        neighbor_prediction["feedback_injected"] = bool(feedback_context)
+        neighbor_prediction["feedback_count"] = feedback_count
+        if feedback_cluster_id:
+            neighbor_prediction.setdefault("cluster_id", feedback_cluster_id)
+
     deps = EvaluationDeps(
         draft_content=post.content,
         similar_posts=state.similar_posts,
         neighbor_prediction=neighbor_prediction,
         draft_follower_count=post.follower_count,
+        feedback_context=feedback_context,
     )
 
     predictor = build_predictor_agent(pydantic_ai_gemini_model())

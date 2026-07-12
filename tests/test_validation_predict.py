@@ -23,6 +23,7 @@ def _settings() -> Settings:
         default_search_limit=20,
         database_url="postgresql://fake/fake",
         validation_calibration_enabled=False,
+        validation_feedback_injection_enabled=False,
     )
 
 

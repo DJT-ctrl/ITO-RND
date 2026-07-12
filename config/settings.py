@@ -104,6 +104,9 @@ class Settings:
     validation_feedback_enabled: bool = True
     # Phase C: min validated rows in a cluster before cluster-scoped calibration.
     validation_cluster_n_min: int = 50
+    # Phase D: inject cluster feedback lessons into the predictor prompt (A/B flag).
+    validation_feedback_injection_enabled: bool = True
+    validation_feedback_injection_limit: int = 5
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -158,6 +161,12 @@ def load_settings() -> Settings:
             "VALIDATION_FEEDBACK_ENABLED", default=True
         ),
         validation_cluster_n_min=int(os.getenv("VALIDATION_CLUSTER_N_MIN", "50")),
+        validation_feedback_injection_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_INJECTION_ENABLED", default=True
+        ),
+        validation_feedback_injection_limit=int(
+            os.getenv("VALIDATION_FEEDBACK_INJECTION_LIMIT", "5")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),

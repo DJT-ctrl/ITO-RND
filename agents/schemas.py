@@ -52,6 +52,8 @@ class EvaluationDeps:
     # and optional draft-author follower count from the profiles cache.
     neighbor_prediction: Optional[dict[str, Any]] = None
     draft_follower_count: Optional[int] = None
+    # Phase D feedback injection: compact validated lessons for the predictor prompt.
+    feedback_context: Optional[str] = None
 
 
 class PostEvaluationState(BaseModel):
