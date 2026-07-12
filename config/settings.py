@@ -95,6 +95,11 @@ class Settings:
     validation_max_posts_per_run: int = 20
     validation_min_post_age_hours: int = 0
     validation_data_dir: str = "data/validation"
+    # Evaluation-cycle telemetry (telemetry/).
+    telemetry_data_dir: str = "data/telemetry"
+    eval_cost_warning_usd: float = 0.10
+    eval_latency_warning_ms: int = 60000
+    eval_step_latency_warning_ms: int = 20000
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -126,6 +131,10 @@ def load_settings() -> Settings:
         validation_max_posts_per_run=int(os.getenv("VALIDATION_MAX_POSTS_PER_RUN", "20")),
         validation_min_post_age_hours=int(os.getenv("VALIDATION_MIN_POST_AGE_HOURS", "0")),
         validation_data_dir=os.getenv("VALIDATION_DATA_DIR", "data/validation"),
+        telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
+        eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
+        eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
+        eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
     )
 
 

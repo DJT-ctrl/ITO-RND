@@ -34,6 +34,8 @@ real network calls).
 """
 
 import asyncio
+import time
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from pgvector.psycopg import register_vector
@@ -44,11 +46,22 @@ from agents.discoverability_context import gather_discoverability_context, resol
 from agents.predictor import apply_deterministic_prediction
 from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
-from config.settings import Settings
+from config.settings import Settings, pydantic_ai_gemini_model
 from processors.benchmark import compute_neighbor_prediction
 from processors.embedder import embed_query
 from storage.profile_store import get_follower_count
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
+from telemetry.collector import RunMetadataCollector
+from telemetry.instrument import run_agent_step, run_timed_thread
+from telemetry.persist import save_run_metadata
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000, 2)
 
 # A PydanticAI agent sharing our EvaluationDeps as read-only context. T3.2's
 # Predictor Agent and T3.3's Diagnostic Worker Agents will each be one of
@@ -61,7 +74,10 @@ FinalizeHook = Callable[[PostEvaluationState], Awaitable[None]]
 
 
 async def _gather_similar_posts(
-    state: PostEvaluationState, settings: Settings, user_id: Optional[str] = None
+    state: PostEvaluationState,
+    settings: Settings,
+    user_id: Optional[str] = None,
+    collector: Optional[RunMetadataCollector] = None,
 ) -> None:
     """Populate state.similar_posts with the 10 nearest vector neighbors.
 
@@ -81,8 +97,39 @@ async def _gather_similar_posts(
     don't have enough of their own (see find_similar()'s docstring).
     """
 
+    def _embed() -> tuple[Any, int]:
+        return embed_query(state.draft_content, settings)
+
+    started_at = _utc_now()
+    t0 = time.perf_counter()
+    try:
+        query_vector, prompt_tokens = await asyncio.to_thread(_embed)
+        if collector is not None:
+            collector.record_embedding(
+                step_id="retrieval.embed_query",
+                label="Embed draft query",
+                stage="retrieval",
+                prompt_tokens=prompt_tokens,
+                latency_ms=_elapsed_ms(t0),
+                started_at=started_at,
+                ended_at=_utc_now(),
+            )
+    except Exception as exc:
+        if collector is not None:
+            collector.record_embedding(
+                step_id="retrieval.embed_query",
+                label="Embed draft query",
+                stage="retrieval",
+                prompt_tokens=0,
+                latency_ms=_elapsed_ms(t0),
+                started_at=started_at,
+                ended_at=_utc_now(),
+                status="error",
+                error=str(exc),
+            )
+        raise
+
     def _fetch() -> list[dict]:
-        query_vector = embed_query(state.draft_content, settings)
         conn = get_connection(settings)
         try:
             register_vector(conn)
@@ -90,13 +137,25 @@ async def _gather_similar_posts(
         finally:
             conn.close()
 
-    rows = await asyncio.to_thread(_fetch)
+    rows = await run_timed_thread(
+        collector,
+        step_id="retrieval.vector_search",
+        label="Vector similarity search",
+        stage="retrieval",
+        call_type="db",
+        fn=_fetch,
+    )
     from api.schemas import SimilarPost
 
     state.similar_posts = [SimilarPost(**row) for row in rows]
 
 
-async def _fetch_voice_profile(state: PostEvaluationState, settings: Settings, user_id: str) -> None:
+async def _fetch_voice_profile(
+    state: PostEvaluationState,
+    settings: Settings,
+    user_id: str,
+    collector: Optional[RunMetadataCollector] = None,
+) -> None:
     """Populate state.voice_profile from the subscriber's own top posts
     (dynamic style-profile prompting). Leaves it at None (the default) if
     there isn't enough data yet — see
@@ -110,10 +169,21 @@ async def _fetch_voice_profile(state: PostEvaluationState, settings: Settings, u
         finally:
             conn.close()
 
-    state.voice_profile = await asyncio.to_thread(_fetch)
+    state.voice_profile = await run_timed_thread(
+        collector,
+        step_id="setup.voice_profile",
+        label="Fetch voice profile",
+        stage="setup",
+        call_type="db",
+        fn=_fetch,
+    )
 
 
-async def _fetch_draft_follower_count(settings: Settings, user_id: str) -> Optional[int]:
+async def _fetch_draft_follower_count(
+    settings: Settings,
+    user_id: str,
+    collector: Optional[RunMetadataCollector] = None,
+) -> Optional[int]:
     """Look up the draft author's follower count from the profiles cache."""
 
     def _fetch() -> Optional[int]:
@@ -123,7 +193,14 @@ async def _fetch_draft_follower_count(settings: Settings, user_id: str) -> Optio
         finally:
             conn.close()
 
-    return await asyncio.to_thread(_fetch)
+    return await run_timed_thread(
+        collector,
+        step_id="setup.follower_count",
+        label="Fetch follower count",
+        stage="setup",
+        call_type="db",
+        fn=_fetch,
+    )
 
 
 async def _gather_discoverability_context(
@@ -132,14 +209,25 @@ async def _gather_discoverability_context(
     settings: Settings,
     *,
     use_google_trends: bool,
+    collector: Optional[RunMetadataCollector] = None,
 ) -> tuple[Optional[dict], list[str]]:
     """Pre-compute corpus-grounded evidence for the SEO diagnostic worker."""
-    return await asyncio.to_thread(
-        gather_discoverability_context,
-        draft_content,
-        similar_posts,
-        settings,
-        use_google_trends=use_google_trends,
+
+    def _fetch() -> tuple[Optional[dict], list[str]]:
+        return gather_discoverability_context(
+            draft_content,
+            similar_posts,
+            settings,
+            use_google_trends=use_google_trends,
+        )
+
+    return await run_timed_thread(
+        collector,
+        step_id="setup.discoverability_context",
+        label="Gather discoverability context",
+        stage="setup",
+        call_type="external",
+        fn=_fetch,
     )
 
 
@@ -157,6 +245,31 @@ def _as_dict(output: Any) -> dict:
     return {"result": output}
 
 
+def _agent_model_name() -> str:
+    return pydantic_ai_gemini_model()
+
+
+async def _run_agent_with_telemetry(
+    collector: Optional[RunMetadataCollector],
+    key: str,
+    agent: EvaluationAgent,
+    prompt: str,
+    deps: EvaluationDeps,
+) -> Any:
+    step_id = "agent.predictor" if key == "__predictor__" else f"agent.{key}"
+    label = "Predictor" if key == "__predictor__" else key.title()
+    return await run_agent_step(
+        collector,
+        step_id=step_id,
+        label=label,
+        stage="agent",
+        agent=agent,
+        prompt=prompt,
+        deps=deps,
+        model=_agent_model_name(),
+    )
+
+
 async def run_evaluation_cycle(
     draft_content: str,
     settings: Settings,
@@ -167,6 +280,9 @@ async def run_evaluation_cycle(
     use_voice_profile: bool = True,
     seo_mode: Optional[SeoDiscoverabilityMode] = None,
     use_google_trends: Optional[bool] = None,
+    collector: Optional[RunMetadataCollector] = None,
+    variant_strategy: Optional[str] = None,
+    reembed_variant_neighbors: bool = False,
 ) -> PostEvaluationState:
     """Run one full content-evaluation cycle for `draft_content`.
 
@@ -206,25 +322,50 @@ async def run_evaluation_cycle(
         use_google_trends: Tier 2 Google Trends toggle. None uses
             ``settings.google_trends_enabled`` (off by default; opt in via env or request).
             Always off when ``seo_mode`` is ``gemini_only``.
+        collector: optional telemetry collector; created automatically when None.
+        variant_strategy: recorded in run_metadata for persistence/dashboard.
+        reembed_variant_neighbors: recorded in run_metadata.
 
     Returns:
         The populated PostEvaluationState. `predictor_result`, `diagnostics`,
         and `variants` stay at their empty defaults if no agents were
         supplied — expected until T3.2/T3.3/T3.4 land.
     """
+    if collector is None:
+        resolved_seo_mode_for_meta: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
+        if resolved_seo_mode_for_meta not in ("corpus", "gemini_only"):
+            resolved_seo_mode_for_meta = "corpus"
+        collector = RunMetadataCollector(
+            settings=settings,
+            user_id=user_id,
+            agent_model=_agent_model_name(),
+            variant_strategy=variant_strategy,
+            reembed_variant_neighbors=reembed_variant_neighbors,
+            seo_mode=resolved_seo_mode_for_meta,
+        )
+
     state = PostEvaluationState(draft_content=draft_content)
 
-    await _gather_similar_posts(state, settings, user_id=user_id)
+    await _gather_similar_posts(state, settings, user_id=user_id, collector=collector)
     if user_id is not None and use_voice_profile:
-        await _fetch_voice_profile(state, settings, user_id)
+        await _fetch_voice_profile(state, settings, user_id, collector=collector)
 
     draft_follower_count: Optional[int] = None
     if user_id is not None:
-        draft_follower_count = await _fetch_draft_follower_count(settings, user_id)
+        draft_follower_count = await _fetch_draft_follower_count(settings, user_id, collector=collector)
 
-    neighbor_prediction = compute_neighbor_prediction(
-        state.similar_posts,
-        draft_follower_count=draft_follower_count,
+    def _neighbor_prediction():
+        return compute_neighbor_prediction(
+            state.similar_posts,
+            draft_follower_count=draft_follower_count,
+        )
+
+    neighbor_prediction = collector.record_timed(
+        step_id="setup.neighbor_prediction",
+        label="Compute neighbor prediction",
+        stage="setup",
+        call_type="compute",
+        fn=_neighbor_prediction,
     )
 
     resolved_seo_mode: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
@@ -243,6 +384,7 @@ async def run_evaluation_cycle(
             state.similar_posts,
             settings,
             use_google_trends=resolved_use_google_trends,
+            collector=collector,
         )
         state.errors.extend(context_warnings)
 
@@ -258,12 +400,13 @@ async def run_evaluation_cycle(
 
     keys: list[str] = []
     coros: list[Awaitable[Any]] = []
+    prompt = build_evaluation_user_message(draft_content)
     if predictor is not None:
         keys.append("__predictor__")
-        coros.append(predictor.run(build_evaluation_user_message(draft_content), deps=deps))
+        coros.append(_run_agent_with_telemetry(collector, "__predictor__", predictor, prompt, deps))
     for name, agent in (diagnostics or {}).items():
         keys.append(name)
-        coros.append(agent.run(build_evaluation_user_message(draft_content), deps=deps))
+        coros.append(_run_agent_with_telemetry(collector, name, agent, prompt, deps))
 
     results = await asyncio.gather(*coros, return_exceptions=True)
 
@@ -286,5 +429,8 @@ async def run_evaluation_cycle(
 
     if finalize is not None:
         await finalize(state)
+
+    state.run_metadata = collector.finalize()
+    save_run_metadata(state.run_metadata, settings)
 
     return state

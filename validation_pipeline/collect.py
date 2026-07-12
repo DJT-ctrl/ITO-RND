@@ -64,15 +64,21 @@ def collect_posts(
 
     progress("Scraping posts...")
     scraper = LinkedInScraper(settings)
-    raw_posts = scraper.fetch_samples(search_params)
+    scrape_result = scraper.fetch_samples(search_params, context="validation_collect")
+    raw_posts = scrape_result.items
     progress(f"Found {len(raw_posts)} post(s).")
 
     progress("Scraping author profiles from posts...")
+    apify_runs: list = []
+    if scrape_result.run_record is not None:
+        apify_runs.append(scrape_result.run_record)
     profile_records, urls_scraped, fresh_records = _resolve_profile_records(
         raw_posts,
         settings,
         use_profile_cache=False,
         profile_url_limit=profile_url_limit,
+        apify_runs=apify_runs,
+        context="validation_collect",
     )
     if urls_scraped:
         progress(f"Scraped {len(fresh_records)} author profile(s).")

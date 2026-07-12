@@ -34,6 +34,8 @@ Neighbor set used for step 2 (caller-selectable via `reembed_neighbors`):
 """
 
 import asyncio
+import time
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, List, Literal, Optional, Tuple
 
 from pgvector.psycopg import register_vector
@@ -46,6 +48,8 @@ from api.schemas import SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
+from telemetry.collector import RunMetadataCollector
+from telemetry.instrument import run_agent_step, run_timed_thread
 
 VariantStrategy = Literal["dimension", "narrative", "tiered"]
 
@@ -223,15 +227,52 @@ def _fallback_scores(state: PostEvaluationState) -> Tuple[float, int]:
     return 0.0, 0
 
 
-async def _fetch_variant_neighbors(variant_text: str, settings: Settings) -> List[SimilarPost]:
+async def _fetch_variant_neighbors(
+    variant_text: str,
+    settings: Settings,
+    collector: Optional[RunMetadataCollector] = None,
+    strategy_label: str = "variant",
+) -> List[SimilarPost]:
     """Re-embed one variant's own text and fetch ITS OWN 10 nearest
     neighbors — same blocking-call-in-a-thread pattern as
     agents/orchestrator.py's _gather_similar_posts, and opens/closes its
     own DB connection so nothing is held open across the concurrent
     per-variant scoring stage."""
+    safe_label = strategy_label.replace(" ", "_").lower()[:32]
+
+    def _embed() -> Tuple[Any, int]:
+        return embed_query(variant_text, settings)
+
+    started_at = datetime.now(timezone.utc)
+    t0 = time.perf_counter()
+    try:
+        query_vector, prompt_tokens = await asyncio.to_thread(_embed)
+        if collector is not None:
+            collector.record_embedding(
+                step_id=f"variant.embed.{safe_label}",
+                label=f"Embed variant ({strategy_label})",
+                stage="variant",
+                prompt_tokens=prompt_tokens,
+                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc),
+            )
+    except Exception as exc:
+        if collector is not None:
+            collector.record_embedding(
+                step_id=f"variant.embed.{safe_label}",
+                label=f"Embed variant ({strategy_label})",
+                stage="variant",
+                prompt_tokens=0,
+                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
+                started_at=started_at,
+                ended_at=datetime.now(timezone.utc),
+                status="error",
+                error=str(exc),
+            )
+        raise
 
     def _fetch() -> List[dict]:
-        query_vector = embed_query(variant_text, settings)
         conn = get_connection(settings)
         try:
             register_vector(conn)
@@ -239,7 +280,14 @@ async def _fetch_variant_neighbors(variant_text: str, settings: Settings) -> Lis
         finally:
             conn.close()
 
-    rows = await asyncio.to_thread(_fetch)
+    rows = await run_timed_thread(
+        collector,
+        step_id=f"variant.vector_search.{safe_label}",
+        label=f"Variant vector search ({strategy_label})",
+        stage="variant",
+        call_type="db",
+        fn=_fetch,
+    )
     return [SimilarPost(**row) for row in rows]
 
 
@@ -249,16 +297,32 @@ async def _score_variant(
     predictor_agent: Agent,
     reembed_neighbors: bool,
     settings: Optional[Settings],
+    collector: Optional[RunMetadataCollector] = None,
 ) -> Any:
     """Score one variant with the T3.2 predictor agent, using either the
     shared stage-1 neighbors or this variant's own re-embedded neighbors
     (see module docstring for the tradeoff)."""
     if reembed_neighbors:
-        neighbors = await _fetch_variant_neighbors(item.variant_text, settings)
+        neighbors = await _fetch_variant_neighbors(
+            item.variant_text,
+            settings,
+            collector=collector,
+            strategy_label=item.strategy_label,
+        )
     else:
         neighbors = state.similar_posts
     deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors, voice_profile=state.voice_profile)
-    return await predictor_agent.run(build_evaluation_user_message(item.variant_text), deps=deps)
+    safe_label = item.strategy_label.replace(" ", "_").lower()[:32]
+    return await run_agent_step(
+        collector,
+        step_id=f"variant.score.{safe_label}",
+        label=f"Score variant ({item.strategy_label})",
+        stage="variant",
+        agent=predictor_agent,
+        prompt=build_evaluation_user_message(item.variant_text),
+        deps=deps,
+        model=pydantic_ai_gemini_model(),
+    )
 
 
 def build_variant_engine(
@@ -267,6 +331,7 @@ def build_variant_engine(
     strategy: VariantStrategy = "dimension",
     reembed_neighbors: bool = False,
     settings: Optional[Settings] = None,
+    collector: Optional[RunMetadataCollector] = None,
 ) -> Callable[[PostEvaluationState], Awaitable[None]]:
     """Build the T3.4 finalize hook for run_evaluation_cycle().
 
@@ -305,17 +370,27 @@ def build_variant_engine(
         )
         prompt = build_variant_prompt(strategy, deps, state)
 
-        gen_results = await asyncio.gather(generation_agent.run(prompt, deps=deps), return_exceptions=True)
-        gen_result = gen_results[0]
-        if isinstance(gen_result, Exception):
-            state.errors.append(f"variant_engine: generation failed: {gen_result}")
+        gen_result = None
+        try:
+            gen_result = await run_agent_step(
+                collector,
+                step_id="variant.generation",
+                label="Generate variants",
+                stage="variant",
+                agent=generation_agent,
+                prompt=prompt,
+                deps=deps,
+                model=pydantic_ai_gemini_model() if model is None else str(model),
+            )
+        except Exception as exc:
+            state.errors.append(f"variant_engine: generation failed: {exc}")
             return
 
         draft_items = gen_result.output.variants
 
         rerun_results = await asyncio.gather(
             *(
-                _score_variant(item, state, predictor_agent, reembed_neighbors, settings)
+                _score_variant(item, state, predictor_agent, reembed_neighbors, settings, collector)
                 for item in draft_items
             ),
             return_exceptions=True,

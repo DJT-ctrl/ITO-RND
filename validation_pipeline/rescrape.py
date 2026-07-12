@@ -79,7 +79,11 @@ def fetch_engagement(
     """Re-scrape LinkedIn and return updated engagement for a tracked post."""
     scraper = scraper or LinkedInScraper(settings)
     params = build_rescrape_params(prediction)
-    items = scraper.fetch_samples(params)
+    primary = scraper.fetch_samples(
+        params,
+        context=f"validation_rescrape:{prediction.prediction_id}",
+    )
+    items = primary.items
     _save_rescrape_artifact(settings, items, str(prediction.prediction_id))
 
     matched = match_post_in_results(items, prediction)
@@ -91,7 +95,11 @@ def fetch_engagement(
             "sortBy": "date",
             "maxPosts": 50,
         }
-        items = scraper.fetch_samples(fallback_params)
+        fallback = scraper.fetch_samples(
+            fallback_params,
+            context=f"validation_rescrape_fallback:{prediction.prediction_id}",
+        )
+        items = fallback.items
         _save_rescrape_artifact(settings, items, f"{prediction.prediction_id}_fallback")
         matched = match_post_in_results(items, prediction)
 

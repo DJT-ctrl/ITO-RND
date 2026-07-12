@@ -18,7 +18,7 @@ T4.4 — any variant can be applied back to the draft input with one click.
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import streamlit as st
 from pydantic import BaseModel
@@ -28,13 +28,23 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
 # _gather_similar_posts is the stage-1 coroutine from the orchestrator;
 # imported directly here so we can run each stage separately for T4.2.
-from agents.orchestrator import _fetch_voice_profile, _gather_discoverability_context, _gather_similar_posts  # noqa: E402
+from agents.orchestrator import (  # noqa: E402
+    _fetch_draft_follower_count,
+    _fetch_voice_profile,
+    _gather_discoverability_context,
+    _gather_similar_posts,
+)
 from agents.predictor import build_predictor_agent  # noqa: E402
 from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
+from processors.benchmark import compute_neighbor_prediction  # noqa: E402
+from telemetry.collector import RunMetadataCollector  # noqa: E402
+from telemetry.instrument import run_agent_step  # noqa: E402
+from telemetry.persist import save_run_metadata  # noqa: E402
+from telemetry.ui import render_run_metadata_summary  # noqa: E402
 from validation_pipeline.ui import render_accuracy_summary  # noqa: E402
 
 _STRATEGY_LABELS = {
@@ -68,8 +78,11 @@ async def _run_concurrent_eval(
     state: PostEvaluationState,
     predictor,
     diagnostics: dict,
+    collector: Optional[RunMetadataCollector] = None,
     seo_mode: str = "corpus",
     discoverability_context=None,
+    neighbor_prediction=None,
+    draft_follower_count=None,
 ) -> None:
     """Stage 2: run Predictor + all Diagnostic agents concurrently.
 
@@ -83,11 +96,36 @@ async def _run_concurrent_eval(
         voice_profile=state.voice_profile,
         discoverability_context=discoverability_context,
         seo_mode=seo_mode,
+        neighbor_prediction=neighbor_prediction,
+        draft_follower_count=draft_follower_count,
     )
     keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
+    prompt = build_evaluation_user_message(state.draft_content)
+    agent_model = pydantic_ai_gemini_model()
     coros = [
-        predictor.run(build_evaluation_user_message(state.draft_content), deps=deps),
-        *(agent.run(build_evaluation_user_message(state.draft_content), deps=deps) for agent in diagnostics.values()),
+        run_agent_step(
+            collector,
+            step_id="agent.predictor",
+            label="Predictor",
+            stage="agent",
+            agent=predictor,
+            prompt=prompt,
+            deps=deps,
+            model=agent_model,
+        ),
+        *(
+            run_agent_step(
+                collector,
+                step_id=f"agent.{name}",
+                label=name.title(),
+                stage="agent",
+                agent=agent,
+                prompt=prompt,
+                deps=deps,
+                model=agent_model,
+            )
+            for name, agent in diagnostics.items()
+        ),
     ]
     results = await asyncio.gather(*coros, return_exceptions=True)
     for key, result in zip(keys, results):
@@ -96,6 +134,11 @@ async def _run_concurrent_eval(
             continue
         output = _as_dict(result.output)
         if key == "__predictor__":
+            from agents.predictor import PredictorOutput, apply_deterministic_prediction
+
+            if isinstance(result.output, PredictorOutput) and neighbor_prediction:
+                corrected = apply_deterministic_prediction(result.output, neighbor_prediction)
+                output = corrected.model_dump()
             state.predictor_result = output
         else:
             state.diagnostics[key] = output
@@ -195,27 +238,53 @@ with st.sidebar:
 # ── Evaluation (T4.2 — staged progress) ───────────────────────────────────────
 
 if run_clicked and draft_content.strip():
+    collector = RunMetadataCollector(
+        settings=settings,
+        user_id=user_id,
+        agent_model=_eval_model,
+        variant_strategy=variant_strategy,
+        reembed_variant_neighbors=reembed_neighbors,
+        seo_mode=seo_mode,
+    )
     variant_hook = build_variant_engine(
         predictor_agent,
         model=_eval_model,
         strategy=variant_strategy,
         reembed_neighbors=reembed_neighbors,
         settings=settings,
+        collector=collector,
     )
     state = PostEvaluationState(draft_content=draft_content.strip())
+    stage1_start = len(collector.steps)
 
     # Stage 1: neighbor fetch
     with st.status("Finding similar posts...", expanded=True) as s:
-        asyncio.run(_gather_similar_posts(state, settings, user_id=user_id))
+        asyncio.run(_gather_similar_posts(state, settings, user_id=user_id, collector=collector))
         if user_id and use_voice_profile:
-            asyncio.run(_fetch_voice_profile(state, settings, user_id))
+            asyncio.run(_fetch_voice_profile(state, settings, user_id, collector=collector))
         label = f"Found {len(state.similar_posts)} similar posts"
         if state.voice_profile:
             label += f" · voice profile from {state.voice_profile.get('sample_size')} posts"
+        label += collector.format_snippet(stage="retrieval", since_index=stage1_start)
         s.update(label=label, state="complete", expanded=False)
+
+    draft_follower_count = None
+    if user_id:
+        draft_follower_count = asyncio.run(
+            _fetch_draft_follower_count(settings, user_id, collector=collector)
+        )
+    neighbor_prediction = collector.record_timed(
+        step_id="setup.neighbor_prediction",
+        label="Compute neighbor prediction",
+        stage="setup",
+        call_type="compute",
+        fn=lambda: compute_neighbor_prediction(state.similar_posts, draft_follower_count=draft_follower_count),
+    )
 
     # Stage 2: concurrent evaluation
     with st.status("Running Predictor + Diagnostics...", expanded=True) as s:
+        stage2_start = len(collector.steps)
+
         async def _stage2() -> None:
             discoverability_context = None
             resolved_seo_mode = seo_mode or settings.seo_discoverability_mode
@@ -232,33 +301,43 @@ if run_clicked and draft_content.strip():
                     state.similar_posts,
                     settings,
                     use_google_trends=resolved_use_trends,
+                    collector=collector,
                 )
                 state.errors.extend(warnings)
             await _run_concurrent_eval(
                 state,
                 predictor_agent,
                 diagnostic_agents,
+                collector=collector,
                 seo_mode=resolved_seo_mode,
                 discoverability_context=discoverability_context,
+                neighbor_prediction=neighbor_prediction,
+                draft_follower_count=draft_follower_count,
             )
 
         asyncio.run(_stage2())
+        label = "Predictor + Diagnostics complete" + collector.format_snippet(stage="agent", since_index=stage2_start)
         s.update(
-            label="Predictor + Diagnostics complete",
+            label=label,
             state="complete",
             expanded=False,
         )
 
     # Stage 3: variant engine
     with st.status("Generating variants...", expanded=True) as s:
+        stage3_start = len(collector.steps)
         asyncio.run(variant_hook(state))
         n = len(state.variants)
+        label = f"{n} variant{'s' if n != 1 else ''} generated"
+        label += collector.format_snippet(stage="variant", since_index=stage3_start)
         s.update(
-            label=f"{n} variant{'s' if n != 1 else ''} generated",
+            label=label,
             state="complete",
             expanded=False,
         )
 
+    state.run_metadata = collector.finalize()
+    save_run_metadata(state.run_metadata, settings)
     st.session_state.eval_result = state
     st.session_state.draft_text = draft_content.strip()
     st.rerun()
@@ -279,6 +358,10 @@ with results_tab:
     if st.session_state.eval_result is not None:
         state = st.session_state.eval_result
         predictor = state.predictor_result or {}
+
+        render_run_metadata_summary(state.run_metadata)
+
+        st.divider()
 
         # T4.3 — Top scorecard
         st.subheader("Scorecard")

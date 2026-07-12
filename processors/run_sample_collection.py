@@ -17,7 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -41,6 +41,7 @@ from storage.profile_store import (
 )
 from storage.sample_store import SampleStore
 from storage.vector_store import create_schema, get_connection
+from telemetry.apify_schemas import ApifyRunRecord
 
 _ENRICHED_CSV_FIELDS = (
     "post_id",
@@ -67,6 +68,7 @@ class CollectionResult:
     profile_records: list[dict[str, Any]]
     enriched_posts: list[dict[str, Any]]
     timestamp: str
+    apify_runs: list[ApifyRunRecord] = field(default_factory=list)
 
 
 def _utc_timestamp() -> str:
@@ -143,6 +145,8 @@ def _resolve_profile_records(
     *,
     use_profile_cache: bool,
     profile_url_limit: int | None,
+    apify_runs: list[ApifyRunRecord] | None = None,
+    context: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
     """Return (profile_records, urls_to_scrape, fresh_scrape_records)."""
     personal_urls = collect_personal_profile_urls(posts)
@@ -179,7 +183,13 @@ def _resolve_profile_records(
     fresh_records: list[dict[str, Any]] = []
     if urls_to_scrape:
         scraper = LinkedInProfileScraper(settings)
-        fresh_records = scraper.fetch_samples({"profileUrls": urls_to_scrape})
+        scrape_result = scraper.fetch_samples(
+            {"profileUrls": urls_to_scrape},
+            context=context or "profile_enrichment",
+        )
+        fresh_records = scrape_result.items
+        if apify_runs is not None and scrape_result.run_record is not None:
+            apify_runs.append(scrape_result.run_record)
 
         if use_profile_cache and settings.database_url:
             conn = get_connection(settings)
@@ -220,10 +230,17 @@ def run_sample_collection(
     timestamp = _utc_timestamp()
     store = SampleStore(settings.raw_data_dir)
     processed_store = ProcessedStore()
+    apify_runs: list[ApifyRunRecord] = []
 
     progress("Phase 1/2: Searching posts...")
     post_scraper = LinkedInScraper(settings)
-    posts = post_scraper.fetch_samples(search_params)
+    post_result = post_scraper.fetch_samples(
+        search_params,
+        context=f"collection:{timestamp}",
+    )
+    posts = post_result.items
+    if post_result.run_record is not None:
+        apify_runs.append(post_result.run_record)
     post_path = store.save("linkedin", posts, timestamp=timestamp)
 
     progress("Phase 2/2: Enriching author profiles...")
@@ -232,6 +249,8 @@ def run_sample_collection(
         settings,
         use_profile_cache=use_profile_cache,
         profile_url_limit=profile_url_limit,
+        apify_runs=apify_runs,
+        context=f"collection:{timestamp}",
     )
 
     profile_path: Path | None = None
@@ -281,6 +300,7 @@ def run_sample_collection(
         profile_records=profile_records,
         enriched_posts=enriched_posts,
         timestamp=timestamp,
+        apify_runs=apify_runs,
     )
 
 
@@ -300,12 +320,15 @@ def run_profile_backfill(
     timestamp = timestamp or _utc_timestamp()
     store = SampleStore(settings.raw_data_dir)
     processed_store = ProcessedStore()
+    apify_runs: list[ApifyRunRecord] = []
 
     profile_records, _, fresh_records = _resolve_profile_records(
         posts,
         settings,
         use_profile_cache=use_profile_cache,
         profile_url_limit=profile_url_limit,
+        apify_runs=apify_runs,
+        context=f"profile_backfill:{timestamp}",
     )
 
     profile_path: Path | None = None
@@ -339,6 +362,7 @@ def run_profile_backfill(
         profile_records=profile_records,
         enriched_posts=enriched_posts,
         timestamp=timestamp,
+        apify_runs=apify_runs,
     )
 
 

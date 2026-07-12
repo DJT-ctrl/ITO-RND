@@ -28,6 +28,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 from api.schemas import SimilarPost
+from telemetry.schemas import RunMetadata
 
 SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
 
@@ -61,6 +62,7 @@ class PostEvaluationState(BaseModel):
     diagnostics: dict[str, dict] = Field(default_factory=dict)
     variants: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    run_metadata: Optional[RunMetadata] = None
 
 
 def build_voice_profile_section(voice_profile: Optional[dict]) -> str:

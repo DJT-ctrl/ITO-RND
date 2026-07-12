@@ -10,12 +10,14 @@ needs to change.
 from abc import ABC, abstractmethod
 from typing import Any
 
+from scrapers.result import ScrapeResult
+
 
 class BaseScraper(ABC):
     platform_name: str
 
     @abstractmethod
-    def fetch_samples(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+    def fetch_samples(self, params: dict[str, Any]) -> ScrapeResult:
         """Fetch raw samples for the given search/run params.
 
         Must return a list of plain dicts exactly as received from the

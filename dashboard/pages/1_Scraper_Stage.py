@@ -19,6 +19,7 @@ from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
 from processors.profile_sources import find_paired_profile_file  # noqa: E402
 from processors.run_sample_collection import run_sample_collection  # noqa: E402
+from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 
 _FOLLOWER_RE = re.compile(r"^[\d,]+\s+followers?$", re.IGNORECASE)
 
@@ -37,6 +38,8 @@ if "profile_saved_path" not in st.session_state:
     st.session_state.profile_saved_path = None
 if "enriched_saved_path" not in st.session_state:
     st.session_state.enriched_saved_path = None
+if "last_apify_runs" not in st.session_state:
+    st.session_state.last_apify_runs = []
 
 with st.sidebar:
     st.header("Load Previous Collection")
@@ -145,7 +148,9 @@ if run_clicked:
             st.session_state.enriched_saved_path = (
                 str(result.enriched_path) if result.enriched_path else None
             )
+            st.session_state.last_apify_runs = result.apify_runs
 
+            total_cost = sum(r.cost_usd for r in result.apify_runs)
             summary = (
                 f"Done. Saved {len(result.posts)} post(s) to "
                 f"`{result.post_path}`."
@@ -154,11 +159,21 @@ if run_clicked:
                 summary += f" Profiles: `{result.profile_path}`."
             if result.enriched_path:
                 summary += f" Enriched CSV: `{result.enriched_path}`."
+            if result.apify_runs:
+                summary += f" Apify cost: ${total_cost:.4f}."
             status_area.success(summary)
         except Exception as exc:  # surfaced in the UI on purpose for a test harness
             status_area.error(f"Collection failed: {exc}")
 
 display_posts = st.session_state.enriched_samples or st.session_state.samples
+
+if st.session_state.last_apify_runs:
+    render_apify_session_cost(st.session_state.last_apify_runs)
+    st.divider()
+
+render_apify_cost_history(settings)
+
+st.divider()
 
 if display_posts:
     with results_area:

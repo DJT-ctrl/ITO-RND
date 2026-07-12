@@ -53,7 +53,7 @@ def fake_settings() -> Settings:
 
 def _patch_neighbor_fetch(rows: list[dict]):
     return (
-        patch("agents.orchestrator.embed_query", return_value=np.zeros(3072, dtype=np.float32)),
+        patch("agents.orchestrator.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)),
         patch("agents.orchestrator.find_similar", return_value=rows),
         patch("agents.orchestrator.get_connection", return_value=MagicMock()),
         patch("agents.orchestrator.register_vector"),

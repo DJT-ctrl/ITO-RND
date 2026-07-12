@@ -9,6 +9,8 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
+from telemetry.apify import load_apify_runs  # noqa: E402
+from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.pipeline import run_collect_and_predict  # noqa: E402
 from validation_pipeline.ui import load_predictions, render_predictions_table  # noqa: E402
 
@@ -90,6 +92,13 @@ if "last_collect_result" in st.session_state:
         f"Scraped {result.scraped} · Predicted {result.predicted} · "
         f"Skipped {result.skipped} · Errors {len(result.errors)}"
     )
+    validation_runs = [
+        r
+        for r in load_apify_runs(settings, limit=30)
+        if r.context and r.context.startswith("validation")
+    ][:5]
+    if validation_runs:
+        render_apify_session_cost(validation_runs)
     if result.errors:
         for err in result.errors:
             st.error(err)
@@ -97,6 +106,8 @@ if "last_collect_result" in st.session_state:
         st.subheader("Newly scheduled predictions")
         render_predictions_table(result.predictions)
 
+st.divider()
+render_apify_cost_history(settings, limit=40)
 st.divider()
 st.subheader("Recent predictions")
 if settings.database_url:

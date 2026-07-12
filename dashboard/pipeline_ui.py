@@ -130,3 +130,8 @@ def render_corpus_sidebar(settings) -> None:
         st.metric("Posts in Postgres", total)
     except Exception as exc:  # noqa: BLE001 — test harness should surface DB issues
         st.warning(f"Could not query Postgres: {exc}")
+
+    st.markdown("---")
+    from telemetry.apify_ui import render_apify_cost_sidebar
+
+    render_apify_cost_sidebar(settings)

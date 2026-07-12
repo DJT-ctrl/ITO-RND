@@ -7,6 +7,8 @@ import pytest
 
 from config.settings import Settings
 from processors.run_sample_collection import _resolve_profile_records
+from scrapers.result import ScrapeResult
+from telemetry.apify_schemas import ApifyRunRecord
 
 
 def _settings(*, database_url: str = "postgresql://test") -> Settings:
@@ -95,9 +97,18 @@ def test_mixed_stale_and_fresh_scrapes_only_stale(
     mock_get_connection.return_value = MagicMock()
 
     scraper = MagicMock()
-    scraper.fetch_samples.return_value = [
-        {"publicIdentifier": "bob", "followerCount": 2000, "linkedinUrl": "https://www.linkedin.com/in/bob"}
-    ]
+    scraper.fetch_samples.return_value = ScrapeResult(
+        items=[{"publicIdentifier": "bob", "followerCount": 2000, "linkedinUrl": "https://www.linkedin.com/in/bob"}],
+        run_record=ApifyRunRecord(
+            run_id="r1",
+            actor_id="profile-actor",
+            scraper="linkedin_profiles",
+            status="SUCCEEDED",
+            cost_usd=0.1,
+            item_count=1,
+            recorded_at=datetime.now(timezone.utc),
+        ),
+    )
     mock_scraper_cls.return_value = scraper
 
     records, urls_to_scrape, fresh_records = _resolve_profile_records(
@@ -118,10 +129,12 @@ def test_mixed_stale_and_fresh_scrapes_only_stale(
 def test_no_database_url_scrapes_all_personal_urls(mock_scraper_cls):
     posts = [_personal_post("alice"), _personal_post("bob")]
     scraper = MagicMock()
-    scraper.fetch_samples.return_value = [
-        {"publicIdentifier": "alice", "followerCount": 100},
-        {"publicIdentifier": "bob", "followerCount": 200},
-    ]
+    scraper.fetch_samples.return_value = ScrapeResult(
+        items=[
+            {"publicIdentifier": "alice", "followerCount": 100},
+            {"publicIdentifier": "bob", "followerCount": 200},
+        ]
+    )
     mock_scraper_cls.return_value = scraper
 
     records, urls_to_scrape, fresh_records = _resolve_profile_records(
@@ -154,9 +167,9 @@ def test_use_profile_cache_false_scrapes_despite_fresh_db(
     mock_get_connection.return_value = MagicMock()
 
     scraper = MagicMock()
-    scraper.fetch_samples.return_value = [
-        {"publicIdentifier": "alice", "followerCount": 999}
-    ]
+    scraper.fetch_samples.return_value = ScrapeResult(
+        items=[{"publicIdentifier": "alice", "followerCount": 999}]
+    )
     mock_scraper_cls.return_value = scraper
 
     records, urls_to_scrape, fresh_records = _resolve_profile_records(
@@ -164,9 +177,9 @@ def test_use_profile_cache_false_scrapes_despite_fresh_db(
     )
 
     mock_get_profile.assert_not_called()
-    scraper.fetch_samples.assert_called_once_with(
-        {"profileUrls": ["https://www.linkedin.com/in/alice"]}
-    )
+    scraper.fetch_samples.assert_called_once()
+    call_kwargs = scraper.fetch_samples.call_args
+    assert call_kwargs.args[0] == {"profileUrls": ["https://www.linkedin.com/in/alice"]}
     assert urls_to_scrape == ["https://www.linkedin.com/in/alice"]
     assert records[0]["followerCount"] == 999
     mock_upsert.assert_not_called()
