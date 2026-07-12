@@ -169,6 +169,37 @@ CREATE TABLE IF NOT EXISTS prediction_engagement_snapshots (
 CREATE INDEX IF NOT EXISTS prediction_snapshots_prediction_id_idx
     ON prediction_engagement_snapshots (prediction_id);
 
+-- Phase B feedback: structured lessons per validated prediction (versioned).
+CREATE TABLE IF NOT EXISTS prediction_feedback (
+    feedback_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prediction_id       UUID NOT NULL REFERENCES predictions(prediction_id),
+    cluster_id          TEXT,
+    feedback_json       JSONB NOT NULL,
+    feedback_version    TEXT NOT NULL DEFAULT 'v1',
+    generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    generation_method   TEXT NOT NULL DEFAULT 'template'
+);
+
+CREATE INDEX IF NOT EXISTS prediction_feedback_prediction_idx
+    ON prediction_feedback (prediction_id);
+
+CREATE INDEX IF NOT EXISTS prediction_feedback_cluster_idx
+    ON prediction_feedback (cluster_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS prediction_feedback_prediction_version_uidx
+    ON prediction_feedback (prediction_id, feedback_version);
+
+-- Phase C: deterministic cluster registry (metadata buckets; centroids later).
+CREATE TABLE IF NOT EXISTS prediction_clusters (
+    cluster_id          TEXT PRIMARY KEY,
+    label               TEXT,
+    description         TEXT,
+    sample_count        INTEGER NOT NULL DEFAULT 0,
+    mean_delta          DOUBLE PRECISION,
+    std_delta           DOUBLE PRECISION,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_likes INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_comments INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_shares INTEGER;

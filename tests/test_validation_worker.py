@@ -22,6 +22,7 @@ def _due_prediction() -> PredictionRecord:
     )
 
 
+@patch("validation_pipeline.worker.try_store_feedback_after_validation")
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")
 @patch("validation_pipeline.worker.insert_snapshot")
@@ -45,6 +46,7 @@ def test_run_due_validations_success(
     mock_insert_snapshot,
     mock_mark_validated,
     mock_mark_failed,
+    mock_feedback,
 ):
     settings = MagicMock()
     settings.database_url = "postgresql://test"
@@ -54,7 +56,7 @@ def test_run_due_validations_success(
     mock_corpus.return_value = [10, 20, 30]
     actuals = EngagementActuals(likes=1, comments=1, shares=1, total_engagement=3)
     mock_fetch_by_urls.return_value = {prediction.prediction_id: actuals}
-    mock_scores.return_value = ValidationScores(
+    scores = ValidationScores(
         actual_engagement_percentile=55.0,
         prediction_delta=-5.0,
         accuracy_score=95.0,
@@ -64,6 +66,7 @@ def test_run_due_validations_success(
         shares_delta=0.0,
         total_engagement_delta=-1.0,
     )
+    mock_scores.return_value = scores
 
     batch = run_due_validations(settings, limit=10)
 
@@ -73,7 +76,7 @@ def test_run_due_validations_success(
     mock_mark_validated.assert_called_once()
     mock_insert_snapshot.assert_called_once()
     mock_mark_failed.assert_not_called()
-
+    mock_feedback.assert_called_once_with(prediction, scores, settings)
 
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")

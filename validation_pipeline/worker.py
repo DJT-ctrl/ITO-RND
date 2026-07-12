@@ -9,6 +9,7 @@ from uuid import UUID
 from pgvector.psycopg import register_vector
 
 from config.settings import Settings, load_settings
+from feedback.batch import try_store_feedback_after_validation
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.rescrape import fetch_engagement_by_urls
 from validation_pipeline.schemas import ValidationBatchResult, ValidationResult
@@ -25,7 +26,6 @@ from validation_pipeline.store import (
     mark_validated,
     mark_validating,
 )
-
 
 def _validate_predictions(
     predictions: list,
@@ -65,6 +65,8 @@ def _validate_predictions(
                 insert_snapshot(conn, prediction.prediction_id, actuals)
             finally:
                 conn.close()
+            # Thin enqueue: template feedback after successful validate (fail open).
+            try_store_feedback_after_validation(prediction, scores, settings)
             batch.validated += 1
             batch.results.append(
                 ValidationResult(

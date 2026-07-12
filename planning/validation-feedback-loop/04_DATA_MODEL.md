@@ -128,9 +128,22 @@ This makes backtesting and retraining decisions (if ever needed) possible from a
 
 ---
 
+## Follow-ups from peer review
+
+Worth adding when Phase A/B harden (not blockers for first calibration PR):
+
+| Addition | Why |
+|----------|-----|
+| `corpus_benchmark_version` (or snapshot id) on validated rows | Percentiles drift as corpus grows; pin the mapping used at score time |
+| Embedding (or vector ref) on `predictions` at create time | Required for validated RAG without re-embedding drift |
+| Unique constraint on `prediction_feedback (prediction_id, feedback_version)` | Idempotent regeneration |
+
+---
+
 ## Migration path
 
 1. **Now** — `predictions` + deltas already exist; no schema change needed for validation.
-2. **Phase B** — Add `prediction_feedback` table + `cluster_id` on feedback rows.
-3. **Phase C** — Add `prediction_clusters` when routing agent is live.
-4. **Later** — Optional `post_engagement_history` (T7 A4) for multi-window actuals.
+2. **Phase A** — No schema required; calibration reads validated rows only.
+3. **Phase B** — Add `prediction_feedback` table + `cluster_id` on feedback rows.
+4. **Phase C** — Add `prediction_clusters` when deterministic routing is live.
+5. **Later** — Optional `post_engagement_history` (T7 A4) for multi-window actuals; corpus benchmark versioning + prediction embeddings.

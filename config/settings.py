@@ -97,6 +97,13 @@ class Settings:
     validation_data_dir: str = "data/validation"
     # Profile fallback depth when direct post-URL re-scrape returns no items.
     validation_rescrape_profile_max_posts: int = 100
+    # Phase A feedback: passive percentile calibration from validated deltas.
+    validation_calibration_enabled: bool = True
+    validation_calibration_n_min: int = 30
+    # Phase B feedback: template feedback records after validation.
+    validation_feedback_enabled: bool = True
+    # Phase C: min validated rows in a cluster before cluster-scoped calibration.
+    validation_cluster_n_min: int = 50
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -141,6 +148,16 @@ def load_settings() -> Settings:
         validation_rescrape_profile_max_posts=int(
             os.getenv("VALIDATION_RESCRAPE_PROFILE_MAX_POSTS", "100")
         ),
+        validation_calibration_enabled=_env_bool(
+            "VALIDATION_CALIBRATION_ENABLED", default=True
+        ),
+        validation_calibration_n_min=int(
+            os.getenv("VALIDATION_CALIBRATION_N_MIN", "30")
+        ),
+        validation_feedback_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_ENABLED", default=True
+        ),
+        validation_cluster_n_min=int(os.getenv("VALIDATION_CLUSTER_N_MIN", "50")),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),

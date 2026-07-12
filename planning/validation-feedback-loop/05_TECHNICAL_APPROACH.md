@@ -74,11 +74,17 @@ Daniel's instinct is correct: feedback should be **structured**, not a growing p
 Before any new agent work:
 
 ```python
-# Pseudocode — cluster or global
-calibrated_percentile = raw_neighbor_percentile - mean_delta_for_cluster
+# prediction_delta = actual − predicted  (locked convention)
+# Overestimate → negative mean_delta → pulls next raw scores down
+# Only apply when N_validated >= N_min (see peer review / Phase A)
+calibrated_percentile = clamp(
+    raw_neighbor_percentile + mean_delta_for_cluster,
+    0,
+    100,
+)
 ```
 
-Uses data already in `predictions` where `status = 'validated'`. No new infrastructure.
+Uses data already in `predictions` where `status = 'validated'`. No new infrastructure. Gate on sample size; log raw vs calibrated in telemetry.
 
 ---
 

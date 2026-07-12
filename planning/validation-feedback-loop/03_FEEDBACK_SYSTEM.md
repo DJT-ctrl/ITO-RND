@@ -98,6 +98,9 @@ Mitigations:
 
 - Aggregate `prediction_delta` by `prediction_method`, follower band, content length
 - Apply simple correction offsets to deterministic neighbor scoring
+- **Gate on `N_min`** (suggest ≥30 global) — below that, log stats only; do not apply offsets
+- Feature flag for calibration on/off; always log raw vs calibrated percentile
+- Cold start: if no validated rows / retrieval empty → predict unchanged
 - Zero extra LLM calls; proves the loop with data alone
 
 ### Phase B — Structured feedback records

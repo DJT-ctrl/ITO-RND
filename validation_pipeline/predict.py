@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from datetime import datetime
 from typing import Any, Optional
 
 from pgvector.psycopg import register_vector
@@ -14,10 +16,15 @@ from agents.predictor import PredictorOutput, apply_deterministic_prediction, bu
 from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from config.settings import Settings, load_settings, pydantic_ai_gemini_model
+from feedback.calibration import apply_calibration
+from feedback.routing import assign_cluster_id
+from feedback.store import resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.schemas import CollectedPost, NewPrediction, PredictionRecord
 from validation_pipeline.store import insert_prediction, prediction_exists
+
+logger = logging.getLogger(__name__)
 
 
 class PredictionOutput(BaseModel):
@@ -31,6 +38,84 @@ class PredictionOutput(BaseModel):
     reasoning: Optional[str] = None
 
 
+def _apply_calibration_to_neighbor_prediction(
+    neighbor_prediction: dict[str, Any] | None,
+    settings: Settings,
+    *,
+    content: str = "",
+    follower_count: Optional[int] = None,
+) -> dict[str, Any] | None:
+    """Adjust neighbor percentile using cluster→global mean_delta when enabled.
+
+    Fail open: any DB/stats error leaves the raw neighbor prediction unchanged.
+    Engagement count estimates are not adjusted in Phase A/C.
+    """
+    if not neighbor_prediction or not settings.validation_calibration_enabled:
+        return neighbor_prediction
+
+    raw_percentile = float(neighbor_prediction.get("percentile", 50.0))
+    cluster_id = assign_cluster_id(content, follower_count)
+    try:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            stats = resolve_calibration_stats(
+                conn,
+                cluster_id=cluster_id,
+                cluster_n_min=settings.validation_cluster_n_min,
+            )
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception(
+            "Calibration stats fetch failed; using raw neighbor percentile"
+        )
+        calibrated = dict(neighbor_prediction)
+        calibrated["raw_percentile"] = raw_percentile
+        calibrated["calibrated_percentile"] = raw_percentile
+        calibrated["mean_delta"] = None
+        calibrated["n_validated"] = None
+        calibrated["calibration_applied"] = False
+        calibrated["calibration_skip_reason"] = "stats_fetch_error"
+        calibrated["cluster_id"] = cluster_id
+        calibrated["calibration_source"] = None
+        return calibrated
+
+    # Cluster stats use cluster_n_min; global fallback uses validation_calibration_n_min.
+    n_min = (
+        settings.validation_cluster_n_min
+        if stats.source == "cluster"
+        else settings.validation_calibration_n_min
+    )
+    result = apply_calibration(
+        raw_percentile,
+        stats.mean_delta,
+        stats.n_validated,
+        n_min,
+    )
+    calibrated = dict(neighbor_prediction)
+    calibrated["percentile"] = result.calibrated_percentile
+    calibrated["raw_percentile"] = result.raw_percentile
+    calibrated["calibrated_percentile"] = result.calibrated_percentile
+    calibrated["mean_delta"] = result.mean_delta
+    calibrated["n_validated"] = result.n_validated
+    calibrated["calibration_applied"] = result.applied
+    calibrated["calibration_skip_reason"] = result.skip_reason
+    calibrated["cluster_id"] = cluster_id
+    calibrated["calibration_source"] = stats.source
+    if result.applied:
+        method = str(calibrated.get("method") or "neighbor")
+        base = (
+            method.replace("+cluster+calibrated", "")
+            .replace("+calibrated", "")
+        )
+        if stats.source == "cluster":
+            calibrated["method"] = f"{base}+cluster+calibrated"
+        else:
+            calibrated["method"] = f"{base}+calibrated"
+    return calibrated
+
+
 async def predict_for_post(
     post: CollectedPost,
     settings: Settings,
@@ -42,6 +127,12 @@ async def predict_for_post(
     neighbor_prediction = compute_neighbor_prediction(
         state.similar_posts,
         draft_follower_count=post.follower_count,
+    )
+    neighbor_prediction = _apply_calibration_to_neighbor_prediction(
+        neighbor_prediction,
+        settings,
+        content=post.content,
+        follower_count=post.follower_count,
     )
     deps = EvaluationDeps(
         draft_content=post.content,
@@ -89,13 +180,25 @@ async def predict_for_post(
 
     return PredictionOutput(
         predicted_engagement_percentile=float(
-            data.get("predicted_engagement_percentile", neighbor_prediction.get("percentile", 50.0))
+            data.get(
+                "predicted_engagement_percentile",
+                neighbor_prediction.get("percentile", 50.0) if neighbor_prediction else 50.0,
+            )
         ),
         predicted_total_engagement=data.get("predicted_total_engagement")
-        or neighbor_prediction.get("total_engagement_estimate"),
-        predicted_likes=data.get("predicted_likes", neighbor_prediction.get("predicted_likes")),
-        predicted_comments=data.get("predicted_comments", neighbor_prediction.get("predicted_comments")),
-        predicted_shares=data.get("predicted_shares", neighbor_prediction.get("predicted_shares")),
+        or (neighbor_prediction.get("total_engagement_estimate") if neighbor_prediction else None),
+        predicted_likes=data.get(
+            "predicted_likes",
+            neighbor_prediction.get("predicted_likes") if neighbor_prediction else None,
+        ),
+        predicted_comments=data.get(
+            "predicted_comments",
+            neighbor_prediction.get("predicted_comments") if neighbor_prediction else None,
+        ),
+        predicted_shares=data.get(
+            "predicted_shares",
+            neighbor_prediction.get("predicted_shares") if neighbor_prediction else None,
+        ),
         prediction_method=neighbor_prediction.get("method") if neighbor_prediction else None,
         neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
         reasoning=data.get("reasoning"),
