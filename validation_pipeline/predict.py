@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
+from typing import Any, Optional
 
 from pgvector.psycopg import register_vector
 from pydantic import BaseModel
+from pydantic_ai import UnexpectedModelBehavior
 
 from agents.orchestrator import _gather_similar_posts
 from agents.predictor import PredictorOutput, apply_deterministic_prediction, build_predictor_agent
@@ -50,7 +51,19 @@ async def predict_for_post(
     )
 
     predictor = build_predictor_agent(pydantic_ai_gemini_model())
-    result = await predictor.run(build_evaluation_user_message(post.content), deps=deps)
+    try:
+        result = await predictor.run(build_evaluation_user_message(post.content), deps=deps)
+    except UnexpectedModelBehavior:
+        if not neighbor_prediction:
+            raise
+        return _deterministic_prediction_output(
+            neighbor_prediction,
+            reasoning=(
+                "Predictor could not return structured reasoning after retries "
+                "(Gemini MALFORMED_FUNCTION_CALL). Scores use deterministic "
+                "neighbor weighting only."
+            ),
+        )
     output = result.output
     if isinstance(output, PredictorOutput) and neighbor_prediction:
         output = apply_deterministic_prediction(output, neighbor_prediction)
@@ -93,9 +106,11 @@ def save_prediction(
     post: CollectedPost,
     prediction: PredictionOutput,
     settings: Settings,
+    *,
+    validation_due_at: Optional[datetime] = None,
 ) -> PredictionRecord:
     """Persist a new prediction row with scheduled validation time."""
-    validation_due_at = post.posted_at + settings.validation_window()
+    due_at = validation_due_at or (post.posted_at + settings.validation_window())
     new_prediction = NewPrediction(
         linkedin_post_id=post.linkedin_post_id,
         linkedin_url=post.linkedin_url,
@@ -107,9 +122,13 @@ def save_prediction(
         predicted_likes=prediction.predicted_likes,
         predicted_comments=prediction.predicted_comments,
         predicted_shares=prediction.predicted_shares,
+        baseline_likes=post.likes,
+        baseline_comments=post.comments,
+        baseline_shares=post.shares,
+        baseline_total_engagement=post.total_engagement,
         prediction_method=prediction.prediction_method,
         neighbor_count=prediction.neighbor_count,
-        validation_due_at=validation_due_at,
+        validation_due_at=due_at,
     )
     conn = get_connection(settings)
     try:
@@ -135,6 +154,23 @@ async def predict_and_save(
 
     prediction = await predict_for_post(post, settings)
     return save_prediction(post, prediction, settings)
+
+
+def _deterministic_prediction_output(
+    neighbor_prediction: dict[str, Any],
+    *,
+    reasoning: str,
+) -> PredictionOutput:
+    return PredictionOutput(
+        predicted_engagement_percentile=float(neighbor_prediction["percentile"]),
+        predicted_total_engagement=int(neighbor_prediction["total_engagement_estimate"]),
+        predicted_likes=int(neighbor_prediction.get("predicted_likes", 0)),
+        predicted_comments=int(neighbor_prediction.get("predicted_comments", 0)),
+        predicted_shares=int(neighbor_prediction.get("predicted_shares", 0)),
+        prediction_method=neighbor_prediction.get("method"),
+        neighbor_count=neighbor_prediction.get("neighbor_count"),
+        reasoning=reasoning,
+    )
 
 
 def run_predict_for_post(post: CollectedPost, settings: Settings | None = None) -> PredictionRecord | None:

@@ -29,6 +29,10 @@ class PredictionRecord(BaseModel):
     predicted_likes: Optional[int] = None
     predicted_comments: Optional[int] = None
     predicted_shares: Optional[int] = None
+    baseline_likes: Optional[int] = None
+    baseline_comments: Optional[int] = None
+    baseline_shares: Optional[int] = None
+    baseline_total_engagement: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
 
@@ -63,6 +67,10 @@ class NewPrediction(BaseModel):
     predicted_likes: Optional[int] = None
     predicted_comments: Optional[int] = None
     predicted_shares: Optional[int] = None
+    baseline_likes: Optional[int] = None
+    baseline_comments: Optional[int] = None
+    baseline_shares: Optional[int] = None
+    baseline_total_engagement: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     validation_due_at: datetime
@@ -104,6 +112,13 @@ class ValidationBatchResult(BaseModel):
 class CollectPredictResult(BaseModel):
     scraped: int = 0
     predicted: int = 0
+    skipped: int = 0
+    predictions: list[PredictionRecord] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
+class CorpusImportResult(BaseModel):
+    imported: int = 0
     skipped: int = 0
     predictions: list[PredictionRecord] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)

@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from config.paths import resolve_data_path, utc_artifact_stamp
+from config.paths import DEFAULT_TELEMETRY_DATA_DIR, resolve_data_path, utc_artifact_stamp
 from config.settings import Settings
 from telemetry.schemas import RunMetadata
 
@@ -62,5 +62,7 @@ class PostgresTelemetryBackend:
 
 def save_run_metadata(metadata: RunMetadata, settings: Settings) -> Optional[Path]:
     """Persist run metadata; failures are logged, never raised."""
-    backend = FileTelemetryBackend(settings.telemetry_data_dir)
+    backend = FileTelemetryBackend(
+        getattr(settings, "telemetry_data_dir", DEFAULT_TELEMETRY_DATA_DIR)
+    )
     return backend.save(metadata)

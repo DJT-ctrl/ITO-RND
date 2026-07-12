@@ -123,6 +123,10 @@ CREATE TABLE IF NOT EXISTS predictions (
     predicted_likes                  INTEGER,
     predicted_comments               INTEGER,
     predicted_shares                 INTEGER,
+    baseline_likes                   INTEGER,
+    baseline_comments                INTEGER,
+    baseline_shares                  INTEGER,
+    baseline_total_engagement        INTEGER,
     prediction_method                TEXT,
     neighbor_count                   INTEGER,
 
@@ -172,6 +176,10 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS likes_delta DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS comments_delta DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS shares_delta DOUBLE PRECISION;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS total_engagement_delta DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_likes INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_comments INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_shares INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_total_engagement INTEGER;
 
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5

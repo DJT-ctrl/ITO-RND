@@ -77,6 +77,62 @@ def render_accuracy_summary(settings: Settings, *, compact: bool = False) -> Opt
     return aggregates
 
 
+def render_validation_comparison_table(predictions: list[PredictionRecord]) -> None:
+    """Side-by-side baseline (T0), predicted, and post-window actual metrics."""
+    if not predictions:
+        st.info("No predictions to show.")
+        return
+
+    rows = []
+    for p in predictions:
+        rows.append(
+            {
+                "select": False,
+                "post_id": p.linkedin_post_id,
+                "status": p.status,
+                "linkedin_url": p.linkedin_url,
+                "T0 likes": p.baseline_likes,
+                "T0 comments": p.baseline_comments,
+                "T0 shares": p.baseline_shares,
+                "T0 total": p.baseline_total_engagement,
+                "Pred likes": p.predicted_likes,
+                "Pred comments": p.predicted_comments,
+                "Pred shares": p.predicted_shares,
+                "Pred total": p.predicted_total_engagement,
+                "Pred %": round(p.predicted_engagement_percentile, 1),
+                "Actual likes": p.actual_likes,
+                "Actual comments": p.actual_comments,
+                "Actual shares": p.actual_shares,
+                "Actual total": p.actual_total_engagement,
+                "Actual %": round(p.actual_engagement_percentile, 1)
+                if p.actual_engagement_percentile is not None
+                else None,
+                "% delta": round(p.prediction_delta, 1) if p.prediction_delta is not None else None,
+                "due_at": p.validation_due_at.strftime("%Y-%m-%d %H:%M") if p.validation_due_at else "",
+                "validated_at": p.validated_at.strftime("%Y-%m-%d %H:%M") if p.validated_at else "",
+                "_prediction_id": str(p.prediction_id),
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    st.caption(
+        "**T0** = engagement at collect/import · **Pred** = model forecast · "
+        "**Actual** = fresh URL re-scrape (48h window or manual validate)"
+    )
+    edited = st.data_editor(
+        df.drop(columns=["_prediction_id"]),
+        use_container_width=True,
+        hide_index=True,
+        disabled=[c for c in df.columns if c != "select"],
+        key="validation_comparison_editor",
+    )
+    st.session_state["validation_selected_ids"] = [
+        rows[i]["_prediction_id"]
+        for i, selected in enumerate(edited["select"].tolist())
+        if selected
+    ]
+
+
 def render_predictions_table(predictions: list[PredictionRecord]) -> None:
     if not predictions:
         st.info("No predictions to show.")

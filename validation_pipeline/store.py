@@ -28,6 +28,10 @@ _PREDICTION_COLUMNS = [
     "predicted_likes",
     "predicted_comments",
     "predicted_shares",
+    "baseline_likes",
+    "baseline_comments",
+    "baseline_shares",
+    "baseline_total_engagement",
     "prediction_method",
     "neighbor_count",
     "status",
@@ -69,8 +73,9 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
             linkedin_post_id, linkedin_url, author_public_id, content, posted_at,
             predicted_engagement_percentile, predicted_total_engagement,
             predicted_likes, predicted_comments, predicted_shares,
+            baseline_likes, baseline_comments, baseline_shares, baseline_total_engagement,
             prediction_method, neighbor_count, validation_due_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING prediction_id, created_at
     """
     with conn.cursor() as cur:
@@ -87,6 +92,10 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
                 prediction.predicted_likes,
                 prediction.predicted_comments,
                 prediction.predicted_shares,
+                prediction.baseline_likes,
+                prediction.baseline_comments,
+                prediction.baseline_shares,
+                prediction.baseline_total_engagement,
                 prediction.prediction_method,
                 prediction.neighbor_count,
                 prediction.validation_due_at,
@@ -120,6 +129,27 @@ def fetch_due_predictions(
     """
     with conn.cursor() as cur:
         cur.execute(sql, (as_of, limit))
+        columns = [col.name for col in cur.description]
+        rows = cur.fetchall()
+    return [_row_to_prediction(row, columns) for row in rows]
+
+
+def fetch_predictions_by_ids(
+    conn: psycopg.Connection,
+    prediction_ids: list[UUID],
+) -> list[PredictionRecord]:
+    if not prediction_ids:
+        return []
+    select_clause = ", ".join(_PREDICTION_COLUMNS)
+    placeholders = ", ".join(["%s"] * len(prediction_ids))
+    sql = f"""
+        SELECT {select_clause}
+        FROM predictions
+        WHERE prediction_id IN ({placeholders})
+        ORDER BY created_at DESC
+    """
+    with conn.cursor() as cur:
+        cur.execute(sql, tuple(prediction_ids))
         columns = [col.name for col in cur.description]
         rows = cur.fetchall()
     return [_row_to_prediction(row, columns) for row in rows]

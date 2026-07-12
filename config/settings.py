@@ -95,6 +95,8 @@ class Settings:
     validation_max_posts_per_run: int = 20
     validation_min_post_age_hours: int = 0
     validation_data_dir: str = "data/validation"
+    # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
+    apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
     telemetry_data_dir: str = "data/telemetry"
     eval_cost_warning_usd: float = 0.10
@@ -115,6 +117,9 @@ def load_settings() -> Settings:
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
         apify_actor_id=os.getenv("APIFY_ACTOR_ID", ""),
         apify_profile_actor_id=os.getenv("APIFY_PROFILE_ACTOR_ID", ""),
+        apify_post_url_actor_id=os.getenv(
+            "APIFY_POST_URL_ACTOR_ID", "harvestapi/linkedin-profile-posts"
+        ),
         linkedin_cookies=_parse_cookies(os.getenv("LINKEDIN_COOKIES", "")),
         gemini_api_key=os.getenv("GEMINI_API_KEY", ""),
         raw_data_dir=os.getenv("RAW_DATA_DIR", "data/raw"),

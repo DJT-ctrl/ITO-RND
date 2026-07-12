@@ -26,7 +26,7 @@ def _due_prediction() -> PredictionRecord:
 @patch("validation_pipeline.worker.mark_validated")
 @patch("validation_pipeline.worker.insert_snapshot")
 @patch("validation_pipeline.worker.mark_validating")
-@patch("validation_pipeline.worker.fetch_engagement")
+@patch("validation_pipeline.worker.fetch_engagement_by_urls")
 @patch("validation_pipeline.worker.compute_validation_scores")
 @patch("validation_pipeline.worker.fetch_corpus_engagement_totals")
 @patch("validation_pipeline.worker.fetch_due_predictions")
@@ -40,7 +40,7 @@ def test_run_due_validations_success(
     mock_fetch_due,
     mock_corpus,
     mock_scores,
-    mock_fetch_engagement,
+    mock_fetch_by_urls,
     mock_mark_validating,
     mock_insert_snapshot,
     mock_mark_validated,
@@ -53,7 +53,7 @@ def test_run_due_validations_success(
     mock_fetch_due.return_value = [prediction]
     mock_corpus.return_value = [10, 20, 30]
     actuals = EngagementActuals(likes=1, comments=1, shares=1, total_engagement=3)
-    mock_fetch_engagement.return_value = actuals
+    mock_fetch_by_urls.return_value = {prediction.prediction_id: actuals}
     mock_scores.return_value = ValidationScores(
         actual_engagement_percentile=55.0,
         prediction_delta=-5.0,
@@ -75,10 +75,11 @@ def test_run_due_validations_success(
     mock_mark_failed.assert_not_called()
 
 
+@patch("validation_pipeline.worker.fetch_engagement")
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")
 @patch("validation_pipeline.worker.mark_validating")
-@patch("validation_pipeline.worker.fetch_engagement")
+@patch("validation_pipeline.worker.fetch_engagement_by_urls")
 @patch("validation_pipeline.worker.fetch_corpus_engagement_totals")
 @patch("validation_pipeline.worker.fetch_due_predictions")
 @patch("validation_pipeline.worker.get_connection")
@@ -90,10 +91,11 @@ def test_run_due_validations_failure(
     mock_get_connection,
     mock_fetch_due,
     mock_corpus,
-    mock_fetch_engagement,
+    mock_fetch_by_urls,
     mock_mark_validating,
     mock_mark_validated,
     mock_mark_failed,
+    mock_fetch_engagement,
 ):
     settings = MagicMock()
     settings.database_url = "postgresql://test"
@@ -101,6 +103,7 @@ def test_run_due_validations_failure(
     mock_get_connection.return_value = MagicMock()
     mock_fetch_due.return_value = [prediction]
     mock_corpus.return_value = [10, 20]
+    mock_fetch_by_urls.return_value = {}
     mock_fetch_engagement.side_effect = ValueError("not found")
 
     batch = run_due_validations(settings)

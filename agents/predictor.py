@@ -16,6 +16,7 @@ from pydantic_ai import Agent, RunContext
 
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
+from agents.structured_output import agent_structured_output
 from config.settings import pydantic_ai_gemini_model
 
 
@@ -143,7 +144,8 @@ def build_predictor_agent(model: Any = None) -> Agent[EvaluationDeps, PredictorO
     agent: Agent[EvaluationDeps, PredictorOutput] = Agent(
         resolved_model,
         deps_type=EvaluationDeps,
-        output_type=PredictorOutput,
+        output_type=agent_structured_output(PredictorOutput, resolved_model),
+        retries=2,
     )
 
     @agent.system_prompt

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from config.paths import resolve_data_path
+from config.paths import resolve_telemetry_data_dir
 from config.settings import Settings
 from telemetry.apify_schemas import ApifyCostSummary, ApifyRunRecord, ApifyScraperKind
 
@@ -58,7 +58,7 @@ def apify_run_record_from_response(
 
 
 def _apify_log_path(settings: Settings) -> Path:
-    return resolve_data_path(settings.telemetry_data_dir) / _APIFY_LOG_NAME
+    return resolve_telemetry_data_dir(settings) / _APIFY_LOG_NAME
 
 
 def save_apify_run(record: ApifyRunRecord, settings: Settings) -> Optional[Path]:

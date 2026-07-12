@@ -12,6 +12,7 @@ from pydantic_ai import Agent, RunContext
 from agents.discoverability import format_discoverability_context_section
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
+from agents.structured_output import agent_structured_output
 from config.settings import pydantic_ai_gemini_model
 
 
@@ -127,7 +128,8 @@ def _build_seo_agent(model: Any) -> Agent[EvaluationDeps, DiagnosticOutput]:
     agent: Agent[EvaluationDeps, DiagnosticOutput] = Agent(
         model,
         deps_type=EvaluationDeps,
-        output_type=DiagnosticOutput,
+        output_type=agent_structured_output(DiagnosticOutput, model),
+        retries=2,
     )
 
     @agent.system_prompt
@@ -141,7 +143,8 @@ def _build_diagnostic_agent(name: str, model: Any) -> Agent[EvaluationDeps, Diag
     agent: Agent[EvaluationDeps, DiagnosticOutput] = Agent(
         model,
         deps_type=EvaluationDeps,
-        output_type=DiagnosticOutput,
+        output_type=agent_structured_output(DiagnosticOutput, model),
+        retries=2,
     )
 
     @agent.system_prompt

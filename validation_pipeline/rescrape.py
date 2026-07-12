@@ -1,33 +1,16 @@
-"""Re-scrape engagement for a tracked prediction."""
+"""Re-scrape engagement for tracked predictions via direct post URLs."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any, Optional
+from uuid import UUID
 
 from config.paths import resolve_data_path, utc_artifact_stamp
 from config.settings import Settings
-from scrapers.linkedin_scraper import LinkedInScraper
+from scrapers.linkedin_post_url_scraper import LinkedInPostUrlScraper
 from validation_pipeline.schemas import CollectedPost, EngagementActuals, PredictionRecord
-
-
-def _content_search_query(content: str, max_len: int = 85) -> str:
-    cleaned = " ".join(content.split())
-    return cleaned[:max_len] if cleaned else "linkedin post"
-
-
-def build_rescrape_params(prediction: PredictionRecord) -> dict[str, Any]:
-    """Build Apify post-search params to re-fetch a single tracked post."""
-    params: dict[str, Any] = {
-        "searchQueries": [_content_search_query(prediction.content)],
-        "postedLimit": "week",
-        "sortBy": "date",
-        "maxPosts": 30,
-    }
-    if prediction.author_public_id:
-        params["authorsPublicIdentifiers"] = [prediction.author_public_id]
-    return params
 
 
 def match_post_in_results(
@@ -36,13 +19,18 @@ def match_post_in_results(
 ) -> dict[str, Any] | None:
     """Find the tracked post in a scraper result set by id or URL."""
     target_id = str(prediction.linkedin_post_id)
-    target_url = prediction.linkedin_url
+    target_url = _normalize_post_url(prediction.linkedin_url)
     for item in items:
         if str(item.get("id")) == target_id:
             return item
-        if item.get("linkedinUrl") == target_url:
+        item_url = item.get("linkedinUrl")
+        if item_url and _normalize_post_url(str(item_url)) == target_url:
             return item
     return None
+
+
+def _normalize_post_url(url: str) -> str:
+    return url.split("?")[0].rstrip("/")
 
 
 def extract_engagement(post: dict[str, Any]) -> EngagementActuals:
@@ -61,54 +49,85 @@ def extract_engagement(post: dict[str, Any]) -> EngagementActuals:
 def _save_rescrape_artifact(
     settings: Settings,
     items: list[dict[str, Any]],
-    prediction_id: str,
+    label: str,
 ) -> Path:
     out_dir = resolve_data_path(settings.validation_data_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"rescrape_{prediction_id}_{utc_artifact_stamp()}.json"
+    path = out_dir / f"rescrape_{label}_{utc_artifact_stamp()}.json"
     path.write_text(json.dumps(items, indent=2, ensure_ascii=False), encoding="utf-8")
     return path
+
+
+def fetch_engagement_by_urls(
+    predictions: list[PredictionRecord],
+    settings: Settings,
+    *,
+    scraper: Optional[LinkedInPostUrlScraper] = None,
+    context: str = "validation_rescrape",
+) -> dict[UUID, EngagementActuals]:
+    """Batch re-scrape posts by LinkedIn URL; one Apify run for the whole set."""
+    if not predictions:
+        return {}
+
+    scraper = scraper or LinkedInPostUrlScraper(settings)
+    url_by_prediction = {
+        p.prediction_id: p.linkedin_url.strip()
+        for p in predictions
+        if p.linkedin_url and p.linkedin_url.strip()
+    }
+    unique_urls = list(dict.fromkeys(url_by_prediction.values()))
+    result = scraper.fetch_posts_by_urls(unique_urls, context=context)
+    _save_rescrape_artifact(settings, result.items, context.replace(":", "_"))
+
+    url_to_items: dict[str, list[dict[str, Any]]] = {}
+    for item in result.items:
+        raw_url = item.get("linkedinUrl")
+        if not raw_url:
+            continue
+        key = _normalize_post_url(str(raw_url))
+        url_to_items.setdefault(key, []).append(item)
+
+    actuals: dict[UUID, EngagementActuals] = {}
+    missing: list[PredictionRecord] = []
+    for prediction in predictions:
+        matched = match_post_in_results(result.items, prediction)
+        if matched is not None:
+            actuals[prediction.prediction_id] = extract_engagement(matched)
+        else:
+            missing.append(prediction)
+
+    for prediction in missing:
+        single = scraper.fetch_posts_by_urls(
+            [prediction.linkedin_url],
+            context=f"{context}:{prediction.prediction_id}",
+        )
+        matched = match_post_in_results(single.items, prediction)
+        if matched is not None:
+            actuals[prediction.prediction_id] = extract_engagement(matched)
+
+    return actuals
 
 
 def fetch_engagement(
     prediction: PredictionRecord,
     settings: Settings,
     *,
-    scraper: Optional[LinkedInScraper] = None,
+    scraper: Optional[LinkedInPostUrlScraper] = None,
 ) -> EngagementActuals:
-    """Re-scrape LinkedIn and return updated engagement for a tracked post."""
-    scraper = scraper or LinkedInScraper(settings)
-    params = build_rescrape_params(prediction)
-    primary = scraper.fetch_samples(
-        params,
+    """Re-scrape one post by URL and return updated engagement."""
+    actuals_map = fetch_engagement_by_urls(
+        [prediction],
+        settings,
+        scraper=scraper,
         context=f"validation_rescrape:{prediction.prediction_id}",
     )
-    items = primary.items
-    _save_rescrape_artifact(settings, items, str(prediction.prediction_id))
-
-    matched = match_post_in_results(items, prediction)
-    if matched is None and prediction.author_public_id:
-        fallback_params = {
-            "searchQueries": [_content_search_query(prediction.content)],
-            "authorsPublicIdentifiers": [prediction.author_public_id],
-            "postedLimit": "month",
-            "sortBy": "date",
-            "maxPosts": 50,
-        }
-        fallback = scraper.fetch_samples(
-            fallback_params,
-            context=f"validation_rescrape_fallback:{prediction.prediction_id}",
-        )
-        items = fallback.items
-        _save_rescrape_artifact(settings, items, f"{prediction.prediction_id}_fallback")
-        matched = match_post_in_results(items, prediction)
-
-    if matched is None:
+    actuals = actuals_map.get(prediction.prediction_id)
+    if actuals is None:
         raise ValueError(
             f"Could not re-match post {prediction.linkedin_post_id} "
-            f"({prediction.linkedin_url}) in scraper results."
+            f"({prediction.linkedin_url}) from URL scrape results."
         )
-    return extract_engagement(matched)
+    return actuals
 
 
 def prediction_to_collected(post: PredictionRecord) -> CollectedPost:

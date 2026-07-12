@@ -44,6 +44,7 @@ from pydantic_ai import Agent
 
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
+from agents.structured_output import agent_structured_output
 from api.schemas import SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
@@ -212,7 +213,12 @@ def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, V
     run's user prompt instead.
     """
     resolved = pydantic_ai_gemini_model() if model is None else model
-    return Agent(resolved, deps_type=EvaluationDeps, output_type=VariantDraftSet)
+    return Agent(
+        resolved,
+        deps_type=EvaluationDeps,
+        output_type=agent_structured_output(VariantDraftSet, resolved),
+        retries=2,
+    )
 
 
 def _fallback_scores(state: PostEvaluationState) -> Tuple[float, int]:

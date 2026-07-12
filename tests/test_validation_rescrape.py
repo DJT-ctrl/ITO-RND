@@ -1,10 +1,10 @@
-"""Tests for validation_pipeline.rescrape matching."""
+"""Tests for validation_pipeline.rescrape URL matching."""
 
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from validation_pipeline.rescrape import (
-    build_rescrape_params,
+    _normalize_post_url,
     extract_engagement,
     match_post_in_results,
 )
@@ -27,12 +27,9 @@ def _prediction(**kwargs) -> PredictionRecord:
     return PredictionRecord(**defaults)
 
 
-def test_build_rescrape_params_includes_author_and_query():
-    prediction = _prediction()
-    params = build_rescrape_params(prediction)
-    assert params["authorsPublicIdentifiers"] == ["user"]
-    assert len(params["searchQueries"][0]) <= 85
-    assert params["postedLimit"] == "week"
+def test_normalize_post_url_strips_query():
+    raw = "https://www.linkedin.com/posts/foo-activity-123?utm_source=share"
+    assert _normalize_post_url(raw) == "https://www.linkedin.com/posts/foo-activity-123"
 
 
 def test_match_post_by_id():
