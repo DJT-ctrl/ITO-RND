@@ -95,6 +95,8 @@ class Settings:
     validation_max_posts_per_run: int = 20
     validation_min_post_age_hours: int = 0
     validation_data_dir: str = "data/validation"
+    # Profile fallback depth when direct post-URL re-scrape returns no items.
+    validation_rescrape_profile_max_posts: int = 100
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -136,6 +138,9 @@ def load_settings() -> Settings:
         validation_max_posts_per_run=int(os.getenv("VALIDATION_MAX_POSTS_PER_RUN", "20")),
         validation_min_post_age_hours=int(os.getenv("VALIDATION_MIN_POST_AGE_HOURS", "0")),
         validation_data_dir=os.getenv("VALIDATION_DATA_DIR", "data/validation"),
+        validation_rescrape_profile_max_posts=int(
+            os.getenv("VALIDATION_RESCRAPE_PROFILE_MAX_POSTS", "100")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),

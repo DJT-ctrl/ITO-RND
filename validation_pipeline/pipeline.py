@@ -3,12 +3,46 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
 from config.settings import Settings, load_settings
 from validation_pipeline.collect import collect_posts
-from validation_pipeline.predict import predict_and_save
-from validation_pipeline.schemas import CollectPredictResult
+from validation_pipeline.predict import predict_for_post, save_prediction
+from validation_pipeline.schemas import CollectedPost, CollectPredictResult
+
+
+async def _predict_posts(
+    posts: list[CollectedPost],
+    settings: Settings,
+    *,
+    due_immediately: bool = False,
+    on_progress: Callable[[str], None] | None = None,
+) -> CollectPredictResult:
+    result = CollectPredictResult()
+    result.scraped = len(posts)
+    due_at = datetime.now(timezone.utc) if due_immediately else None
+
+    for i, post in enumerate(posts, start=1):
+        if on_progress:
+            on_progress(f"Predicting {i}/{len(posts)}: {post.linkedin_post_id}")
+        try:
+            prediction = await predict_for_post(post, settings)
+            saved = save_prediction(
+                post,
+                prediction,
+                settings,
+                validation_due_at=due_at,
+            )
+            if saved is None:
+                result.skipped += 1
+            else:
+                result.predicted += 1
+                result.predictions.append(saved)
+        except Exception as exc:
+            result.errors.append(f"{post.linkedin_post_id}: {exc}")
+
+    return result
 
 
 async def run_collect_and_predict(
@@ -20,28 +54,30 @@ async def run_collect_and_predict(
 ) -> CollectPredictResult:
     """Scrape posts, predict each, and schedule validation."""
     settings = settings or load_settings()
-    result = CollectPredictResult()
-
     posts = collect_posts(
         search_params,
         settings=settings,
         profile_url_limit=profile_url_limit,
         on_progress=on_progress,
     )
-    result.scraped = len(posts)
+    return await _predict_posts(posts, settings, on_progress=on_progress)
 
-    for post in posts:
-        try:
-            saved = await predict_and_save(post, settings)
-            if saved is None:
-                result.skipped += 1
-            else:
-                result.predicted += 1
-                result.predictions.append(saved)
-        except Exception as exc:
-            result.errors.append(f"{post.linkedin_post_id}: {exc}")
 
-    return result
+async def run_predict_on_posts(
+    posts: list[CollectedPost],
+    *,
+    settings: Settings | None = None,
+    due_immediately: bool = False,
+    on_progress: Callable[[str], None] | None = None,
+) -> CollectPredictResult:
+    """Predict and schedule validation for already-loaded posts (no Apify scrape)."""
+    settings = settings or load_settings()
+    return await _predict_posts(
+        posts,
+        settings,
+        due_immediately=due_immediately,
+        on_progress=on_progress,
+    )
 
 
 def run_collect_and_predict_sync(

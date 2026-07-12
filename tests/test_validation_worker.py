@@ -75,7 +75,6 @@ def test_run_due_validations_success(
     mock_mark_failed.assert_not_called()
 
 
-@patch("validation_pipeline.worker.fetch_engagement")
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")
 @patch("validation_pipeline.worker.mark_validating")
@@ -95,16 +94,15 @@ def test_run_due_validations_failure(
     mock_mark_validating,
     mock_mark_validated,
     mock_mark_failed,
-    mock_fetch_engagement,
 ):
     settings = MagicMock()
     settings.database_url = "postgresql://test"
+    settings.validation_rescrape_profile_max_posts = 100
     prediction = _due_prediction()
     mock_get_connection.return_value = MagicMock()
     mock_fetch_due.return_value = [prediction]
     mock_corpus.return_value = [10, 20]
     mock_fetch_by_urls.return_value = {}
-    mock_fetch_engagement.side_effect = ValueError("not found")
 
     batch = run_due_validations(settings)
 

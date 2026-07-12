@@ -13,6 +13,19 @@ from scrapers.linkedin_post_url_scraper import LinkedInPostUrlScraper
 from validation_pipeline.schemas import CollectedPost, EngagementActuals, PredictionRecord
 
 
+def _post_id_candidates(item: dict[str, Any]) -> set[str]:
+    ids: set[str] = set()
+    for key in ("id", "entityId"):
+        value = item.get(key)
+        if value is not None and str(value).strip():
+            ids.add(str(value))
+    engagement = item.get("engagement") or {}
+    engagement_id = engagement.get("id")
+    if engagement_id is not None and str(engagement_id).strip():
+        ids.add(str(engagement_id))
+    return ids
+
+
 def match_post_in_results(
     items: list[dict[str, Any]],
     prediction: PredictionRecord,
@@ -21,12 +34,19 @@ def match_post_in_results(
     target_id = str(prediction.linkedin_post_id)
     target_url = _normalize_post_url(prediction.linkedin_url)
     for item in items:
-        if str(item.get("id")) == target_id:
+        if target_id in _post_id_candidates(item):
             return item
         item_url = item.get("linkedinUrl")
         if item_url and _normalize_post_url(str(item_url)) == target_url:
             return item
     return None
+
+
+def _author_profile_url(author_public_id: str) -> str | None:
+    public_id = (author_public_id or "").strip()
+    if not public_id:
+        return None
+    return f"https://www.linkedin.com/in/{public_id}"
 
 
 def _normalize_post_url(url: str) -> str:
@@ -102,6 +122,15 @@ def fetch_engagement_by_urls(
             context=f"{context}:{prediction.prediction_id}",
         )
         matched = match_post_in_results(single.items, prediction)
+        if matched is None:
+            profile_url = _author_profile_url(prediction.author_public_id)
+            if profile_url:
+                profile_result = scraper.fetch_posts_by_urls(
+                    [profile_url],
+                    max_posts=settings.validation_rescrape_profile_max_posts,
+                    context=f"{context}:{prediction.prediction_id}:profile",
+                )
+                matched = match_post_in_results(profile_result.items, prediction)
         if matched is not None:
             actuals[prediction.prediction_id] = extract_engagement(matched)
 
@@ -125,7 +154,10 @@ def fetch_engagement(
     if actuals is None:
         raise ValueError(
             f"Could not re-match post {prediction.linkedin_post_id} "
-            f"({prediction.linkedin_url}) from URL scrape results."
+            f"({prediction.linkedin_url}): Apify returned no matching post "
+            f"after direct URL scrape and author profile fallback "
+            f"(up to {settings.validation_rescrape_profile_max_posts} recent posts). "
+            f"The post may be deleted, private, or no longer on the public profile."
         )
     return actuals
 

@@ -28,21 +28,37 @@ class LinkedInPostUrlScraper(BaseScraper):
         self._settings = settings
         self._client = client or ApifyClient(settings.apify_api_token)
 
-    def fetch_posts_by_urls(
+    def fetch_samples(
         self,
-        urls: list[str],
+        params: dict[str, Any],
         *,
         context: Optional[str] = None,
         persist_telemetry: bool = True,
     ) -> ScrapeResult:
-        """Fetch posts for a list of LinkedIn post URLs in one Apify run."""
+        """Fetch posts by URL list (``targetUrls`` or ``urls`` in params)."""
+        urls = params.get("targetUrls") or params.get("urls") or []
+        return self.fetch_posts_by_urls(
+            list(urls),
+            context=context,
+            persist_telemetry=persist_telemetry,
+        )
+
+    def fetch_posts_by_urls(
+        self,
+        urls: list[str],
+        *,
+        max_posts: int = 1,
+        context: Optional[str] = None,
+        persist_telemetry: bool = True,
+    ) -> ScrapeResult:
+        """Fetch posts for a list of LinkedIn post or profile URLs in one Apify run."""
         cleaned = [u.strip() for u in urls if u and u.strip()]
         if not cleaned:
             return ScrapeResult(items=[], run_record=None)
 
         params: dict[str, Any] = {
             "targetUrls": cleaned,
-            "maxPosts": 1,
+            "maxPosts": max(1, max_posts),
             "includeQuotePosts": False,
             "includeReposts": False,
         }
