@@ -44,3 +44,5 @@ def test_save_and_apply_overrides(tmp_path: Path, monkeypatch):
     rf.clear_overrides()
     assert rf.load_overrides() == {}
     assert not path.exists()
+    audit_path = tmp_path / "telemetry" / "feedback_loop_overrides.jsonl"
+    assert len(audit_path.read_text(encoding="utf-8").splitlines()) == 2

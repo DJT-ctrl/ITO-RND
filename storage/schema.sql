@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     baseline_total_engagement        INTEGER,
     prediction_method                TEXT,
     neighbor_count                   INTEGER,
+    prediction_telemetry             JSONB NOT NULL DEFAULT '{}'::jsonb,
 
     status                  TEXT NOT NULL DEFAULT 'scheduled',
     validation_due_at       TIMESTAMPTZ NOT NULL,
@@ -177,7 +178,11 @@ CREATE TABLE IF NOT EXISTS prediction_feedback (
     feedback_json       JSONB NOT NULL,
     feedback_version    TEXT NOT NULL DEFAULT 'v1',
     generated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-    generation_method   TEXT NOT NULL DEFAULT 'template'
+    generation_method   TEXT NOT NULL DEFAULT 'template',
+    generation_latency_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+    input_tokens        INTEGER NOT NULL DEFAULT 0,
+    output_tokens       INTEGER NOT NULL DEFAULT 0,
+    cost_usd            DOUBLE PRECISION NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS prediction_feedback_prediction_idx
@@ -188,6 +193,11 @@ CREATE INDEX IF NOT EXISTS prediction_feedback_cluster_idx
 
 CREATE UNIQUE INDEX IF NOT EXISTS prediction_feedback_prediction_version_uidx
     ON prediction_feedback (prediction_id, feedback_version);
+
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS generation_latency_ms DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS output_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0;
 
 -- Phase C: deterministic cluster registry (metadata buckets; centroids later).
 CREATE TABLE IF NOT EXISTS prediction_clusters (
@@ -211,6 +221,7 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_likes INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_comments INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_shares INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_total_engagement INTEGER;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_telemetry JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5

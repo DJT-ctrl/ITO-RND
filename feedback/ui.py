@@ -56,7 +56,8 @@ These switches control the three learning mechanisms. **They matter.**
 | **Feedback records** | After each validation, store a template lesson in the DB | Pause writing lessons while debugging validation |
 | **Prompt injection** | Predictor sees up to N recent lessons from the same cluster | A/B test: does lesson text help, or only calibration? |
 
-Default for production: **all ON**. Turn one OFF only for experiments.
+Safe production default: **feedback records ON**, **calibration and prompt
+injection OFF** until held-out evaluation shows a lift.
 Overrides are saved to `data/feedback_loop_overrides.json` and apply on the
 next `load_settings()` call (Streamlit page reload, worker, CLI).
 """,
@@ -447,6 +448,8 @@ So sorting into clusters is exactly how we keep context small and relevant.
                 "lesson": lessons[0] if lessons else "",
                 "missed": missed[0] if missed else "",
                 "method": r.generation_method,
+                "latency ms": round(r.generation_latency_ms, 2),
+                "cost USD": round(r.cost_usd, 6),
                 "prediction_id": str(r.prediction_id),
             }
         )
@@ -698,6 +701,7 @@ Read the diagram below; use the numbered steps for detail.
 - **Feedback records OFF** — stop writing new lessons (e.g. schema migration, debugging validation). Old rows remain.  
 - **Prompt injection OFF** — test whether lesson *text* helps beyond the numeric offset alone (A/B).  
 
-Day-to-day: leave all **ON**.
+Day-to-day: keep feedback collection ON. Enable calibration or injection only
+after the evaluation gates in the operations runbook pass.
 """
         )

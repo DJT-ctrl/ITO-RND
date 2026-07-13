@@ -29,6 +29,20 @@ class ClusterStats(BaseModel):
     std_delta: Optional[float] = None
 
 
+class ClusterAccuracy(BaseModel):
+    cluster_id: str
+    sample_count: int = 0
+    mae: Optional[float] = None
+    raw_mae: Optional[float] = None
+    calibrated_mae: Optional[float] = None
+    pct_within_10: Optional[float] = None
+
+
+class LearningStatus(BaseModel):
+    n_validated: int = 0
+    last_cluster_refresh_at: Optional[datetime] = None
+
+
 class CalibrationResult(BaseModel):
     """Outcome of applying (or skipping) a calibration offset."""
 
@@ -67,3 +81,7 @@ class FeedbackRecord(BaseModel):
     feedback_version: str = "v1"
     generated_at: datetime
     generation_method: GenerationMethod = "template"
+    generation_latency_ms: float = Field(default=0.0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cost_usd: float = Field(default=0.0, ge=0)

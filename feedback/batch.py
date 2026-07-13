@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
+from typing import Any, Callable
 from uuid import UUID
 
 from config.settings import Settings, load_settings
@@ -12,7 +14,7 @@ from feedback.generate import (
     generate_template_feedback_from_record,
     generate_template_feedback_from_scores,
 )
-from feedback.schemas import FeedbackRecord
+from feedback.schemas import FeedbackPayload, FeedbackRecord
 from feedback.store import (
     fetch_validated_prediction_ids_missing_feedback,
     refresh_cluster_stats,
@@ -33,6 +35,17 @@ class FeedbackBatchResult:
     skipped: int = 0
 
 
+def _timed_template_generation(
+    generator: Callable[..., FeedbackPayload],
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[FeedbackPayload, float]:
+    started = time.perf_counter()
+    payload = generator(*args, **kwargs)
+    latency_ms = round((time.perf_counter() - started) * 1000, 3)
+    return payload, latency_ms
+
+
 def try_store_feedback_after_validation(
     prediction: PredictionRecord,
     scores: ValidationScores,
@@ -42,7 +55,11 @@ def try_store_feedback_after_validation(
     if not settings.validation_feedback_enabled:
         return None
     try:
-        payload = generate_template_feedback_from_scores(prediction, scores)
+        payload, latency_ms = _timed_template_generation(
+            generate_template_feedback_from_scores,
+            prediction,
+            scores,
+        )
         conn = get_connection(settings)
         try:
             create_schema(conn)
@@ -51,6 +68,7 @@ def try_store_feedback_after_validation(
                 payload,
                 feedback_version=FEEDBACK_VERSION,
                 generation_method="template",
+                generation_latency_ms=latency_ms,
             )
             try:
                 refresh_cluster_stats(conn)
@@ -100,7 +118,10 @@ def run_feedback_batch(
             batch.failed += 1
             continue
         try:
-            payload = generate_template_feedback_from_record(prediction)
+            payload, latency_ms = _timed_template_generation(
+                generate_template_feedback_from_record,
+                prediction,
+            )
             conn = get_connection(settings)
             try:
                 create_schema(conn)
@@ -109,6 +130,7 @@ def run_feedback_batch(
                     payload,
                     feedback_version=FEEDBACK_VERSION,
                     generation_method="template",
+                    generation_latency_ms=latency_ms,
                 )
             finally:
                 conn.close()
@@ -148,12 +170,16 @@ def generate_feedback_for_prediction_id(
             raise ValueError(
                 f"Prediction {prediction_id} status is {prediction.status!r}, expected validated"
             )
-        payload = generate_template_feedback_from_record(prediction)
+        payload, latency_ms = _timed_template_generation(
+            generate_template_feedback_from_record,
+            prediction,
+        )
         return upsert_prediction_feedback(
             conn,
             payload,
             feedback_version=FEEDBACK_VERSION,
             generation_method="template",
+            generation_latency_ms=latency_ms,
         )
     finally:
         conn.close()

@@ -10,6 +10,10 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
 from feedback.ui import render_calibration_panel, render_coverage_panel  # noqa: E402
+from feedback.observability_ui import (  # noqa: E402
+    render_cluster_accuracy,
+    render_learning_status,
+)
 from validation_pipeline.ui import (  # noqa: E402
     load_predictions,
     render_accuracy_summary,
@@ -32,6 +36,10 @@ if not settings.database_url:
 
 render_accuracy_summary(settings, compact=False)
 
+st.divider()
+render_learning_status(settings)
+st.divider()
+render_cluster_accuracy(settings)
 st.divider()
 render_calibration_panel(settings)
 st.divider()

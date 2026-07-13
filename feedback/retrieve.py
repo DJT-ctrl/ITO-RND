@@ -42,7 +42,8 @@ def fetch_cluster_feedback(
         cur.execute(
             f"""
             SELECT f.feedback_id, f.prediction_id, f.cluster_id, f.feedback_json,
-                   f.feedback_version, f.generated_at, f.generation_method
+                   f.feedback_version, f.generated_at, f.generation_method,
+                   f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd
             FROM prediction_feedback f
             WHERE f.cluster_id = %s
               AND f.feedback_version = %s

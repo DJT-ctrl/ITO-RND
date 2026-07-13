@@ -1,6 +1,6 @@
 # Feedback Loop — Part 2 Plan (Production)
 
-**Status:** Planning — ready for next implementation chat  
+**Status:** Implementation in progress — Phase E foundation landed locally
 **Date:** 2026-07-13  
 **Audience:** Kevin + team continuing after Part 1 (Phases A–D)  
 **Prerequisite:** Part 1 complete — see `planning/validation-feedback-loop/09_BUILD_PLAN.md`
@@ -372,11 +372,11 @@ D Injection    →  H  Smarter routing + ranked retrieval
 
 ```
 Part 2 — Session start
-[ ] Read this file + 09_BUILD_PLAN.md
-[ ] Confirm validated N and current MAE baseline
-[ ] Phase E: telemetry fields on predict + feedback generate
-[ ] Phase E: eval harness 4-arm comparison
-[ ] Phase E: per-cluster MAE in Accuracy History
+[x] Read this file + 09_BUILD_PLAN.md
+[x] Confirm validated N and current MAE baseline (N=15; below production gate)
+[x] Phase E: telemetry fields on predict + feedback generate
+[x] Phase E: eval harness 4-arm comparison
+[x] Phase E: per-cluster MAE in Accuracy History
 [ ] Phase F: run offline eval, record go/no-go
 [ ] Update prod defaults based on evidence
 [ ] Only then: Phase G (v2 LLM) or Phase H (embeddings)

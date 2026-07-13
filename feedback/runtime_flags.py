@@ -8,8 +8,13 @@ editing ``.env``.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+from feedback.audit import append_override_audit
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OVERRIDE_PATH = _PROJECT_ROOT / "data" / "feedback_loop_overrides.json"
@@ -39,24 +44,56 @@ def load_overrides() -> dict[str, Any]:
     return {k: v for k, v in raw.items() if k in ALLOWED_KEYS}
 
 
-def save_overrides(updates: dict[str, Any]) -> dict[str, Any]:
+def save_overrides(
+    updates: dict[str, Any],
+    *,
+    actor: str | None = None,
+) -> dict[str, Any]:
     """Merge ``updates`` into the override file and return the full set."""
-    current = load_overrides()
+    previous = load_overrides()
+    current = dict(previous)
     for key, value in updates.items():
         if key not in ALLOWED_KEYS:
             continue
         current[key] = value
     OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OVERRIDE_PATH.write_text(
+    temporary_path = OVERRIDE_PATH.with_suffix(".tmp")
+    temporary_path.write_text(
         json.dumps(current, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    temporary_path.replace(OVERRIDE_PATH)
+    try:
+        append_override_audit(
+            action="save",
+            previous=previous,
+            current=current,
+            actor=actor,
+            path=OVERRIDE_PATH.parent
+            / "telemetry"
+            / "feedback_loop_overrides.jsonl",
+        )
+    except OSError:
+        logger.exception("Could not append feedback-loop override audit event")
     return current
 
 
-def clear_overrides() -> None:
+def clear_overrides(*, actor: str | None = None) -> None:
+    previous = load_overrides()
     if OVERRIDE_PATH.exists():
         OVERRIDE_PATH.unlink()
+    try:
+        append_override_audit(
+            action="clear",
+            previous=previous,
+            current={},
+            actor=actor,
+            path=OVERRIDE_PATH.parent
+            / "telemetry"
+            / "feedback_loop_overrides.jsonl",
+        )
+    except OSError:
+        logger.exception("Could not append feedback-loop override audit event")
 
 
 def apply_overrides_to_settings(settings: Any) -> Any:

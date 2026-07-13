@@ -170,21 +170,31 @@ def upsert_prediction_feedback(
     feedback_version: str = FEEDBACK_VERSION,
     generation_method: GenerationMethod = "template",
     cluster_id: Optional[str] = None,
+    generation_latency_ms: float = 0.0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
 ) -> FeedbackRecord:
     """Insert or replace feedback for (prediction_id, feedback_version)."""
     cluster = cluster_id if cluster_id is not None else payload.cluster_id
     payload_dict = payload.model_dump(mode="json")
     sql = """
         INSERT INTO prediction_feedback (
-            prediction_id, cluster_id, feedback_json, feedback_version, generation_method
-        ) VALUES (%s, %s, %s, %s, %s)
+            prediction_id, cluster_id, feedback_json, feedback_version, generation_method,
+            generation_latency_ms, input_tokens, output_tokens, cost_usd
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (prediction_id, feedback_version) DO UPDATE SET
             cluster_id = EXCLUDED.cluster_id,
             feedback_json = EXCLUDED.feedback_json,
             generation_method = EXCLUDED.generation_method,
+            generation_latency_ms = EXCLUDED.generation_latency_ms,
+            input_tokens = EXCLUDED.input_tokens,
+            output_tokens = EXCLUDED.output_tokens,
+            cost_usd = EXCLUDED.cost_usd,
             generated_at = now()
         RETURNING feedback_id, prediction_id, cluster_id, feedback_json,
-                  feedback_version, generated_at, generation_method
+                  feedback_version, generated_at, generation_method,
+                  generation_latency_ms, input_tokens, output_tokens, cost_usd
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -195,6 +205,10 @@ def upsert_prediction_feedback(
                 Jsonb(payload_dict),
                 feedback_version,
                 generation_method,
+                max(0.0, generation_latency_ms),
+                max(0, input_tokens),
+                max(0, output_tokens),
+                max(0.0, cost_usd),
             ),
         )
         row = cur.fetchone()
@@ -214,7 +228,8 @@ def fetch_feedback_for_prediction(
         cur.execute(
             """
             SELECT feedback_id, prediction_id, cluster_id, feedback_json,
-                   feedback_version, generated_at, generation_method
+                   feedback_version, generated_at, generation_method,
+                   generation_latency_ms, input_tokens, output_tokens, cost_usd
             FROM prediction_feedback
             WHERE prediction_id = %s AND feedback_version = %s
             LIMIT 1
@@ -276,4 +291,8 @@ def _row_to_feedback_record(row: tuple) -> FeedbackRecord:
         feedback_version=row[4],
         generated_at=row[5],
         generation_method=row[6],
+        generation_latency_ms=float(row[7] or 0) if len(row) > 7 else 0.0,
+        input_tokens=int(row[8] or 0) if len(row) > 8 else 0,
+        output_tokens=int(row[9] or 0) if len(row) > 9 else 0,
+        cost_usd=float(row[10] or 0) if len(row) > 10 else 0.0,
     )

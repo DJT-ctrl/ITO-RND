@@ -7,6 +7,27 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 PredictionStatus = Literal["scheduled", "validating", "validated", "failed", "skipped"]
+CalibrationSource = Literal["cluster", "global", "none"]
+
+
+class PredictionTelemetry(BaseModel):
+    """Explain every learning decision that affected a prediction."""
+
+    raw_percentile: Optional[float] = None
+    calibrated_percentile: Optional[float] = None
+    calibration_enabled: bool = False
+    calibration_applied: bool = False
+    calibration_skip_reason: Optional[str] = None
+    mean_delta: Optional[float] = None
+    n_validated: Optional[int] = None
+    calibration_source: CalibrationSource = "none"
+    cluster_id: Optional[str] = None
+    feedback_injection_enabled: bool = False
+    feedback_injected: bool = False
+    feedback_count: int = Field(default=0, ge=0)
+    feedback_version: Optional[str] = None
+    feedback_chars: int = Field(default=0, ge=0)
+    feedback_token_estimate: int = Field(default=0, ge=0)
 
 
 class EngagementForecast(BaseModel):
@@ -35,6 +56,7 @@ class PredictionRecord(BaseModel):
     baseline_total_engagement: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
+    telemetry: PredictionTelemetry = Field(default_factory=PredictionTelemetry)
 
     status: PredictionStatus = "scheduled"
     validation_due_at: datetime
@@ -73,6 +95,7 @@ class NewPrediction(BaseModel):
     baseline_total_engagement: Optional[int] = None
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
+    telemetry: PredictionTelemetry = Field(default_factory=PredictionTelemetry)
     validation_due_at: datetime
 
 
@@ -133,8 +156,12 @@ class CollectedPost(BaseModel):
 class AccuracyAggregates(BaseModel):
     total_validated: int = 0
     mean_absolute_error: Optional[float] = None
+    raw_mean_absolute_error: Optional[float] = None
+    calibrated_mean_absolute_error: Optional[float] = None
     median_absolute_error: Optional[float] = None
     pct_within_10: Optional[float] = None
+    raw_pct_within_10: Optional[float] = None
+    calibrated_pct_within_10: Optional[float] = None
     mean_accuracy_score: Optional[float] = None
     mae_likes: Optional[float] = None
     mae_comments: Optional[float] = None
@@ -142,3 +169,4 @@ class AccuracyAggregates(BaseModel):
     mae_total_engagement: Optional[float] = None
     pct_total_within_20pct: Optional[float] = None
     time_series: list[dict[str, Any]] = Field(default_factory=list)
+    method_time_series: list[dict[str, Any]] = Field(default_factory=list)

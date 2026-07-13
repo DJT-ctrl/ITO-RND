@@ -18,6 +18,10 @@ from feedback.ui import (  # noqa: E402
     render_manual_actions,
     render_recent_feedback_table,
 )
+from feedback.observability_ui import (  # noqa: E402
+    render_cluster_accuracy,
+    render_learning_status,
+)
 
 st.set_page_config(page_title="Feedback Loop", layout="wide")
 st.title("Validation Pipeline — Feedback Loop")
@@ -36,6 +40,9 @@ if not settings.database_url:
 settings = render_feedback_settings_panel(settings)
 
 st.divider()
+render_learning_status(settings)
+
+st.divider()
 render_calibration_panel(settings)
 
 st.divider()
@@ -48,6 +55,9 @@ st.divider()
 clusters = render_clusters_table(
     settings, cluster_n_min=settings.validation_cluster_n_min
 )
+
+st.divider()
+render_cluster_accuracy(settings)
 
 cluster_filter = None
 if clusters:

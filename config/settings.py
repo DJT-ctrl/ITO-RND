@@ -98,14 +98,14 @@ class Settings:
     # Profile fallback depth when direct post-URL re-scrape returns no items.
     validation_rescrape_profile_max_posts: int = 100
     # Phase A feedback: passive percentile calibration from validated deltas.
-    validation_calibration_enabled: bool = True
+    validation_calibration_enabled: bool = False
     validation_calibration_n_min: int = 30
     # Phase B feedback: template feedback records after validation.
     validation_feedback_enabled: bool = True
     # Phase C: min validated rows in a cluster before cluster-scoped calibration.
     validation_cluster_n_min: int = 50
     # Phase D: inject cluster feedback lessons into the predictor prompt (A/B flag).
-    validation_feedback_injection_enabled: bool = True
+    validation_feedback_injection_enabled: bool = False
     validation_feedback_injection_limit: int = 5
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
@@ -152,7 +152,7 @@ def load_settings() -> Settings:
             os.getenv("VALIDATION_RESCRAPE_PROFILE_MAX_POSTS", "100")
         ),
         validation_calibration_enabled=_env_bool(
-            "VALIDATION_CALIBRATION_ENABLED", default=True
+            "VALIDATION_CALIBRATION_ENABLED", default=False
         ),
         validation_calibration_n_min=int(
             os.getenv("VALIDATION_CALIBRATION_N_MIN", "30")
@@ -162,7 +162,7 @@ def load_settings() -> Settings:
         ),
         validation_cluster_n_min=int(os.getenv("VALIDATION_CLUSTER_N_MIN", "50")),
         validation_feedback_injection_enabled=_env_bool(
-            "VALIDATION_FEEDBACK_INJECTION_ENABLED", default=True
+            "VALIDATION_FEEDBACK_INJECTION_ENABLED", default=False
         ),
         validation_feedback_injection_limit=int(
             os.getenv("VALIDATION_FEEDBACK_INJECTION_LIMIT", "5")

@@ -37,6 +37,32 @@ def render_accuracy_summary(settings: Settings, *, compact: bool = False) -> Opt
     cols[2].metric("Within 10 pts", f"{aggregates.pct_within_10:.0f}%" if aggregates.pct_within_10 is not None else "—")
     cols[3].metric("Mean accuracy", f"{aggregates.mean_accuracy_score:.1f}" if aggregates.mean_accuracy_score is not None else "—")
 
+    comparison_cols = st.columns(4)
+    comparison_cols[0].metric(
+        "Raw MAE",
+        f"{aggregates.raw_mean_absolute_error:.1f}"
+        if aggregates.raw_mean_absolute_error is not None
+        else "—",
+    )
+    comparison_cols[1].metric(
+        "Calibrated MAE",
+        f"{aggregates.calibrated_mean_absolute_error:.1f}"
+        if aggregates.calibrated_mean_absolute_error is not None
+        else "—",
+    )
+    comparison_cols[2].metric(
+        "Raw within 10",
+        f"{aggregates.raw_pct_within_10:.0f}%"
+        if aggregates.raw_pct_within_10 is not None
+        else "—",
+    )
+    comparison_cols[3].metric(
+        "Calibrated within 10",
+        f"{aggregates.calibrated_pct_within_10:.0f}%"
+        if aggregates.calibrated_pct_within_10 is not None
+        else "—",
+    )
+
     st.caption("Count accuracy (likes / comments / shares / total)")
     count_cols = st.columns(5)
     count_cols[0].metric("MAE Likes", f"{aggregates.mae_likes:.1f}" if aggregates.mae_likes is not None else "—")
@@ -54,10 +80,23 @@ def render_accuracy_summary(settings: Settings, *, compact: bool = False) -> Opt
             df = df.set_index("day")
         st.subheader("Percentile accuracy over time")
         chart_cols = st.columns(2)
-        if "mae" in df.columns:
-            chart_cols[0].line_chart(df[["mae"]], height=220)
+        mae_columns = [
+            name for name in ("raw_mae", "calibrated_mae", "mae") if name in df.columns
+        ]
+        if mae_columns:
+            chart_cols[0].line_chart(df[mae_columns], height=220)
         if "mean_accuracy" in df.columns:
             chart_cols[1].line_chart(df[["mean_accuracy"]], height=220)
+
+    if not compact and aggregates.method_time_series:
+        method_df = pd.DataFrame(aggregates.method_time_series)
+        method_chart = method_df.pivot(
+            index="day",
+            columns="prediction_method",
+            values="mae",
+        )
+        st.subheader("MAE by prediction method")
+        st.line_chart(method_chart, height=240)
 
     if not compact and aggregates.mae_likes is not None:
         st.subheader("Count MAE by metric")

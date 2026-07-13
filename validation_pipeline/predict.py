@@ -23,7 +23,13 @@ from feedback.routing import assign_cluster_id
 from feedback.store import resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
 from storage.vector_store import create_schema, get_connection
-from validation_pipeline.schemas import CollectedPost, NewPrediction, PredictionRecord
+from validation_pipeline.prediction_telemetry import build_prediction_telemetry
+from validation_pipeline.schemas import (
+    CollectedPost,
+    NewPrediction,
+    PredictionRecord,
+    PredictionTelemetry,
+)
 from validation_pipeline.store import insert_prediction, prediction_exists
 
 logger = logging.getLogger(__name__)
@@ -38,6 +44,7 @@ class PredictionOutput(BaseModel):
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     reasoning: Optional[str] = None
+    telemetry: PredictionTelemetry
 
 
 def _apply_calibration_to_neighbor_prediction(
@@ -179,6 +186,14 @@ async def predict_for_post(
         neighbor_prediction["feedback_count"] = feedback_count
         if feedback_cluster_id:
             neighbor_prediction.setdefault("cluster_id", feedback_cluster_id)
+    telemetry = build_prediction_telemetry(
+        neighbor_prediction,
+        calibration_enabled=settings.validation_calibration_enabled,
+        feedback_injection_enabled=settings.validation_feedback_injection_enabled,
+        feedback_context=feedback_context,
+        feedback_count=feedback_count,
+        cluster_id=feedback_cluster_id,
+    )
 
     deps = EvaluationDeps(
         draft_content=post.content,
@@ -196,6 +211,7 @@ async def predict_for_post(
             raise
         return _deterministic_prediction_output(
             neighbor_prediction,
+            telemetry=telemetry,
             reasoning=(
                 "Predictor could not return structured reasoning after retries "
                 "(Gemini MALFORMED_FUNCTION_CALL). Scores use deterministic "
@@ -216,6 +232,7 @@ async def predict_for_post(
             prediction_method=neighbor_prediction.get("method") if neighbor_prediction else None,
             neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
             reasoning=output.reasoning,
+            telemetry=telemetry,
         )
 
     if isinstance(output, BaseModel):
@@ -249,6 +266,7 @@ async def predict_for_post(
         prediction_method=neighbor_prediction.get("method") if neighbor_prediction else None,
         neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
         reasoning=data.get("reasoning"),
+        telemetry=telemetry,
     )
 
 
@@ -278,6 +296,7 @@ def save_prediction(
         baseline_total_engagement=post.total_engagement,
         prediction_method=prediction.prediction_method,
         neighbor_count=prediction.neighbor_count,
+        telemetry=prediction.telemetry,
         validation_due_at=due_at,
     )
     conn = get_connection(settings)
@@ -309,6 +328,7 @@ async def predict_and_save(
 def _deterministic_prediction_output(
     neighbor_prediction: dict[str, Any],
     *,
+    telemetry: PredictionTelemetry,
     reasoning: str,
 ) -> PredictionOutput:
     return PredictionOutput(
@@ -320,6 +340,7 @@ def _deterministic_prediction_output(
         prediction_method=neighbor_prediction.get("method"),
         neighbor_count=neighbor_prediction.get("neighbor_count"),
         reasoning=reasoning,
+        telemetry=telemetry,
     )
 
 
