@@ -87,6 +87,7 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     voice_section = build_voice_profile_section(deps.voice_profile)
     deterministic_section = _format_deterministic_score_section(deps.neighbor_prediction)
     draft_author_section = _format_draft_author_section(deps.draft_follower_count)
+    feedback_section = _format_feedback_section(deps.feedback_context)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
     draft_section = wrap_untrusted_text(deps.draft_content)
 
@@ -99,7 +100,7 @@ Your task: explain how the draft will perform by comparing it with the nearest
 historical posts retrieved from the vector database. The numeric prediction
 has already been computed deterministically from those neighbors — your job is
 to write clear comparative reasoning, not to invent a different score.
-{voice_section}{draft_author_section}{deterministic_section}
+{voice_section}{draft_author_section}{deterministic_section}{feedback_section}
 Draft post:
 {draft_section}
 
@@ -183,6 +184,15 @@ def _format_draft_author_section(draft_follower_count: Optional[int]) -> str:
 Draft author reach context:
 - This draft author has {draft_follower_count:,} followers.
 - Neighbor posts were normalized by their own audience size where follower data exists.
+"""
+
+
+def _format_feedback_section(feedback_context: Optional[str]) -> str:
+    if not feedback_context:
+        return ""
+    return f"""
+Validated prediction feedback (from the closed-loop feedback system):
+{feedback_context}
 """
 
 

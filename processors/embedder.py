@@ -25,22 +25,20 @@ time for T2's similarity-search endpoint (see below for why it needs its
 own task_type rather than reusing embed_batch()).
 """
 
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from google import genai
-from google.genai import errors as genai_errors
 from google.genai import types as genai_types
 
 from config.settings import Settings
+from processors.gemini_retry import call_with_gemini_retry
 
 _MODEL = "models/gemini-embedding-001"
 _OUTPUT_DIMENSIONALITY = 3072
 _BATCH_SIZE = 100
-_MAX_ATTEMPTS = 3
 _MIN_WORD_COUNT = 10
 
 
@@ -123,32 +121,21 @@ def embed_query(text: str, settings: Settings) -> tuple[np.ndarray, int]:
 def _embed_with_retry(
     client: "genai.Client", batch: list[str], task_type: str = "RETRIEVAL_DOCUMENT"
 ) -> tuple[list[list[float]], int]:
-    """Call the embedding endpoint for one batch, retrying transient errors.
+    """Call the embedding endpoint for one batch, retrying transient errors."""
 
-    Retries on HTTP 429 (rate limit) and 5xx (server error) with
-    exponential backoff (1s, 2s, 4s), up to 3 attempts total. Any other
-    error (e.g. 4xx bad input) is not retryable and raises immediately.
-    """
-    delay = 1.0
-    for attempt in range(1, _MAX_ATTEMPTS + 1):
-        try:
-            response = client.models.embed_content(
-                model=_MODEL,
-                contents=batch,
-                config=genai_types.EmbedContentConfig(
-                    task_type=task_type,
-                    output_dimensionality=_OUTPUT_DIMENSIONALITY,
-                ),
-            )
-            vectors = [embedding.values for embedding in response.embeddings]
-            return vectors, _prompt_token_count(response, batch)
-        except genai_errors.APIError as exc:
-            retryable = exc.code == 429 or 500 <= exc.code < 600
-            if not retryable or attempt == _MAX_ATTEMPTS:
-                raise
-            time.sleep(delay)
-            delay *= 2
-    raise AssertionError("unreachable")  # loop always returns or raises
+    def _request() -> tuple[list[list[float]], int]:
+        response = client.models.embed_content(
+            model=_MODEL,
+            contents=batch,
+            config=genai_types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=_OUTPUT_DIMENSIONALITY,
+            ),
+        )
+        vectors = [embedding.values for embedding in response.embeddings]
+        return vectors, _prompt_token_count(response, batch)
+
+    return call_with_gemini_retry(_request, label="Gemini embed batch")
 
 
 def save_embeddings(vectors: np.ndarray, platform: str, base_dir: str = "data/embeddings") -> Path:

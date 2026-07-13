@@ -40,6 +40,7 @@ htmlcov/
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
 data/pgdata/
+data/feedback_loop_overrides.json
 
 # Logs
 *.log
@@ -49,3 +50,14 @@ data/pgdata/
 # The certs dir is created at deploy time by gen-selfsigned.sh / issue-cert.sh.
 deploy/edge/certs/
 cloudflare.ini
+# Local planning notes (kept on disk, excluded from repo)
+planning/
+First Ideas/
+FEEDBACK_LOOP_PART2_PLAN.md
+PIPELINE_ARCHITECTURE.md
+PhaseT2plan.md
+T1.3_EMBEDDING_PLAN.md
+T1.4_DATABASE_PLAN.md
+T6_ENGINEERING_GAPS.md
+T6_TEAM_PLAN.md
+T7_INDEPENDENT_MODULES.md

@@ -7,6 +7,7 @@ from typing import Any, Optional
 from uuid import UUID
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from validation_pipeline.schemas import (
     AccuracyAggregates,
@@ -34,6 +35,7 @@ _PREDICTION_COLUMNS = [
     "baseline_total_engagement",
     "prediction_method",
     "neighbor_count",
+    "prediction_telemetry AS telemetry",
     "status",
     "validation_due_at",
     "validated_at",
@@ -74,8 +76,8 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
             predicted_engagement_percentile, predicted_total_engagement,
             predicted_likes, predicted_comments, predicted_shares,
             baseline_likes, baseline_comments, baseline_shares, baseline_total_engagement,
-            prediction_method, neighbor_count, validation_due_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            prediction_method, neighbor_count, prediction_telemetry, validation_due_at
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING prediction_id, created_at
     """
     with conn.cursor() as cur:
@@ -98,6 +100,7 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
                 prediction.baseline_total_engagement,
                 prediction.prediction_method,
                 prediction.neighbor_count,
+                Jsonb(prediction.telemetry.model_dump(mode="json")),
                 prediction.validation_due_at,
             ),
         )
@@ -285,8 +288,36 @@ def fetch_accuracy_aggregates(conn: psycopg.Connection) -> AccuracyAggregates:
             SELECT
                 COUNT(*) AS total_validated,
                 AVG(ABS(prediction_delta)) AS mae,
+                AVG(ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'raw_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                )) AS raw_mae,
+                AVG(ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'calibrated_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                )) AS calibrated_mae,
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ABS(prediction_delta)) AS median_ae,
                 AVG(CASE WHEN ABS(prediction_delta) <= 10 THEN 1.0 ELSE 0.0 END) * 100 AS pct_within_10,
+                AVG(CASE WHEN ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'raw_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                ) <= 10 THEN 1.0 ELSE 0.0 END) * 100 AS raw_pct_within_10,
+                AVG(CASE WHEN ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'calibrated_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                ) <= 10 THEN 1.0 ELSE 0.0 END) * 100 AS calibrated_pct_within_10,
                 AVG(accuracy_score) AS mean_accuracy,
                 AVG(ABS(likes_delta)) AS mae_likes,
                 AVG(ABS(comments_delta)) AS mae_comments,
@@ -313,6 +344,20 @@ def fetch_accuracy_aggregates(conn: psycopg.Connection) -> AccuracyAggregates:
             SELECT
                 DATE_TRUNC('day', validated_at) AS day,
                 AVG(ABS(prediction_delta)) AS mae,
+                AVG(ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'raw_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                )) AS raw_mae,
+                AVG(ABS(
+                    actual_engagement_percentile
+                    - COALESCE(
+                        (prediction_telemetry->>'calibrated_percentile')::DOUBLE PRECISION,
+                        predicted_engagement_percentile
+                    )
+                )) AS calibrated_mae,
                 AVG(accuracy_score) AS mean_accuracy,
                 COUNT(*) AS count
             FROM predictions
@@ -323,6 +368,21 @@ def fetch_accuracy_aggregates(conn: psycopg.Connection) -> AccuracyAggregates:
         )
         time_rows = cur.fetchall()
 
+        cur.execute(
+            """
+            SELECT
+                DATE_TRUNC('day', validated_at) AS day,
+                COALESCE(prediction_method, 'unknown') AS prediction_method,
+                AVG(ABS(prediction_delta)) AS mae,
+                COUNT(*) AS count
+            FROM predictions
+            WHERE status = 'validated' AND validated_at IS NOT NULL
+            GROUP BY DATE_TRUNC('day', validated_at), COALESCE(prediction_method, 'unknown')
+            ORDER BY day ASC, prediction_method ASC
+            """
+        )
+        method_rows = cur.fetchall()
+
     total = int(summary[0] or 0)
     if total == 0:
         return AccuracyAggregates()
@@ -331,22 +391,44 @@ def fetch_accuracy_aggregates(conn: psycopg.Connection) -> AccuracyAggregates:
         {
             "day": row[0].isoformat() if row[0] else None,
             "mae": round(float(row[1]), 2) if row[1] is not None else None,
-            "mean_accuracy": round(float(row[2]), 2) if row[2] is not None else None,
-            "count": int(row[3]),
+            "raw_mae": round(float(row[2]), 2) if row[2] is not None else None,
+            "calibrated_mae": round(float(row[3]), 2) if row[3] is not None else None,
+            "mean_accuracy": round(float(row[4]), 2) if row[4] is not None else None,
+            "count": int(row[5]),
         }
         for row in time_rows
+    ]
+    method_time_series = [
+        {
+            "day": row[0].isoformat() if row[0] else None,
+            "prediction_method": row[1],
+            "mae": round(float(row[2]), 2) if row[2] is not None else None,
+            "count": int(row[3]),
+        }
+        for row in method_rows
     ]
 
     return AccuracyAggregates(
         total_validated=total,
         mean_absolute_error=round(float(summary[1]), 2) if summary[1] is not None else None,
-        median_absolute_error=round(float(summary[2]), 2) if summary[2] is not None else None,
-        pct_within_10=round(float(summary[3]), 1) if summary[3] is not None else None,
-        mean_accuracy_score=round(float(summary[4]), 2) if summary[4] is not None else None,
-        mae_likes=round(float(summary[5]), 2) if summary[5] is not None else None,
-        mae_comments=round(float(summary[6]), 2) if summary[6] is not None else None,
-        mae_shares=round(float(summary[7]), 2) if summary[7] is not None else None,
-        mae_total_engagement=round(float(summary[8]), 2) if summary[8] is not None else None,
-        pct_total_within_20pct=round(float(summary[9]), 1) if summary[9] is not None else None,
+        raw_mean_absolute_error=round(float(summary[2]), 2) if summary[2] is not None else None,
+        calibrated_mean_absolute_error=round(float(summary[3]), 2)
+        if summary[3] is not None
+        else None,
+        median_absolute_error=round(float(summary[4]), 2) if summary[4] is not None else None,
+        pct_within_10=round(float(summary[5]), 1) if summary[5] is not None else None,
+        raw_pct_within_10=round(float(summary[6]), 1) if summary[6] is not None else None,
+        calibrated_pct_within_10=round(float(summary[7]), 1)
+        if summary[7] is not None
+        else None,
+        mean_accuracy_score=round(float(summary[8]), 2) if summary[8] is not None else None,
+        mae_likes=round(float(summary[9]), 2) if summary[9] is not None else None,
+        mae_comments=round(float(summary[10]), 2) if summary[10] is not None else None,
+        mae_shares=round(float(summary[11]), 2) if summary[11] is not None else None,
+        mae_total_engagement=round(float(summary[12]), 2) if summary[12] is not None else None,
+        pct_total_within_20pct=round(float(summary[13]), 1)
+        if summary[13] is not None
+        else None,
         time_series=time_series,
+        method_time_series=method_time_series,
     )

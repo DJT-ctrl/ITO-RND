@@ -42,6 +42,48 @@ def _is_eligible_post(
     return age >= min_post_age
 
 
+def raw_posts_to_collected(
+    enriched_posts: list[dict[str, Any]],
+    settings: Settings,
+    *,
+    skip_min_age: bool = False,
+) -> list[CollectedPost]:
+    """Convert Apify post dicts (optionally profile-enriched) to CollectedPost rows."""
+    analyser = PostAnalyser(settings)
+    now = datetime.now(timezone.utc)
+    min_age = timedelta(hours=settings.validation_min_post_age_hours)
+    collected: list[CollectedPost] = []
+
+    for post in enriched_posts:
+        if not skip_min_age and not _is_eligible_post(post, min_post_age=min_age, now=now):
+            continue
+        posted_at = _parse_posted_at(post)
+        if posted_at is None:
+            continue
+        content = (post.get("content") or "").strip()
+        linkedin_url = post.get("linkedinUrl")
+        post_id = post.get("id")
+        if not post_id or not content or not linkedin_url:
+            continue
+        features = analyser.compute_python_features(post)
+        author = post.get("author") or {}
+        collected.append(
+            CollectedPost(
+                linkedin_post_id=str(post_id),
+                linkedin_url=str(linkedin_url),
+                author_public_id=str(author.get("publicIdentifier") or ""),
+                content=content,
+                posted_at=posted_at,
+                follower_count=features.get("follower_count"),
+                likes=int(features.get("likes") or 0),
+                comments=int(features.get("comments") or 0),
+                shares=int(features.get("shares") or 0),
+                total_engagement=int(features.get("total_engagement") or 0),
+            )
+        )
+    return collected
+
+
 def collect_posts(
     search_params: dict[str, Any],
     *,
@@ -89,43 +131,8 @@ def collect_posts(
     timestamp = utc_artifact_stamp()
     _save_collect_artifact(settings, enriched_posts, timestamp)
 
-    analyser = PostAnalyser(settings)
-    now = datetime.now(timezone.utc)
-    min_age = timedelta(hours=settings.validation_min_post_age_hours)
-    collected: list[CollectedPost] = []
-    skipped_too_new = 0
-
-    for post in enriched_posts:
-        if not _is_eligible_post(post, min_post_age=min_age, now=now):
-            skipped_too_new += 1
-            continue
-        features = analyser.compute_python_features(post)
-        posted_at = _parse_posted_at(post)
-        if posted_at is None:
-            continue
-        author = post.get("author") or {}
-        collected.append(
-            CollectedPost(
-                linkedin_post_id=str(post.get("id")),
-                linkedin_url=str(post.get("linkedinUrl")),
-                author_public_id=str(author.get("publicIdentifier") or ""),
-                content=str(post.get("content") or ""),
-                posted_at=posted_at,
-                follower_count=features.get("follower_count"),
-                likes=int(features.get("likes") or 0),
-                comments=int(features.get("comments") or 0),
-                shares=int(features.get("shares") or 0),
-                total_engagement=int(features.get("total_engagement") or 0),
-            )
-        )
-
-    if skipped_too_new and min_age > timedelta(0):
-        progress(
-            f"Collected {len(collected)} eligible post(s) "
-            f"({skipped_too_new} skipped — younger than {settings.validation_min_post_age_hours}h)."
-        )
-    else:
-        progress(f"Collected {len(collected)} eligible post(s).")
+    collected = raw_posts_to_collected(enriched_posts, settings, skip_min_age=False)
+    progress(f"Collected {len(collected)} eligible post(s) from {len(enriched_posts)} scraped.")
     return collected
 
 

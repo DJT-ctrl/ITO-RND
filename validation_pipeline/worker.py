@@ -9,8 +9,9 @@ from uuid import UUID
 from pgvector.psycopg import register_vector
 
 from config.settings import Settings, load_settings
+from feedback.batch import try_store_feedback_after_validation
 from storage.vector_store import create_schema, get_connection
-from validation_pipeline.rescrape import fetch_engagement, fetch_engagement_by_urls
+from validation_pipeline.rescrape import fetch_engagement_by_urls
 from validation_pipeline.schemas import ValidationBatchResult, ValidationResult
 from validation_pipeline.scoring import (
     compute_validation_scores,
@@ -25,7 +26,6 @@ from validation_pipeline.store import (
     mark_validated,
     mark_validating,
 )
-
 
 def _validate_predictions(
     predictions: list,
@@ -51,7 +51,13 @@ def _validate_predictions(
         try:
             actuals = actuals_map.get(prediction.prediction_id)
             if actuals is None:
-                actuals = fetch_engagement(prediction, settings)
+                raise ValueError(
+                    f"Could not re-match post {prediction.linkedin_post_id} "
+                    f"({prediction.linkedin_url}): Apify returned no matching post "
+                    f"after direct URL scrape and author profile fallback "
+                    f"(up to {settings.validation_rescrape_profile_max_posts} recent posts). "
+                    f"The post may be deleted, private, or no longer on the public profile."
+                )
             scores = compute_validation_scores(actuals, prediction, corpus_totals)
             conn = get_connection(settings)
             try:
@@ -59,6 +65,8 @@ def _validate_predictions(
                 insert_snapshot(conn, prediction.prediction_id, actuals)
             finally:
                 conn.close()
+            # Thin enqueue: template feedback after successful validate (fail open).
+            try_store_feedback_after_validation(prediction, scores, settings)
             batch.validated += 1
             batch.results.append(
                 ValidationResult(

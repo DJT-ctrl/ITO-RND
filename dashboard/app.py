@@ -68,6 +68,11 @@ pg = st.navigation(
                 title="Accuracy History",
                 icon="📉",
             ),
+            st.Page(
+                str(_VALIDATION / "10_Feedback_Loop.py"),
+                title="Feedback Loop",
+                icon="🔁",
+            ),
         ],
         "Evaluation": [
             st.Page(

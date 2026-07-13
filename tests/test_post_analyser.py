@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
 
+import json
 import pytest
 
 from config.settings import Settings
@@ -152,7 +153,7 @@ def test_gemini_features_returns_parsed_json():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = fake_response
     analyser._client = mock_client
-    analyser._model = "gemini-2.5-flash"
+    analyser._model = "gemini-2.5-flash-lite"
 
     result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
 
@@ -169,7 +170,7 @@ def test_gemini_features_returns_nulls_on_bad_response():
     mock_client = MagicMock()
     mock_client.models.generate_content.return_value = bad_response
     analyser._client = mock_client
-    analyser._model = "gemini-2.5-flash"
+    analyser._model = "gemini-2.5-flash-lite"
 
     result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
     assert result["hook_type"] is None
@@ -188,11 +189,42 @@ def test_gemini_features_logs_api_error_and_returns_nulls():
         None,
     )
     analyser._client = mock_client
-    analyser._model = "gemini-2.5-flash"
+    analyser._model = "gemini-2.5-flash-lite"
 
     result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
     assert result["hook_type"] is None
     assert "model not found" in (analyser.last_error or "")
+
+
+def test_gemini_features_retries_transient_503_then_succeeds():
+    from google.genai import errors as genai_errors
+
+    good_response = MagicMock()
+    good_response.text = json.dumps(
+        {
+            "hook_type": "announcement",
+            "tone": "professional",
+            "topic": "AI tools",
+            "has_explicit_cta": False,
+            "writing_style": "Short update.",
+        }
+    )
+
+    analyser = PostAnalyser(make_settings())
+    python_features = analyser.compute_python_features(SAMPLE_POST)
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [
+        genai_errors.APIError(503, {"error": {"message": "high demand"}}),
+        good_response,
+    ]
+    analyser._client = mock_client
+    analyser._model = "gemini-2.5-flash-lite"
+
+    with patch("processors.gemini_retry.time.sleep") as mock_sleep:
+        result = analyser.compute_gemini_features(SAMPLE_POST, python_features)
+
+    assert result["hook_type"] == "announcement"
+    mock_sleep.assert_called_once()
 
 
 def test_build_gemini_prompt_handles_curly_braces_in_content():

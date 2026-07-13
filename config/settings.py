@@ -33,12 +33,11 @@ __all__ = [
 _PROJECT_ROOT = PROJECT_ROOT
 load_dotenv(_PROJECT_ROOT / ".env")
 
-# google-genai model id (post_analyser, embedder, etc.)
+# google-genai generative model (post_analyser Stage 2 + pydantic-ai agents).
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
-# pydantic-ai evaluation agents — full flash by default for reasoning quality;
-# override with AGENT_GEMINI_MODEL in .env to match GEMINI_MODEL if you want.
-AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", "gemini-2.5-flash")
+# pydantic-ai evaluation agents — same model unless AGENT_GEMINI_MODEL is set in .env.
+AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
 
 
 def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:
@@ -95,6 +94,18 @@ class Settings:
     validation_max_posts_per_run: int = 20
     validation_min_post_age_hours: int = 0
     validation_data_dir: str = "data/validation"
+    # Profile fallback depth when direct post-URL re-scrape returns no items.
+    validation_rescrape_profile_max_posts: int = 100
+    # Phase A feedback: passive percentile calibration from validated deltas.
+    validation_calibration_enabled: bool = False
+    validation_calibration_n_min: int = 30
+    # Phase B feedback: template feedback records after validation.
+    validation_feedback_enabled: bool = True
+    # Phase C: min validated rows in a cluster before cluster-scoped calibration.
+    validation_cluster_n_min: int = 50
+    # Phase D: inject cluster feedback lessons into the predictor prompt (A/B flag).
+    validation_feedback_injection_enabled: bool = False
+    validation_feedback_injection_limit: int = 5
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -113,7 +124,7 @@ class Settings:
 def load_settings() -> Settings:
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
     sync_google_api_key()
-    return Settings(
+    settings = Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
         apify_actor_id=os.getenv("APIFY_ACTOR_ID", ""),
         apify_profile_actor_id=os.getenv("APIFY_PROFILE_ACTOR_ID", ""),
@@ -136,11 +147,34 @@ def load_settings() -> Settings:
         validation_max_posts_per_run=int(os.getenv("VALIDATION_MAX_POSTS_PER_RUN", "20")),
         validation_min_post_age_hours=int(os.getenv("VALIDATION_MIN_POST_AGE_HOURS", "0")),
         validation_data_dir=os.getenv("VALIDATION_DATA_DIR", "data/validation"),
+        validation_rescrape_profile_max_posts=int(
+            os.getenv("VALIDATION_RESCRAPE_PROFILE_MAX_POSTS", "100")
+        ),
+        validation_calibration_enabled=_env_bool(
+            "VALIDATION_CALIBRATION_ENABLED", default=False
+        ),
+        validation_calibration_n_min=int(
+            os.getenv("VALIDATION_CALIBRATION_N_MIN", "30")
+        ),
+        validation_feedback_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_ENABLED", default=True
+        ),
+        validation_cluster_n_min=int(os.getenv("VALIDATION_CLUSTER_N_MIN", "50")),
+        validation_feedback_injection_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_INJECTION_ENABLED", default=False
+        ),
+        validation_feedback_injection_limit=int(
+            os.getenv("VALIDATION_FEEDBACK_INJECTION_LIMIT", "5")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
         eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
     )
+    # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
+    from feedback.runtime_flags import apply_overrides_to_settings
+
+    return apply_overrides_to_settings(settings)
 
 
 def _env_bool(name: str, *, default: bool) -> bool:
