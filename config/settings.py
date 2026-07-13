@@ -125,7 +125,7 @@ class Settings:
 def load_settings() -> Settings:
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
     sync_google_api_key()
-    return Settings(
+    settings = Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
         apify_actor_id=os.getenv("APIFY_ACTOR_ID", ""),
         apify_profile_actor_id=os.getenv("APIFY_PROFILE_ACTOR_ID", ""),
@@ -172,6 +172,10 @@ def load_settings() -> Settings:
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
         eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
     )
+    # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
+    from feedback.runtime_flags import apply_overrides_to_settings
+
+    return apply_overrides_to_settings(settings)
 
 
 def _env_bool(name: str, *, default: bool) -> bool:

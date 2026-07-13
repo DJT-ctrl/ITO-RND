@@ -14,47 +14,192 @@ from feedback.batch import (
 )
 from feedback.calibration import apply_calibration
 from feedback.generate import FEEDBACK_VERSION
+from feedback.runtime_flags import clear_overrides, load_overrides, save_overrides
 from feedback.schemas import CalibrationStats, ClusterStats, FeedbackRecord
-from feedback.store import (
+from feedback.dashboard_queries import (
     count_feedback_coverage,
-    fetch_calibration_stats,
     list_clusters,
     list_recent_feedback,
+)
+from feedback.store import (
+    fetch_calibration_stats,
     refresh_cluster_stats,
 )
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.store import list_predictions
 
 
-def render_feedback_settings_panel(settings: Settings) -> None:
-    """Show current feature flags so operators know what is active."""
-    st.subheader("Feedback loop settings")
-    cols = st.columns(4)
-    cols[0].metric(
-        "Calibration",
-        "ON" if settings.validation_calibration_enabled else "OFF",
-    )
-    cols[1].metric(
-        "Feedback records",
-        "ON" if settings.validation_feedback_enabled else "OFF",
-    )
-    cols[2].metric(
-        "Prompt injection",
-        "ON" if settings.validation_feedback_injection_enabled else "OFF",
-    )
-    cols[3].metric("Injection limit", settings.validation_feedback_injection_limit)
+def _section_header(title: str, help_markdown: str) -> None:
+    """Subheader with a ? popover explaining the section."""
+    left, right = st.columns([0.93, 0.07])
+    with left:
+        st.subheader(title)
+    with right:
+        with st.popover("?"):
+            st.markdown(help_markdown)
 
-    st.caption(
-        f"Global N_min = **{settings.validation_calibration_n_min}** · "
-        f"Cluster N_min = **{settings.validation_cluster_n_min}** · "
-        f"Toggle via env: `VALIDATION_CALIBRATION_ENABLED`, "
-        f"`VALIDATION_FEEDBACK_ENABLED`, `VALIDATION_FEEDBACK_INJECTION_ENABLED`."
+
+def _metric(col, label: str, value, *, help_text: str, **kwargs) -> None:
+    col.metric(label, value, help=help_text, **kwargs)
+
+
+def render_feedback_settings_panel(settings: Settings) -> Settings:
+    """Editable feature flags — persisted so worker/predict honor them too."""
+    _section_header(
+        "Feedback loop settings",
+        """
+These switches control the three learning mechanisms. **They matter.**
+
+| Flag | When ON | When OFF (why turn off?) |
+|------|---------|--------------------------|
+| **Calibration** | Next predictions get a numeric percentile offset from past errors | A/B test: compare raw vs calibrated accuracy |
+| **Feedback records** | After each validation, store a template lesson in the DB | Pause writing lessons while debugging validation |
+| **Prompt injection** | Predictor sees up to N recent lessons from the same cluster | A/B test: does lesson text help, or only calibration? |
+
+Default for production: **all ON**. Turn one OFF only for experiments.
+Overrides are saved to `data/feedback_loop_overrides.json` and apply on the
+next `load_settings()` call (Streamlit page reload, worker, CLI).
+""",
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        cal_on = st.toggle(
+            "Calibration",
+            value=settings.validation_calibration_enabled,
+            help=(
+                "Adds mean prediction error (actual − predicted) to new "
+                "percentile scores once enough validated rows exist. "
+                "Turn OFF to measure baseline accuracy without the offset."
+            ),
+            key="fb_toggle_calibration",
+        )
+    with c2:
+        fb_on = st.toggle(
+            "Feedback records",
+            value=settings.validation_feedback_enabled,
+            help=(
+                "After a prediction is validated (~48h later), write a structured "
+                "lesson row. Turn OFF to stop creating new lessons (existing ones stay)."
+            ),
+            key="fb_toggle_feedback",
+        )
+    with c3:
+        inj_on = st.toggle(
+            "Prompt injection",
+            value=settings.validation_feedback_injection_enabled,
+            help=(
+                "At predict time, inject a short block of recent same-cluster lessons "
+                "into the Predictor prompt. Turn OFF for an A/B without lesson text."
+            ),
+            key="fb_toggle_injection",
+        )
+    with c4:
+        inj_limit = st.number_input(
+            "Injection limit",
+            min_value=1,
+            max_value=20,
+            value=int(settings.validation_feedback_injection_limit),
+            help=(
+                "Max lesson rows injected per prediction. Keeps the prompt small "
+                "(default 5). Higher = more context, more tokens."
+            ),
+            key="fb_injection_limit",
+        )
+
+    g1, g2, g3 = st.columns(3)
+    with g1:
+        n_min = st.number_input(
+            "Global N_min",
+            min_value=1,
+            max_value=500,
+            value=int(settings.validation_calibration_n_min),
+            help=(
+                "Validated rows required before global calibration applies. "
+                "Below this, raw percentiles are used (cold start)."
+            ),
+            key="fb_global_n_min",
+        )
+    with g2:
+        cluster_n_min = st.number_input(
+            "Cluster N_min",
+            min_value=1,
+            max_value=500,
+            value=int(settings.validation_cluster_n_min),
+            help=(
+                "Samples required in a cluster before that cluster's own mean_delta "
+                "is used for calibration (instead of global)."
+            ),
+            key="fb_cluster_n_min",
+        )
+    with g3:
+        st.write("")
+        st.write("")
+        save = st.button("Save settings", type="primary", key="fb_save_settings")
+        reset = st.button("Reset to .env defaults", key="fb_reset_settings")
+
+    if save:
+        save_overrides(
+            {
+                "validation_calibration_enabled": bool(cal_on),
+                "validation_feedback_enabled": bool(fb_on),
+                "validation_feedback_injection_enabled": bool(inj_on),
+                "validation_feedback_injection_limit": int(inj_limit),
+                "validation_calibration_n_min": int(n_min),
+                "validation_cluster_n_min": int(cluster_n_min),
+            }
+        )
+        st.success("Saved — applies on this page reload and to new worker/predict runs.")
+        st.rerun()
+
+    if reset:
+        clear_overrides()
+        st.success("Cleared dashboard overrides — back to .env / defaults.")
+        st.rerun()
+
+    overrides = load_overrides()
+    if overrides:
+        st.caption(
+            f"Active dashboard overrides: `{', '.join(sorted(overrides.keys()))}` "
+            f"(file: `data/feedback_loop_overrides.json`)."
+        )
+    else:
+        st.caption("No dashboard overrides — using `.env` / built-in defaults.")
+
+    # Return a settings object reflecting the form (already applied if saved+rerun).
+    from dataclasses import replace
+
+    return replace(
+        settings,
+        validation_calibration_enabled=bool(cal_on),
+        validation_feedback_enabled=bool(fb_on),
+        validation_feedback_injection_enabled=bool(inj_on),
+        validation_feedback_injection_limit=int(inj_limit),
+        validation_calibration_n_min=int(n_min),
+        validation_cluster_n_min=int(cluster_n_min),
     )
 
 
 def render_calibration_panel(settings: Settings) -> Optional[CalibrationStats]:
     """Global mean_delta and whether the N_min gate would apply."""
-    st.subheader("Calibration (global)")
+    _section_header(
+        "Calibration (global)",
+        """
+**What this is:** a silent numeric correction, not AI advice.
+
+After enough validated predictions, we compute the average error:
+`mean_delta = average(actual_percentile − predicted_percentile)`.
+
+On the **next** prediction:
+`calibrated = clamp(raw + mean_delta, 0, 100)`.
+
+- Positive mean_delta → model usually **under**estimates → we nudge scores up  
+- Negative mean_delta → model usually **over**estimates → we nudge scores down  
+
+This does **not** re-scrape LinkedIn. It only adjusts scores when predicting
+*new* posts, once N ≥ N_min and Calibration is ON.
+""",
+    )
     conn = get_connection(settings)
     try:
         create_schema(conn)
@@ -71,14 +216,40 @@ def render_calibration_panel(settings: Settings) -> Optional[CalibrationStats]:
     demo = apply_calibration(demo_raw, stats.mean_delta, stats.n_validated, n_min)
 
     cols = st.columns(5)
-    cols[0].metric("Validated (N)", stats.n_validated)
-    cols[1].metric("Mean delta", f"{stats.mean_delta:+.2f}")
-    cols[2].metric("N_min gate", n_min)
-    cols[3].metric("Would apply?", "Yes" if would_apply else "No")
-    cols[4].metric(
+    _metric(
+        cols[0],
+        "Validated (N)",
+        stats.n_validated,
+        help_text="How many validated predictions contribute to mean_delta.",
+    )
+    _metric(
+        cols[1],
+        "Mean delta",
+        f"{stats.mean_delta:+.2f}",
+        help_text="Average (actual − predicted) percentile. Applied as an offset when the gate opens.",
+    )
+    _metric(
+        cols[2],
+        "N_min gate",
+        n_min,
+        help_text="Cold-start threshold. Below this, calibration does nothing.",
+    )
+    _metric(
+        cols[3],
+        "Would apply?",
+        "Yes" if would_apply else "No",
+        help_text="Yes only if Calibration is ON and Validated (N) ≥ N_min.",
+    )
+    _metric(
+        cols[4],
         "Example (raw 70)",
         f"{demo.calibrated_percentile:.1f}",
-        delta=f"{demo.calibrated_percentile - demo_raw:+.1f}" if demo.applied else "unchanged",
+        help_text="If a new post's raw neighbor percentile were 70, this is what calibrated would be right now.",
+        delta=(
+            f"{demo.calibrated_percentile - demo_raw:+.1f}"
+            if demo.applied
+            else "unchanged"
+        ),
     )
 
     if not settings.validation_calibration_enabled:
@@ -106,7 +277,23 @@ def render_calibration_panel(settings: Settings) -> Optional[CalibrationStats]:
 
 def render_coverage_panel(settings: Settings) -> dict[str, int]:
     """Validated vs feedback coverage metrics."""
-    st.subheader("Feedback coverage")
+    _section_header(
+        "Feedback coverage",
+        """
+**This is not the 48-hour re-scrape.** The Queue / worker already pulled
+actual engagement and computed deltas. This section only answers:
+
+> Of those validated predictions, how many already have a **lesson row**
+> stored for the AI?
+
+- **Validated** — prediction finished the wait window; we know actual vs predicted  
+- **With feedback** — a template lesson JSON exists (version v1)  
+- **Missing** — validated but no lesson yet (use **Generate missing feedback**)
+
+Lessons are written automatically when Feedback records is ON and validation
+succeeds. The manual button below is for backfill / recovery.
+""",
+    )
     conn = get_connection(settings)
     try:
         create_schema(conn)
@@ -115,9 +302,24 @@ def render_coverage_panel(settings: Settings) -> dict[str, int]:
         conn.close()
 
     cols = st.columns(3)
-    cols[0].metric("Validated predictions", coverage["validated"])
-    cols[1].metric("With feedback (v1)", coverage["with_feedback"])
-    cols[2].metric("Missing feedback", coverage["missing_feedback"])
+    _metric(
+        cols[0],
+        "Validated predictions",
+        coverage["validated"],
+        help_text="Predictions that already have actual engagement + a prediction_delta.",
+    )
+    _metric(
+        cols[1],
+        "With feedback (v1)",
+        coverage["with_feedback"],
+        help_text="Validated rows that have a stored template lesson (feedback version v1).",
+    )
+    _metric(
+        cols[2],
+        "Missing feedback",
+        coverage["missing_feedback"],
+        help_text="Validated but no lesson yet — backfill with Generate missing feedback.",
+    )
     if coverage["missing_feedback"] > 0:
         st.caption(
             "Use **Generate missing feedback** below to backfill template lessons."
@@ -127,7 +329,30 @@ def render_coverage_panel(settings: Settings) -> dict[str, int]:
 
 def render_clusters_table(settings: Settings, *, cluster_n_min: int) -> list[ClusterStats]:
     """Per-cluster sample counts and mean deltas."""
-    st.subheader("Clusters")
+    _section_header(
+        "Clusters",
+        """
+**What a cluster is:** a bucket of *similar-shaped* posts — not topics, not
+embeddings (yet). Every post gets a stable id from three metadata axes:
+
+1. **Length** — short / medium / long (word count)  
+2. **Format** — prose / list / question  
+3. **Follower band** — nano / micro / mid / macro / unknown  
+
+Example: `short_list_micro` = short listicle from a micro-influencer.
+
+**Why bother?**  
+A short listicle from a nano account behaves differently from a long prose
+post from a macro account. Clustering lets us:
+
+- Apply a **cluster-specific** calibration offset once that bucket has enough samples  
+- Inject only lessons from the **same bucket** into the next prediction (so the
+  model isn't flooded with unrelated feedback)
+
+**cluster calib = ready** means samples ≥ Cluster N_min and we have a mean_delta
+for that bucket. Until then, global calibration (above) is used.
+""",
+    )
     conn = get_connection(settings)
     try:
         create_schema(conn)
@@ -156,6 +381,10 @@ def render_clusters_table(settings: Settings, *, cluster_n_min: int) -> list[Clu
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.caption(
+        "Hover the section **?** for a full explanation. "
+        "`cluster calib = ready` → that bucket can drive its own offset + lesson retrieval."
+    )
     return clusters
 
 
@@ -166,7 +395,27 @@ def render_recent_feedback_table(
     cluster_id: Optional[str] = None,
 ) -> list[FeedbackRecord]:
     """Recent structured feedback lessons."""
-    st.subheader("Recent feedback records")
+    _section_header(
+        "Recent feedback records",
+        """
+**What you're looking at:** compact, number-grounded lesson cards stored after
+validation — not free-form AI essays.
+
+**Honest limitation (v1):** templates mostly say *how far* the prediction was
+off (and on which metrics), plus a short “bias toward higher/lower percentiles”
+lesson. They do **not** yet diagnose deep causal “why” (e.g. “hook was weak”
+or “topic was stale”). That would need an LLM pass; v1 stays template-only so
+feedback stays factual and cheap.
+
+**How the AI sees this without blowing the context window:**
+1. New post is routed to a **cluster**  
+2. We fetch only the latest **N** lessons from that cluster (Injection limit)  
+3. Those are formatted into a short prompt block (~a few hundred tokens)  
+4. Thousands of other rows stay in Postgres and are **not** sent to the model  
+
+So sorting into clusters is exactly how we keep context small and relevant.
+""",
+    )
     conn = get_connection(settings)
     try:
         create_schema(conn)
@@ -207,7 +456,26 @@ def render_recent_feedback_table(
 
 def render_manual_actions(settings: Settings) -> None:
     """Buttons to run feedback batch, refresh clusters, regenerate one row."""
-    st.subheader("Manual process")
+    _section_header(
+        "Manual process",
+        """
+**Timing:** this runs **after** the ~48h (or dev-window) results are already in.
+
+The Queue / worker:
+1. Re-scrapes the post  
+2. Computes actual percentile + deltas  
+3. Optionally auto-writes a feedback lesson  
+
+These buttons are for when auto-write missed something, or you want to
+recompute cluster stats without waiting for the next validation.
+
+| Button | Does |
+|--------|------|
+| **Generate missing feedback** | Create template lessons for validated rows that lack v1 feedback |
+| **Refresh cluster stats** | Recompute sample_count / mean_delta / std_delta per cluster |
+| **Regenerate one** | Rebuild one lesson (e.g. after a template change) |
+""",
+    )
     st.caption(
         "Run these when you want to backfill or refresh without waiting for "
         "the next validation worker pass."
@@ -222,19 +490,26 @@ def render_manual_actions(settings: Settings) -> None:
             max_value=500,
             value=50,
             key="feedback_batch_limit",
+            help="Max validated-but-missing rows to process in one click.",
         )
         if st.button(
             "Generate missing feedback",
             type="primary",
             disabled=not settings.validation_feedback_enabled,
-            help="Template feedback for validated predictions that lack a v1 row.",
+            help=(
+                "Template feedback for validated predictions that lack a v1 row. "
+                "Disabled when Feedback records is OFF."
+            ),
         ):
             with st.spinner("Generating template feedback..."):
                 batch = run_feedback_batch(settings, limit=int(limit))
             st.session_state["feedback_last_batch"] = batch
             st.rerun()
 
-        if st.button("Refresh cluster stats"):
+        if st.button(
+            "Refresh cluster stats",
+            help="Recompute per-cluster mean_delta and sample counts from feedback rows.",
+        ):
             with st.spinner("Recomputing cluster mean_delta / sample_count..."):
                 conn = get_connection(settings)
                 try:
@@ -264,8 +539,15 @@ def render_manual_actions(settings: Settings) -> None:
         if not options:
             st.info("No validated predictions to regenerate.")
         else:
-            choice = st.selectbox("Validated prediction", list(options.keys()))
-            if st.button("Regenerate feedback for selected"):
+            choice = st.selectbox(
+                "Validated prediction",
+                list(options.keys()),
+                help="Pick a validated post whose lesson you want to rebuild.",
+            )
+            if st.button(
+                "Regenerate feedback for selected",
+                help="Overwrite that prediction's v1 feedback and refresh cluster stats.",
+            ):
                 pid = options[choice]
                 try:
                     with st.spinner("Regenerating..."):
@@ -302,14 +584,26 @@ def render_feedback_detail_expander(records: list[FeedbackRecord]) -> None:
     """Expandable full JSON for a selected feedback row."""
     if not records:
         return
-    st.subheader("Inspect feedback JSON")
+    _section_header(
+        "Inspect feedback JSON",
+        """
+Open one stored lesson in full. Check `what_worked`, `what_missed`, and
+`lessons_for_similar_posts`. In v1 these are **templates from numbers**, not
+an LLM narrative — useful for verifying the closed loop is writing what you expect.
+""",
+    )
     labels = {
         f"{r.cluster_id or '—'} · {r.feedback_json.delta_summary.direction} · "
         f"{r.generated_at.strftime('%Y-%m-%d %H:%M') if r.generated_at else '?'}"
         : r
         for r in records
     }
-    pick = st.selectbox("Select record", list(labels.keys()), key="feedback_inspect")
+    pick = st.selectbox(
+        "Select record",
+        list(labels.keys()),
+        key="feedback_inspect",
+        help="Choose a row from the recent feedback table to inspect.",
+    )
     record = labels[pick]
     payload = record.feedback_json
     st.markdown(
@@ -337,3 +631,73 @@ def render_feedback_detail_expander(records: list[FeedbackRecord]) -> None:
         )
     with st.expander("Raw JSON"):
         st.json(payload.model_dump(mode="json"))
+
+
+def render_how_this_connects(settings: Settings) -> None:
+    """Detailed end-to-end diagram + copy for the Feedback Loop tab."""
+    _section_header(
+        "How this connects",
+        """
+Full closed loop from scrape → wait → learn → next prediction.
+Read the diagram below; use the numbered steps for detail.
+""",
+    )
+
+    st.markdown(
+        f"""
+```
+  ┌─────────────┐     ~{settings.validation_window_hours}h wait      ┌──────────────────┐
+  │ 1. Collect  │ ───────────────────────────────▶ │ 2. Validate     │
+  │ + Predict   │   (Queue / worker re-scrape)     │ actual vs pred  │
+  └─────────────┘                                  └────────┬─────────┘
+                                                            │
+                         ┌──────────────────────────────────┼──────────────────────────┐
+                         │                                  ▼                          │
+                         │                    ┌─────────────────────────┐              │
+                         │                    │ 3. Store feedback       │              │
+                         │                    │ (template lesson +      │              │
+                         │                    │  assign cluster id)     │              │
+                         │                    └───────────┬─────────────┘              │
+                         │                                │                            │
+                         │              ┌─────────────────┴─────────────────┐          │
+                         │              ▼                                   ▼          │
+                         │   ┌────────────────────┐           ┌────────────────────┐   │
+                         │   │ 4a. Calibration    │           │ 4b. Cluster stats  │   │
+                         │   │ global / cluster   │           │ mean_delta, N      │   │
+                         │   │ offset for NEXT    │           │                    │   │
+                         │   │ predict            │           │                    │   │
+                         │   └─────────┬──────────┘           └─────────┬──────────┘   │
+                         │             │                                  │            │
+                         │             └────────────────┬─────────────────┘            │
+                         │                              ▼                              │
+                         │                 ┌─────────────────────────┐                 │
+                         │                 │ 5. Next prediction      │                 │
+                         │                 │ • route to cluster      │                 │
+                         │                 │ • inject ≤{settings.validation_feedback_injection_limit} lessons     │                 │
+                         │                 │ • apply calibration     │                 │
+                         │                 └─────────────────────────┘                 │
+                         └─────────────────────────────────────────────────────────────┘
+```
+
+**Step by step**
+
+1. **Collect + Predict** — scrape a post, score it (neighbor percentile + Predictor agent).  
+2. **Validate (~{settings.validation_window_hours}h later)** — re-scrape engagement, compute deltas. *This* is where the “48h results” come from — not from Manual process.  
+3. **Store feedback** — if Feedback records is ON, write a compact lesson JSON and assign a cluster (`length_format_followers`).  
+4. **Learn silently** — update global / cluster `mean_delta` (Calibration). Refresh cluster sample counts.  
+5. **Next predict** — route the new post to a cluster → pull only the latest **{settings.validation_feedback_injection_limit}** lessons from that cluster into the prompt → optionally add the calibration offset to the numeric percentile.
+
+**Context window:** we never dump the whole feedback table. Clusters + Injection limit keep the prompt to a short comparative block.
+"""
+    )
+
+    with st.expander("When would I turn a setting OFF?"):
+        st.markdown(
+            """
+- **Calibration OFF** — measure raw model accuracy; or temporarily stop a bad offset while N is still small/noisy.  
+- **Feedback records OFF** — stop writing new lessons (e.g. schema migration, debugging validation). Old rows remain.  
+- **Prompt injection OFF** — test whether lesson *text* helps beyond the numeric offset alone (A/B).  
+
+Day-to-day: leave all **ON**.
+"""
+        )

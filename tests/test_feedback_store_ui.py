@@ -1,8 +1,12 @@
-"""Tests for feedback store dashboard helpers."""
+"""Tests for feedback dashboard query helpers."""
 
 from unittest.mock import MagicMock
 
-from feedback.store import count_feedback_coverage, list_clusters, list_recent_feedback
+from feedback.dashboard_queries import (
+    count_feedback_coverage,
+    list_clusters,
+    list_recent_feedback,
+)
 
 
 def test_count_feedback_coverage():
