@@ -24,7 +24,7 @@ class ModelRates:
 
 def _normalize_model_id(model: Optional[str]) -> str:
     if not model:
-        return "gemini-2.5-flash"
+        return "gemini-2.5-flash-lite"
     raw = model.strip()
     for prefix in ("google-gla:", "google:", "models/"):
         if raw.startswith(prefix):
@@ -62,7 +62,7 @@ def get_model_rates(model: Optional[str]) -> ModelRates:
     for key, rates in table.items():
         if key in normalized or normalized in key:
             return rates
-    return table["gemini-2.5-flash"]
+    return table["gemini-2.5-flash-lite"]
 
 
 def cost_from_tokens(

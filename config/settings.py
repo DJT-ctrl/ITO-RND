@@ -33,12 +33,11 @@ __all__ = [
 _PROJECT_ROOT = PROJECT_ROOT
 load_dotenv(_PROJECT_ROOT / ".env")
 
-# google-genai model id (post_analyser, embedder, etc.)
+# google-genai generative model (post_analyser Stage 2 + pydantic-ai agents).
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 
-# pydantic-ai evaluation agents — full flash by default for reasoning quality;
-# override with AGENT_GEMINI_MODEL in .env to match GEMINI_MODEL if you want.
-AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", "gemini-2.5-flash")
+# pydantic-ai evaluation agents — same model unless AGENT_GEMINI_MODEL is set in .env.
+AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
 
 
 def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:

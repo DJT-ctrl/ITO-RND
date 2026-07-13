@@ -22,6 +22,7 @@ from feedback.retrieve import fetch_cluster_feedback, format_feedback_context_bl
 from feedback.routing import assign_cluster_id
 from feedback.store import resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
+from processors.gemini_retry import async_call_with_gemini_retry
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.prediction_telemetry import build_prediction_telemetry
 from validation_pipeline.schemas import (
@@ -162,6 +163,17 @@ async def predict_for_post(
     settings: Settings,
 ) -> PredictionOutput:
     """Embed, retrieve neighbors, and run the predictor agent for one post."""
+    return await async_call_with_gemini_retry(
+        lambda: _predict_for_post_impl(post, settings),
+        label=f"Predict post {post.linkedin_post_id}",
+    )
+
+
+async def _predict_for_post_impl(
+    post: CollectedPost,
+    settings: Settings,
+) -> PredictionOutput:
+    """Inner predict implementation (retried by predict_for_post on 429/5xx)."""
     state = PostEvaluationState(draft_content=post.content)
     await _gather_similar_posts(state, settings, user_id=None)
 

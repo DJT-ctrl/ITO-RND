@@ -17,13 +17,13 @@ Two deliberate stages keep costs down and hallucinations out:
 import json
 import logging
 import re
-import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from google import genai
-from google.genai import errors as genai_errors
 from google.genai import types as genai_types
+
+from processors.gemini_retry import call_with_gemini_retry
 
 from agents.prompt_safety import (
     PROMPT_DATA_PREAMBLE,
@@ -44,9 +44,6 @@ _HOOK_TYPES = ("question", "bold_statement", "story", "list", "announcement", "o
 _TONES = ("professional", "casual", "emotional", "humorous", "urgent")
 _GEMINI_FEATURE_KEYS = ("hook_type", "tone", "topic", "has_explicit_cta", "writing_style")
 DEFAULT_GEMINI_MODEL = GEMINI_MODEL
-_MAX_GEMINI_RETRIES = 2
-_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
-
 # Covers the most common Unicode emoji blocks without pulling in a full library.
 _EMOJI_RE = re.compile(
     "["
@@ -162,39 +159,20 @@ class PostAnalyser:
         return ""
 
     def _call_gemini(self, prompt: str) -> str:
-        """Call Gemini with short retries on transient API errors."""
-        last_error: Optional[Exception] = None
-        for attempt in range(_MAX_GEMINI_RETRIES + 1):
-            try:
-                response = self._client.models.generate_content(
-                    model=self._model,
-                    contents=prompt,
-                    config=genai_types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.0,
-                    ),
-                )
-                return self._extract_response_text(response)
-            except genai_errors.APIError as exc:
-                last_error = exc
-                status = getattr(exc, "status_code", None)
-                if status not in _RETRYABLE_STATUS_CODES or attempt >= _MAX_GEMINI_RETRIES:
-                    raise
-                wait_s = 2 ** attempt
-                logger.warning(
-                    "Gemini transient error (%s) — retrying in %ss (attempt %s/%s)",
-                    status,
-                    wait_s,
-                    attempt + 1,
-                    _MAX_GEMINI_RETRIES,
-                )
-                time.sleep(wait_s)
-            except Exception as exc:  # noqa: BLE001 — surfaced by caller
-                last_error = exc
-                raise
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("Gemini call failed without an error")
+        """Call Gemini with retries on transient API errors."""
+
+        def _request() -> str:
+            response = self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.0,
+                ),
+            )
+            return self._extract_response_text(response)
+
+        return call_with_gemini_retry(_request, label="Gemini Stage 2")
 
     # ── Stage 1 ───────────────────────────────────────────────────────────────
 

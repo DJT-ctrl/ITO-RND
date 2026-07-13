@@ -11,6 +11,9 @@ from validation_pipeline.collect import collect_posts
 from validation_pipeline.predict import predict_for_post, save_prediction
 from validation_pipeline.schemas import CollectedPost, CollectPredictResult
 
+# Brief pause between posts to avoid hammering Gemini during batch validation runs.
+_INTER_POST_DELAY_S = 1.0
+
 
 async def _predict_posts(
     posts: list[CollectedPost],
@@ -41,6 +44,9 @@ async def _predict_posts(
                 result.predictions.append(saved)
         except Exception as exc:
             result.errors.append(f"{post.linkedin_post_id}: {exc}")
+
+        if i < len(posts):
+            await asyncio.sleep(_INTER_POST_DELAY_S)
 
     return result
 
