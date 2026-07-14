@@ -76,8 +76,11 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
             predicted_engagement_percentile, predicted_total_engagement,
             predicted_likes, predicted_comments, predicted_shares,
             baseline_likes, baseline_comments, baseline_shares, baseline_total_engagement,
-            prediction_method, neighbor_count, prediction_telemetry, validation_due_at
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            prediction_method, neighbor_count, prediction_telemetry, validation_due_at,
+            embedding, embedding_model_version
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+        )
         RETURNING prediction_id, created_at
     """
     with conn.cursor() as cur:
@@ -102,6 +105,8 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
                 prediction.neighbor_count,
                 Jsonb(prediction.telemetry.model_dump(mode="json")),
                 prediction.validation_due_at,
+                prediction.embedding,
+                prediction.embedding_model_version,
             ),
         )
         row = cur.fetchone()

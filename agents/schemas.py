@@ -65,6 +65,9 @@ class PostEvaluationState(BaseModel):
     variants: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     run_metadata: Optional[RunMetadata] = None
+    # Phase H: query embedding from retrieval (list form for JSON/Pydantic).
+    query_embedding: Optional[list[float]] = None
+    embedding_model_version: Optional[str] = None
 
 
 def build_voice_profile_section(voice_profile: Optional[dict]) -> str:

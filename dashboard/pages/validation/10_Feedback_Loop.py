@@ -17,10 +17,12 @@ from feedback.ui import (  # noqa: E402
     render_how_this_connects,
     render_manual_actions,
     render_recent_feedback_table,
+    render_review_queue,
 )
 from feedback.observability_ui import (  # noqa: E402
     render_cluster_accuracy,
     render_learning_status,
+    render_offline_evaluation_panel,
 )
 
 st.set_page_config(page_title="Feedback Loop", layout="wide")
@@ -43,6 +45,9 @@ st.divider()
 render_learning_status(settings)
 
 st.divider()
+render_offline_evaluation_panel(settings)
+
+st.divider()
 render_calibration_panel(settings)
 
 st.divider()
@@ -50,6 +55,9 @@ coverage = render_coverage_panel(settings)
 
 st.divider()
 render_manual_actions(settings)
+
+st.divider()
+render_review_queue(settings)
 
 st.divider()
 clusters = render_clusters_table(

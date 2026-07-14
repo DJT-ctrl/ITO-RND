@@ -38,6 +38,7 @@ from processors.gemini_retry import call_with_gemini_retry
 
 _MODEL = "models/gemini-embedding-001"
 _OUTPUT_DIMENSIONALITY = 3072
+EMBEDDING_MODEL_VERSION = _MODEL
 _BATCH_SIZE = 100
 _MIN_WORD_COUNT = 10
 

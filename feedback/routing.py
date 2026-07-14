@@ -1,14 +1,15 @@
 """Deterministic cluster routing (no LLM).
 
-Phase C starts with metadata buckets (length, format, follower band).
-Same inputs always produce the same cluster_id. Embedding centroids can be
-added later without changing the assign_cluster_id contract for callers.
+Phase C: metadata buckets (length, format, follower band).
+Phase H: optional nearest-centroid routing when embeddings exist.
+Same inputs always produce the same cluster_id.
 """
 
 from __future__ import annotations
 
+import math
 import re
-from typing import Optional
+from typing import Optional, Sequence
 
 
 def content_length_bucket(content: str) -> str:
@@ -47,16 +48,69 @@ def follower_bucket(follower_count: Optional[int]) -> str:
     return "macro"
 
 
-def assign_cluster_id(
+def metadata_cluster_id(
     content: str,
     follower_count: Optional[int] = None,
 ) -> str:
-    """Return a stable cluster id from content (+ optional follower count)."""
+    """Stable metadata bucket id (Phase C)."""
     return (
         f"{content_length_bucket(content)}_"
         f"{format_bucket(content)}_"
         f"{follower_bucket(follower_count)}"
     )
+
+
+def cosine_distance(a: Sequence[float], b: Sequence[float]) -> float:
+    """Return 1 - cosine similarity (lower is closer)."""
+    if not a or not b or len(a) != len(b):
+        return float("inf")
+    dot = 0.0
+    norm_a = 0.0
+    norm_b = 0.0
+    for x, y in zip(a, b):
+        fx = float(x)
+        fy = float(y)
+        dot += fx * fy
+        norm_a += fx * fx
+        norm_b += fy * fy
+    if norm_a <= 0.0 or norm_b <= 0.0:
+        return float("inf")
+    similarity = dot / (math.sqrt(norm_a) * math.sqrt(norm_b))
+    return 1.0 - similarity
+
+
+def nearest_centroid_cluster_id(
+    embedding: Sequence[float],
+    centroids: Sequence[tuple[str, Sequence[float]]],
+) -> Optional[str]:
+    """Return cluster_id of nearest centroid, or None if empty."""
+    best_id: Optional[str] = None
+    best_distance = float("inf")
+    for cluster_id, centroid in centroids:
+        distance = cosine_distance(embedding, centroid)
+        if distance < best_distance:
+            best_distance = distance
+            best_id = cluster_id
+    return best_id
+
+
+def assign_cluster_id(
+    content: str,
+    follower_count: Optional[int] = None,
+    *,
+    embedding: Optional[Sequence[float]] = None,
+    centroids: Optional[Sequence[tuple[str, Sequence[float]]]] = None,
+) -> str:
+    """Return a stable cluster id.
+
+    Fallback chain: nearest centroid (when embedding + centroids) → metadata bucket.
+    """
+    metadata_id = metadata_cluster_id(content, follower_count)
+    if embedding and centroids:
+        nearest = nearest_centroid_cluster_id(embedding, centroids)
+        if nearest:
+            return nearest
+    return metadata_id
 
 
 def cluster_label(cluster_id: str) -> str:

@@ -148,7 +148,11 @@ CREATE TABLE IF NOT EXISTS predictions (
     total_engagement_delta  DOUBLE PRECISION,
     validation_error        TEXT,
 
-    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- Phase H: query embedding used at predict time (nullable for legacy rows).
+    embedding               vector(3072),
+    embedding_model_version TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS predictions_linkedin_post_id_idx
@@ -182,7 +186,10 @@ CREATE TABLE IF NOT EXISTS prediction_feedback (
     generation_latency_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
     input_tokens        INTEGER NOT NULL DEFAULT 0,
     output_tokens       INTEGER NOT NULL DEFAULT 0,
-    cost_usd            DOUBLE PRECISION NOT NULL DEFAULT 0
+    cost_usd            DOUBLE PRECISION NOT NULL DEFAULT 0,
+    feedback_review_status TEXT NOT NULL DEFAULT 'approved',
+    reviewed_at         TIMESTAMPTZ,
+    reviewed_by         TEXT
 );
 
 CREATE INDEX IF NOT EXISTS prediction_feedback_prediction_idx
@@ -198,6 +205,12 @@ ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS generation_latency_ms D
 ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS input_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS output_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS cost_usd DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS feedback_review_status TEXT NOT NULL DEFAULT 'approved';
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+ALTER TABLE prediction_feedback ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+
+CREATE INDEX IF NOT EXISTS prediction_feedback_review_status_idx
+    ON prediction_feedback (feedback_review_status);
 
 -- Phase C: deterministic cluster registry (metadata buckets; centroids later).
 CREATE TABLE IF NOT EXISTS prediction_clusters (
@@ -207,7 +220,8 @@ CREATE TABLE IF NOT EXISTS prediction_clusters (
     sample_count        INTEGER NOT NULL DEFAULT 0,
     mean_delta          DOUBLE PRECISION,
     std_delta           DOUBLE PRECISION,
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    centroid_embedding  vector(3072)
 );
 
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_likes INTEGER;
@@ -222,6 +236,9 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_comments INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_shares INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_total_engagement INTEGER;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_telemetry JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding vector(3072);
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding_model_version TEXT;
+ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS centroid_embedding vector(3072);
 
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5

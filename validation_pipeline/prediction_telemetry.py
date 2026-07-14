@@ -26,6 +26,7 @@ def build_prediction_telemetry(
     feedback_context: Optional[str],
     feedback_count: int,
     cluster_id: Optional[str],
+    injectability: Optional[dict[str, Any]] = None,
 ) -> PredictionTelemetry:
     """Normalize optional neighbor metadata into a stable persisted schema."""
     neighbor = neighbor_prediction or {}
@@ -35,6 +36,7 @@ def build_prediction_telemetry(
     if source not in {"cluster", "global", "none"}:
         source = "none"
 
+    inj = injectability or {}
     return PredictionTelemetry(
         raw_percentile=float(raw) if raw is not None else None,
         calibrated_percentile=float(calibrated) if calibrated is not None else None,
@@ -51,6 +53,12 @@ def build_prediction_telemetry(
         feedback_version=FEEDBACK_VERSION if feedback_injection_enabled else None,
         feedback_chars=len(feedback_context or ""),
         feedback_token_estimate=estimate_tokens(feedback_context),
+        llm_percentile=_optional_float(inj.get("llm_percentile")),
+        shadow_percentile=_optional_float(inj.get("shadow_percentile")),
+        shadow_calibration_applied=bool(inj.get("shadow_calibration_applied", False)),
+        shadow_feedback_count=max(0, int(inj.get("shadow_feedback_count") or 0)),
+        injectability_mode=inj.get("injectability_mode"),
+        soft_blend_weight=_optional_float(inj.get("soft_blend_weight")),
     )
 
 

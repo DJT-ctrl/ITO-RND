@@ -52,6 +52,43 @@ def count_feedback_coverage(
     }
 
 
+def hybrid_feedback_cost_stats(conn: psycopg.Connection) -> dict[str, float | int]:
+    """Aggregate hybrid (v2) LLM cost for ops: total and cost per 100 rows."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS hybrid_rows,
+                COUNT(*) FILTER (
+                    WHERE feedback_review_status = 'approved'
+                ) AS approved_v2,
+                COALESCE(SUM(cost_usd), 0) AS total_cost_usd,
+                COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+            FROM prediction_feedback
+            WHERE generation_method = 'hybrid'
+               OR feedback_version = 'v2'
+            """
+        )
+        row = cur.fetchone()
+    hybrid_rows = int(row[0] or 0) if row else 0
+    approved_v2 = int(row[1] or 0) if row else 0
+    total_cost = float(row[2] or 0.0) if row else 0.0
+    input_tokens = int(row[3] or 0) if row else 0
+    output_tokens = int(row[4] or 0) if row else 0
+    cost_per_100 = (
+        round((total_cost / hybrid_rows) * 100.0, 6) if hybrid_rows > 0 else 0.0
+    )
+    return {
+        "hybrid_rows": hybrid_rows,
+        "approved_v2": approved_v2,
+        "total_cost_usd": round(total_cost, 6),
+        "total_input_tokens": input_tokens,
+        "total_output_tokens": output_tokens,
+        "cost_per_100_usd": cost_per_100,
+    }
+
+
 def list_clusters(
     conn: psycopg.Connection,
     *,
@@ -191,7 +228,8 @@ def list_recent_feedback(
             f"""
             SELECT f.feedback_id, f.prediction_id, f.cluster_id, f.feedback_json,
                    f.feedback_version, f.generated_at, f.generation_method,
-                   f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd
+                   f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd,
+                   f.feedback_review_status, f.reviewed_at, f.reviewed_by
             FROM prediction_feedback f
             WHERE f.feedback_version = %s
               {cluster_clause}
@@ -221,6 +259,9 @@ def _row_to_feedback_record(row: tuple) -> FeedbackRecord:
         input_tokens=int(row[8] or 0) if len(row) > 8 else 0,
         output_tokens=int(row[9] or 0) if len(row) > 9 else 0,
         cost_usd=float(row[10] or 0) if len(row) > 10 else 0.0,
+        feedback_review_status=row[11] if len(row) > 11 and row[11] else "approved",
+        reviewed_at=row[12] if len(row) > 12 else None,
+        reviewed_by=row[13] if len(row) > 13 else None,
     )
 
 

@@ -49,3 +49,30 @@ def test_build_prediction_telemetry_records_disabled_paths():
     assert telemetry.calibrated_percentile == 62.5
     assert telemetry.calibration_source == "none"
     assert telemetry.feedback_version is None
+    assert telemetry.shadow_percentile is None
+    assert telemetry.llm_percentile is None
+
+
+def test_build_prediction_telemetry_includes_injectability_fields():
+    telemetry = build_prediction_telemetry(
+        {"percentile": 70.0, "calibration_applied": True, "feedback_count": 2},
+        calibration_enabled=False,
+        feedback_injection_enabled=False,
+        feedback_context=None,
+        feedback_count=2,
+        cluster_id="short_prose_micro",
+        injectability={
+            "llm_percentile": 90.0,
+            "shadow_percentile": 73.0,
+            "shadow_calibration_applied": True,
+            "shadow_feedback_count": 2,
+            "injectability_mode": "shadow_only",
+            "soft_blend_weight": 0.15,
+        },
+    )
+    assert telemetry.llm_percentile == 90.0
+    assert telemetry.shadow_percentile == 73.0
+    assert telemetry.shadow_calibration_applied is True
+    assert telemetry.shadow_feedback_count == 2
+    assert telemetry.injectability_mode == "shadow_only"
+    assert telemetry.soft_blend_weight == 0.15

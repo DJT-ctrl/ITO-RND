@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Sequence
 from uuid import UUID
 
 import psycopg
@@ -16,8 +17,17 @@ from feedback.schemas import (
     ClusterStats,
     FeedbackPayload,
     FeedbackRecord,
+    FeedbackReviewStatus,
     GenerationMethod,
 )
+
+
+_FEEDBACK_SELECT = """
+    feedback_id, prediction_id, cluster_id, feedback_json,
+    feedback_version, generated_at, generation_method,
+    generation_latency_ms, input_tokens, output_tokens, cost_usd,
+    feedback_review_status, reviewed_at, reviewed_by
+"""
 
 
 def fetch_calibration_stats(conn: psycopg.Connection) -> CalibrationStats:
@@ -115,8 +125,9 @@ def resolve_calibration_stats(
 
 
 def refresh_cluster_stats(conn: psycopg.Connection) -> int:
-    """Recompute prediction_clusters from validated feedback rows.
+    """Recompute prediction_clusters sample stats from validated feedback rows.
 
+    Preserves existing centroid_embedding when present.
     Returns number of clusters upserted.
     """
     with conn.cursor() as cur:
@@ -174,15 +185,17 @@ def upsert_prediction_feedback(
     input_tokens: int = 0,
     output_tokens: int = 0,
     cost_usd: float = 0.0,
+    feedback_review_status: FeedbackReviewStatus = "approved",
 ) -> FeedbackRecord:
     """Insert or replace feedback for (prediction_id, feedback_version)."""
     cluster = cluster_id if cluster_id is not None else payload.cluster_id
     payload_dict = payload.model_dump(mode="json")
-    sql = """
+    sql = f"""
         INSERT INTO prediction_feedback (
             prediction_id, cluster_id, feedback_json, feedback_version, generation_method,
-            generation_latency_ms, input_tokens, output_tokens, cost_usd
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            generation_latency_ms, input_tokens, output_tokens, cost_usd,
+            feedback_review_status
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (prediction_id, feedback_version) DO UPDATE SET
             cluster_id = EXCLUDED.cluster_id,
             feedback_json = EXCLUDED.feedback_json,
@@ -191,10 +204,17 @@ def upsert_prediction_feedback(
             input_tokens = EXCLUDED.input_tokens,
             output_tokens = EXCLUDED.output_tokens,
             cost_usd = EXCLUDED.cost_usd,
+            feedback_review_status = EXCLUDED.feedback_review_status,
+            reviewed_at = CASE
+                WHEN EXCLUDED.feedback_review_status = 'pending' THEN NULL
+                ELSE prediction_feedback.reviewed_at
+            END,
+            reviewed_by = CASE
+                WHEN EXCLUDED.feedback_review_status = 'pending' THEN NULL
+                ELSE prediction_feedback.reviewed_by
+            END,
             generated_at = now()
-        RETURNING feedback_id, prediction_id, cluster_id, feedback_json,
-                  feedback_version, generated_at, generation_method,
-                  generation_latency_ms, input_tokens, output_tokens, cost_usd
+        RETURNING {_FEEDBACK_SELECT}
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -209,6 +229,7 @@ def upsert_prediction_feedback(
                 max(0, input_tokens),
                 max(0, output_tokens),
                 max(0.0, cost_usd),
+                feedback_review_status,
             ),
         )
         row = cur.fetchone()
@@ -216,6 +237,202 @@ def upsert_prediction_feedback(
     if row is None:
         raise RuntimeError("upsert_prediction_feedback returned no row")
     return _row_to_feedback_record(row)
+
+
+def set_feedback_review_status(
+    conn: psycopg.Connection,
+    feedback_id: UUID,
+    status: FeedbackReviewStatus,
+    *,
+    reviewed_by: str = "dashboard",
+) -> Optional[FeedbackRecord]:
+    """Approve or reject one feedback row."""
+    if status not in {"approved", "rejected", "pending"}:
+        raise ValueError(f"Invalid review status: {status}")
+    reviewed_at = datetime.now(timezone.utc) if status != "pending" else None
+    reviewed_by_value = reviewed_by if status != "pending" else None
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            UPDATE prediction_feedback
+            SET feedback_review_status = %s,
+                reviewed_at = %s,
+                reviewed_by = %s
+            WHERE feedback_id = %s
+            RETURNING {_FEEDBACK_SELECT}
+            """,
+            (status, reviewed_at, reviewed_by_value, feedback_id),
+        )
+        row = cur.fetchone()
+    conn.commit()
+    return _row_to_feedback_record(row) if row else None
+
+
+def count_llm_feedback_generated_today(conn: psycopg.Connection) -> int:
+    """Count hybrid/llm feedback rows generated since UTC midnight."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM prediction_feedback
+            WHERE generation_method IN ('hybrid', 'llm')
+              AND generated_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+            """
+        )
+        row = cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def list_pending_feedback_for_review(
+    conn: psycopg.Connection,
+    *,
+    limit: int = 50,
+) -> list[FeedbackRecord]:
+    """Pending v2/hybrid rows sorted by absolute prediction delta desc."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                f.feedback_id, f.prediction_id, f.cluster_id, f.feedback_json,
+                f.feedback_version, f.generated_at, f.generation_method,
+                f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd,
+                f.feedback_review_status, f.reviewed_at, f.reviewed_by
+            FROM prediction_feedback f
+            JOIN predictions p ON p.prediction_id = f.prediction_id
+            WHERE f.feedback_review_status = 'pending'
+            ORDER BY ABS(COALESCE(p.prediction_delta, 0)) DESC, f.generated_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+    return [_row_to_feedback_record(row) for row in rows]
+
+
+def fetch_cluster_centroids(
+    conn: psycopg.Connection,
+) -> list[tuple[str, list[float]]]:
+    """Return (cluster_id, centroid vector) for clusters that have centroids."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT cluster_id, centroid_embedding
+            FROM prediction_clusters
+            WHERE centroid_embedding IS NOT NULL
+            """
+        )
+        rows = cur.fetchall()
+    results: list[tuple[str, list[float]]] = []
+    for cluster_id, embedding in rows:
+        if embedding is None:
+            continue
+        vector = list(embedding) if not isinstance(embedding, list) else embedding
+        results.append((cluster_id, [float(x) for x in vector]))
+    return results
+
+
+def upsert_cluster_centroid(
+    conn: psycopg.Connection,
+    cluster_id: str,
+    centroid: Sequence[float],
+    *,
+    sample_count: Optional[int] = None,
+) -> None:
+    label = cluster_label(cluster_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO prediction_clusters (
+                cluster_id, label, sample_count, centroid_embedding, updated_at
+            ) VALUES (%s, %s, %s, %s, now())
+            ON CONFLICT (cluster_id) DO UPDATE SET
+                label = COALESCE(prediction_clusters.label, EXCLUDED.label),
+                sample_count = COALESCE(EXCLUDED.sample_count, prediction_clusters.sample_count),
+                centroid_embedding = EXCLUDED.centroid_embedding,
+                updated_at = now()
+            """,
+            (
+                cluster_id,
+                label,
+                sample_count if sample_count is not None else 0,
+                list(centroid),
+            ),
+        )
+    conn.commit()
+
+
+def fetch_validated_embeddings_by_metadata_cluster(
+    conn: psycopg.Connection,
+) -> dict[str, list[list[float]]]:
+    """Group validated prediction embeddings by metadata cluster_id from feedback."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                COALESCE(f.cluster_id, 'unknown') AS cluster_id,
+                p.embedding
+            FROM predictions p
+            LEFT JOIN prediction_feedback f
+              ON f.prediction_id = p.prediction_id
+             AND f.feedback_version = %s
+            WHERE p.status = 'validated'
+              AND p.embedding IS NOT NULL
+            """,
+            (FEEDBACK_VERSION,),
+        )
+        rows = cur.fetchall()
+    grouped: dict[str, list[list[float]]] = {}
+    for cluster_id, embedding in rows:
+        if embedding is None:
+            continue
+        vector = [float(x) for x in (list(embedding) if not isinstance(embedding, list) else embedding)]
+        grouped.setdefault(str(cluster_id), []).append(vector)
+    return grouped
+
+
+def fetch_predictions_missing_embeddings(
+    conn: psycopg.Connection,
+    *,
+    limit: int = 100,
+) -> list[tuple[UUID, str]]:
+    """Validated predictions with usable content and NULL embedding."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT prediction_id, content
+            FROM predictions
+            WHERE status = 'validated'
+              AND embedding IS NULL
+              AND content IS NOT NULL
+              AND BTRIM(content) <> ''
+            ORDER BY validated_at ASC NULLS LAST, created_at ASC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+    return [(row[0], str(row[1] or "")) for row in rows]
+
+
+def update_prediction_embedding(
+    conn: psycopg.Connection,
+    prediction_id: UUID,
+    embedding: Sequence[float],
+    *,
+    embedding_model_version: str,
+) -> None:
+    """Persist a backfilled embedding on a prediction row."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE predictions
+            SET embedding = %s,
+                embedding_model_version = %s
+            WHERE prediction_id = %s
+            """,
+            (list(embedding), embedding_model_version, prediction_id),
+        )
+    conn.commit()
 
 
 def fetch_feedback_for_prediction(
@@ -226,10 +443,8 @@ def fetch_feedback_for_prediction(
 ) -> Optional[FeedbackRecord]:
     with conn.cursor() as cur:
         cur.execute(
-            """
-            SELECT feedback_id, prediction_id, cluster_id, feedback_json,
-                   feedback_version, generated_at, generation_method,
-                   generation_latency_ms, input_tokens, output_tokens, cost_usd
+            f"""
+            SELECT {_FEEDBACK_SELECT}
             FROM prediction_feedback
             WHERE prediction_id = %s AND feedback_version = %s
             LIMIT 1
@@ -273,6 +488,7 @@ def fetch_validated_prediction_ids_missing_feedback(
 # Re-export dashboard read helpers (implementation in dashboard_queries.py).
 from feedback.dashboard_queries import (  # noqa: E402
     count_feedback_coverage,
+    hybrid_feedback_cost_stats,
     list_clusters,
     list_recent_feedback,
 )
@@ -295,4 +511,7 @@ def _row_to_feedback_record(row: tuple) -> FeedbackRecord:
         input_tokens=int(row[8] or 0) if len(row) > 8 else 0,
         output_tokens=int(row[9] or 0) if len(row) > 9 else 0,
         cost_usd=float(row[10] or 0) if len(row) > 10 else 0.0,
+        feedback_review_status=row[11] if len(row) > 11 and row[11] else "approved",
+        reviewed_at=row[12] if len(row) > 12 else None,
+        reviewed_by=row[13] if len(row) > 13 else None,
     )

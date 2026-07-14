@@ -114,6 +114,7 @@ def test_upsert_prediction_feedback_sql():
     assert "ON CONFLICT (prediction_id, feedback_version)" in sql
 
 
+@patch("feedback.batch.refresh_cluster_stats")
 @patch("feedback.batch.upsert_prediction_feedback")
 @patch("feedback.batch.create_schema")
 @patch("feedback.batch.get_connection")
@@ -121,9 +122,11 @@ def test_try_store_feedback_after_validation_success(
     mock_get_connection,
     mock_create_schema,
     mock_upsert,
+    mock_refresh,
 ):
     settings = MagicMock()
     settings.validation_feedback_enabled = True
+    settings.validation_feedback_llm_enabled = False
     mock_get_connection.return_value = MagicMock()
     now = datetime.now(timezone.utc)
     prediction = PredictionRecord(
@@ -150,6 +153,7 @@ def test_try_store_feedback_after_validation_success(
     result = try_store_feedback_after_validation(prediction, scores, settings)
     assert result is not None
     mock_upsert.assert_called_once()
+    mock_refresh.assert_called_once()
 
 
 def test_try_store_feedback_disabled():

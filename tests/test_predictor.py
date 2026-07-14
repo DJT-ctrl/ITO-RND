@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 from pydantic_ai.models.test import TestModel
 
 from agents.diagnostics import build_diagnostic_agents
@@ -13,6 +14,8 @@ from agents.predictor import (
     apply_deterministic_prediction,
     build_predictor_agent,
     build_predictor_prompt,
+    resolve_final_prediction,
+    soft_blend_percentile,
 )
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE
 from agents.schemas import EvaluationDeps
@@ -212,6 +215,97 @@ def test_apply_deterministic_prediction_overrides_llm_numbers():
     assert corrected.predicted_comments == 10
     assert corrected.predicted_shares == 3
     assert corrected.reasoning == "Because neighbors look strong."
+
+
+def test_soft_blend_percentile_math():
+    assert soft_blend_percentile(70.0, 90.0, 0.15) == pytest.approx(73.0)
+    assert soft_blend_percentile(10.0, 0.0, 1.0) == 0.0
+    assert soft_blend_percentile(95.0, 100.0, 2.0) == 100.0
+
+
+def test_resolve_final_prediction_hard_lock_with_shadow():
+    output = PredictorOutput(
+        predicted_engagement_percentile=90.0,
+        predicted_total_engagement=100,
+        predicted_likes=80,
+        predicted_comments=15,
+        predicted_shares=5,
+        reasoning="ok",
+    )
+    neighbor = {
+        "percentile": 70.0,
+        "total_engagement_estimate": 50,
+        "predicted_likes": 40,
+        "predicted_comments": 8,
+        "predicted_shares": 2,
+        "calibration_applied": True,
+        "feedback_count": 3,
+    }
+    live, meta = resolve_final_prediction(
+        output,
+        neighbor,
+        mode="hard_lock",
+        soft_blend_weight=0.15,
+        shadow_mode_enabled=True,
+    )
+    assert live.predicted_engagement_percentile == 70.0
+    assert meta["llm_percentile"] == 90.0
+    assert meta["shadow_percentile"] == pytest.approx(73.0)
+    assert meta["shadow_calibration_applied"] is True
+    assert meta["shadow_feedback_count"] == 3
+
+
+def test_resolve_final_prediction_soft_blend_changes_live():
+    output = PredictorOutput(
+        predicted_engagement_percentile=90.0,
+        predicted_total_engagement=100,
+        predicted_likes=80,
+        predicted_comments=15,
+        predicted_shares=5,
+        reasoning="ok",
+    )
+    neighbor = {
+        "percentile": 70.0,
+        "total_engagement_estimate": 50,
+        "predicted_likes": 40,
+        "predicted_comments": 8,
+        "predicted_shares": 2,
+    }
+    live, meta = resolve_final_prediction(
+        output,
+        neighbor,
+        mode="soft_blend",
+        soft_blend_weight=0.15,
+        shadow_mode_enabled=False,
+    )
+    assert live.predicted_engagement_percentile == pytest.approx(73.0)
+    assert meta["shadow_percentile"] == pytest.approx(73.0)
+
+
+def test_resolve_final_prediction_shadow_only_keeps_live_locked():
+    output = PredictorOutput(
+        predicted_engagement_percentile=90.0,
+        predicted_total_engagement=100,
+        predicted_likes=80,
+        predicted_comments=15,
+        predicted_shares=5,
+        reasoning="ok",
+    )
+    neighbor = {
+        "percentile": 70.0,
+        "total_engagement_estimate": 50,
+        "predicted_likes": 40,
+        "predicted_comments": 8,
+        "predicted_shares": 2,
+    }
+    live, meta = resolve_final_prediction(
+        output,
+        neighbor,
+        mode="shadow_only",
+        soft_blend_weight=0.2,
+    )
+    assert live.predicted_engagement_percentile == 70.0
+    assert meta["shadow_percentile"] == pytest.approx(74.0)
 
 
 def test_predictor_prompt_includes_voice_profile_when_present():

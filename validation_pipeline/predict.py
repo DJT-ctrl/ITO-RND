@@ -13,14 +13,14 @@ from pydantic import BaseModel
 from pydantic_ai import UnexpectedModelBehavior
 
 from agents.orchestrator import _gather_similar_posts
-from agents.predictor import PredictorOutput, apply_deterministic_prediction, build_predictor_agent
+from agents.predictor import PredictorOutput, build_predictor_agent, resolve_final_prediction
 from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from config.settings import Settings, load_settings, pydantic_ai_gemini_model
 from feedback.calibration import apply_calibration
 from feedback.retrieve import fetch_cluster_feedback, format_feedback_context_block
 from feedback.routing import assign_cluster_id
-from feedback.store import resolve_calibration_stats
+from feedback.store import fetch_cluster_centroids, resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
 from processors.gemini_retry import async_call_with_gemini_retry
 from storage.vector_store import create_schema, get_connection
@@ -46,6 +46,8 @@ class PredictionOutput(BaseModel):
     neighbor_count: Optional[int] = None
     reasoning: Optional[str] = None
     telemetry: PredictionTelemetry
+    embedding: Optional[list[float]] = None
+    embedding_model_version: Optional[str] = None
 
 
 def _apply_calibration_to_neighbor_prediction(
@@ -54,6 +56,7 @@ def _apply_calibration_to_neighbor_prediction(
     *,
     content: str = "",
     follower_count: Optional[int] = None,
+    embedding: Optional[list[float]] = None,
 ) -> dict[str, Any] | None:
     """Adjust neighbor percentile using cluster→global mean_delta when enabled.
 
@@ -64,11 +67,17 @@ def _apply_calibration_to_neighbor_prediction(
         return neighbor_prediction
 
     raw_percentile = float(neighbor_prediction.get("percentile", 50.0))
-    cluster_id = assign_cluster_id(content, follower_count)
     try:
         conn = get_connection(settings)
         try:
             create_schema(conn)
+            centroids = fetch_cluster_centroids(conn)
+            cluster_id = assign_cluster_id(
+                content,
+                follower_count,
+                embedding=embedding,
+                centroids=centroids or None,
+            )
             stats = resolve_calibration_stats(
                 conn,
                 cluster_id=cluster_id,
@@ -79,6 +88,9 @@ def _apply_calibration_to_neighbor_prediction(
     except Exception:
         logger.exception(
             "Calibration stats fetch failed; using raw neighbor percentile"
+        )
+        cluster_id = assign_cluster_id(
+            content, follower_count, embedding=embedding
         )
         calibrated = dict(neighbor_prediction)
         calibrated["raw_percentile"] = raw_percentile
@@ -132,26 +144,36 @@ def _load_feedback_context(
     content: str,
     follower_count: Optional[int] = None,
     exclude_prediction_id: Optional[UUID] = None,
+    embedding: Optional[list[float]] = None,
 ) -> tuple[Optional[str], Optional[str], int]:
     """Fetch cluster feedback for prompt injection. Fail open → empty context."""
     if not settings.validation_feedback_injection_enabled:
         return None, None, 0
 
-    cluster_id = assign_cluster_id(content, follower_count)
     try:
         conn = get_connection(settings)
         try:
             create_schema(conn)
+            centroids = fetch_cluster_centroids(conn)
+            cluster_id = assign_cluster_id(
+                content,
+                follower_count,
+                embedding=embedding,
+                centroids=centroids or None,
+            )
             records = fetch_cluster_feedback(
                 conn,
                 cluster_id,
                 limit=settings.validation_feedback_injection_limit,
                 exclude_prediction_id=exclude_prediction_id,
+                approved_only=True,
+                query_embedding=embedding,
             )
         finally:
             conn.close()
     except Exception:
         logger.exception("Feedback retrieval failed; predicting without feedback block")
+        cluster_id = assign_cluster_id(content, follower_count, embedding=embedding)
         return None, cluster_id, 0
 
     block = format_feedback_context_block(records, cluster_id=cluster_id)
@@ -186,11 +208,13 @@ async def _predict_for_post_impl(
         settings,
         content=post.content,
         follower_count=post.follower_count,
+        embedding=state.query_embedding,
     )
     feedback_context, feedback_cluster_id, feedback_count = _load_feedback_context(
         settings,
         content=post.content,
         follower_count=post.follower_count,
+        embedding=state.query_embedding,
     )
     if neighbor_prediction is not None:
         neighbor_prediction = dict(neighbor_prediction)
@@ -198,14 +222,6 @@ async def _predict_for_post_impl(
         neighbor_prediction["feedback_count"] = feedback_count
         if feedback_cluster_id:
             neighbor_prediction.setdefault("cluster_id", feedback_cluster_id)
-    telemetry = build_prediction_telemetry(
-        neighbor_prediction,
-        calibration_enabled=settings.validation_calibration_enabled,
-        feedback_injection_enabled=settings.validation_feedback_injection_enabled,
-        feedback_context=feedback_context,
-        feedback_count=feedback_count,
-        cluster_id=feedback_cluster_id,
-    )
 
     deps = EvaluationDeps(
         draft_content=post.content,
@@ -221,6 +237,18 @@ async def _predict_for_post_impl(
     except UnexpectedModelBehavior:
         if not neighbor_prediction:
             raise
+        telemetry = build_prediction_telemetry(
+            neighbor_prediction,
+            calibration_enabled=settings.validation_calibration_enabled,
+            feedback_injection_enabled=settings.validation_feedback_injection_enabled,
+            feedback_context=feedback_context,
+            feedback_count=feedback_count,
+            cluster_id=feedback_cluster_id,
+            injectability={
+                "injectability_mode": settings.validation_injectability_mode,
+                "soft_blend_weight": settings.validation_soft_blend_weight,
+            },
+        )
         return _deterministic_prediction_output(
             neighbor_prediction,
             telemetry=telemetry,
@@ -229,10 +257,32 @@ async def _predict_for_post_impl(
                 "(Gemini MALFORMED_FUNCTION_CALL). Scores use deterministic "
                 "neighbor weighting only."
             ),
+            embedding=state.query_embedding,
+            embedding_model_version=state.embedding_model_version,
         )
     output = result.output
-    if isinstance(output, PredictorOutput) and neighbor_prediction:
-        output = apply_deterministic_prediction(output, neighbor_prediction)
+    injectability_meta: dict[str, Any] = {
+        "injectability_mode": settings.validation_injectability_mode,
+        "soft_blend_weight": float(settings.validation_soft_blend_weight),
+    }
+    if isinstance(output, PredictorOutput):
+        output, injectability_meta = resolve_final_prediction(
+            output,
+            neighbor_prediction,
+            mode=settings.validation_injectability_mode,
+            soft_blend_weight=settings.validation_soft_blend_weight,
+            shadow_mode_enabled=settings.validation_shadow_mode_enabled,
+        )
+
+    telemetry = build_prediction_telemetry(
+        neighbor_prediction,
+        calibration_enabled=settings.validation_calibration_enabled,
+        feedback_injection_enabled=settings.validation_feedback_injection_enabled,
+        feedback_context=feedback_context,
+        feedback_count=feedback_count,
+        cluster_id=feedback_cluster_id,
+        injectability=injectability_meta,
+    )
 
     if isinstance(output, PredictorOutput):
         return PredictionOutput(
@@ -245,6 +295,8 @@ async def _predict_for_post_impl(
             neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
             reasoning=output.reasoning,
             telemetry=telemetry,
+            embedding=state.query_embedding,
+            embedding_model_version=state.embedding_model_version,
         )
 
     if isinstance(output, BaseModel):
@@ -279,6 +331,8 @@ async def _predict_for_post_impl(
         neighbor_count=neighbor_prediction.get("neighbor_count") if neighbor_prediction else None,
         reasoning=data.get("reasoning"),
         telemetry=telemetry,
+        embedding=state.query_embedding,
+        embedding_model_version=state.embedding_model_version,
     )
 
 
@@ -309,6 +363,8 @@ def save_prediction(
         prediction_method=prediction.prediction_method,
         neighbor_count=prediction.neighbor_count,
         telemetry=prediction.telemetry,
+        embedding=prediction.embedding,
+        embedding_model_version=prediction.embedding_model_version,
         validation_due_at=due_at,
     )
     conn = get_connection(settings)
@@ -342,6 +398,8 @@ def _deterministic_prediction_output(
     *,
     telemetry: PredictionTelemetry,
     reasoning: str,
+    embedding: Optional[list[float]] = None,
+    embedding_model_version: Optional[str] = None,
 ) -> PredictionOutput:
     return PredictionOutput(
         predicted_engagement_percentile=float(neighbor_prediction["percentile"]),
@@ -353,6 +411,8 @@ def _deterministic_prediction_output(
         neighbor_count=neighbor_prediction.get("neighbor_count"),
         reasoning=reasoning,
         telemetry=telemetry,
+        embedding=embedding,
+        embedding_model_version=embedding_model_version,
     )
 
 

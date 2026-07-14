@@ -28,6 +28,13 @@ class PredictionTelemetry(BaseModel):
     feedback_version: Optional[str] = None
     feedback_chars: int = Field(default=0, ge=0)
     feedback_token_estimate: int = Field(default=0, ge=0)
+    # Phase J injectability / shadow
+    llm_percentile: Optional[float] = None
+    shadow_percentile: Optional[float] = None
+    shadow_calibration_applied: bool = False
+    shadow_feedback_count: int = Field(default=0, ge=0)
+    injectability_mode: Optional[str] = None
+    soft_blend_weight: Optional[float] = None
 
 
 class EngagementForecast(BaseModel):
@@ -57,6 +64,8 @@ class PredictionRecord(BaseModel):
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     telemetry: PredictionTelemetry = Field(default_factory=PredictionTelemetry)
+    embedding: Optional[list[float]] = None
+    embedding_model_version: Optional[str] = None
 
     status: PredictionStatus = "scheduled"
     validation_due_at: datetime
@@ -96,6 +105,8 @@ class NewPrediction(BaseModel):
     prediction_method: Optional[str] = None
     neighbor_count: Optional[int] = None
     telemetry: PredictionTelemetry = Field(default_factory=PredictionTelemetry)
+    embedding: Optional[list[float]] = None
+    embedding_model_version: Optional[str] = None
     validation_due_at: datetime
 
 

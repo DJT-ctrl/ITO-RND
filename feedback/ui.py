@@ -18,13 +18,17 @@ from feedback.runtime_flags import clear_overrides, load_overrides, save_overrid
 from feedback.schemas import CalibrationStats, ClusterStats, FeedbackRecord
 from feedback.dashboard_queries import (
     count_feedback_coverage,
+    hybrid_feedback_cost_stats,
     list_clusters,
     list_recent_feedback,
 )
 from feedback.store import (
     fetch_calibration_stats,
+    list_pending_feedback_for_review,
     refresh_cluster_stats,
+    set_feedback_review_status,
 )
+from feedback.jobs.run_cluster_centroids import refresh_cluster_centroids
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.store import list_predictions
 
@@ -108,7 +112,7 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
             key="fb_injection_limit",
         )
 
-    g1, g2, g3 = st.columns(3)
+    g1, g2, g3, g4 = st.columns(4)
     with g1:
         n_min = st.number_input(
             "Global N_min",
@@ -134,9 +138,81 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
             key="fb_cluster_n_min",
         )
     with g3:
+        llm_on = st.toggle(
+            "LLM hybrid (v2)",
+            value=settings.validation_feedback_llm_enabled,
+            help=(
+                "For large misses, enrich lessons with Gemini. New v2 rows stay "
+                "pending until human review. Staging only while injection is OFF."
+            ),
+            key="fb_toggle_llm",
+        )
+    with g4:
+        llm_delta = st.number_input(
+            "LLM |delta| min",
+            min_value=1.0,
+            max_value=50.0,
+            value=float(settings.validation_feedback_llm_delta_min),
+            help="Only call LLM when absolute prediction delta meets this threshold.",
+            key="fb_llm_delta_min",
+        )
+
+    g5, g6, g7 = st.columns(3)
+    with g5:
+        llm_max = st.number_input(
+            "LLM max / day",
+            min_value=0,
+            max_value=500,
+            value=int(settings.validation_feedback_llm_max_per_day),
+            help="Daily cap on hybrid/llm feedback rows (UTC).",
+            key="fb_llm_max_day",
+        )
+    with g6:
+        shadow_on = st.toggle(
+            "Shadow mode",
+            value=settings.validation_shadow_mode_enabled,
+            help=(
+                "Log soft-blend shadow_percentile in telemetry without changing "
+                "the user-facing score (unless injectability mode is soft_blend)."
+            ),
+            key="fb_toggle_shadow",
+        )
+    with g7:
+        inj_mode = st.selectbox(
+            "Injectability mode",
+            options=["hard_lock", "soft_blend", "shadow_only"],
+            index=["hard_lock", "soft_blend", "shadow_only"].index(
+                settings.validation_injectability_mode
+                if settings.validation_injectability_mode
+                in {"hard_lock", "soft_blend", "shadow_only"}
+                else "hard_lock"
+            ),
+            help=(
+                "hard_lock = neighbor score (safe default). "
+                "soft_blend = blend LLM toward neighbor with weight w. "
+                "shadow_only = hard_lock live + always log soft-blend shadow."
+            ),
+            key="fb_injectability_mode",
+        )
+
+    g8, g9, g10 = st.columns(3)
+    with g8:
+        blend_w = st.number_input(
+            "Soft blend weight",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(settings.validation_soft_blend_weight),
+            step=0.05,
+            help="w in final = neighbor + w*(llm − neighbor). Default 0.15.",
+            key="fb_soft_blend_weight",
+        )
+    with g9:
         st.write("")
         st.write("")
         save = st.button("Save settings", type="primary", key="fb_save_settings")
+    with g10:
+        st.write("")
+        st.write("")
         reset = st.button("Reset to .env defaults", key="fb_reset_settings")
 
     if save:
@@ -148,6 +224,12 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
                 "validation_feedback_injection_limit": int(inj_limit),
                 "validation_calibration_n_min": int(n_min),
                 "validation_cluster_n_min": int(cluster_n_min),
+                "validation_feedback_llm_enabled": bool(llm_on),
+                "validation_feedback_llm_delta_min": float(llm_delta),
+                "validation_feedback_llm_max_per_day": int(llm_max),
+                "validation_shadow_mode_enabled": bool(shadow_on),
+                "validation_injectability_mode": str(inj_mode),
+                "validation_soft_blend_weight": float(blend_w),
             }
         )
         st.success("Saved — applies on this page reload and to new worker/predict runs.")
@@ -178,6 +260,12 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
         validation_feedback_injection_limit=int(inj_limit),
         validation_calibration_n_min=int(n_min),
         validation_cluster_n_min=int(cluster_n_min),
+        validation_feedback_llm_enabled=bool(llm_on),
+        validation_feedback_llm_delta_min=float(llm_delta),
+        validation_feedback_llm_max_per_day=int(llm_max),
+        validation_shadow_mode_enabled=bool(shadow_on),
+        validation_injectability_mode=str(inj_mode),  # type: ignore[arg-type]
+        validation_soft_blend_weight=float(blend_w),
     )
 
 
@@ -299,6 +387,7 @@ succeeds. The manual button below is for backfill / recovery.
     try:
         create_schema(conn)
         coverage = count_feedback_coverage(conn, feedback_version=FEEDBACK_VERSION)
+        hybrid_cost = hybrid_feedback_cost_stats(conn)
     finally:
         conn.close()
 
@@ -325,6 +414,30 @@ succeeds. The manual button below is for backfill / recovery.
         st.caption(
             "Use **Generate missing feedback** below to backfill template lessons."
         )
+
+    cost_cols = st.columns(3)
+    _metric(
+        cost_cols[0],
+        "Hybrid v2 rows",
+        hybrid_cost["hybrid_rows"],
+        help_text="LLM-enriched feedback rows (pending + approved + rejected).",
+    )
+    _metric(
+        cost_cols[1],
+        "Approved v2",
+        hybrid_cost["approved_v2"],
+        help_text="Human-approved hybrid lessons (staging DoD target: ≥10).",
+    )
+    _metric(
+        cost_cols[2],
+        "Cost / 100 hybrid",
+        f"${hybrid_cost['cost_per_100_usd']:.4f}",
+        help_text=(
+            f"Estimated from stored tokens; total "
+            f"${hybrid_cost['total_cost_usd']:.4f} across "
+            f"{hybrid_cost['hybrid_rows']} hybrid rows."
+        ),
+    )
     return coverage
 
 
@@ -448,6 +561,8 @@ So sorting into clusters is exactly how we keep context small and relevant.
                 "lesson": lessons[0] if lessons else "",
                 "missed": missed[0] if missed else "",
                 "method": r.generation_method,
+                "review": r.feedback_review_status,
+                "version": r.feedback_version,
                 "latency ms": round(r.generation_latency_ms, 2),
                 "cost USD": round(r.cost_usd, 6),
                 "prediction_id": str(r.prediction_id),
@@ -476,6 +591,7 @@ recompute cluster stats without waiting for the next validation.
 |--------|------|
 | **Generate missing feedback** | Create template lessons for validated rows that lack v1 feedback |
 | **Refresh cluster stats** | Recompute sample_count / mean_delta / std_delta per cluster |
+| **Refresh centroids** | Mean embedding per metadata cluster (Phase H routing) |
 | **Regenerate one** | Rebuild one lesson (e.g. after a template change) |
 """,
     )
@@ -521,6 +637,15 @@ recompute cluster stats without waiting for the next validation.
                 finally:
                     conn.close()
             st.session_state["feedback_clusters_refreshed"] = n
+            st.rerun()
+
+        if st.button(
+            "Refresh cluster centroids",
+            help="Average validated prediction embeddings per metadata cluster.",
+        ):
+            with st.spinner("Computing cluster centroids..."):
+                n = refresh_cluster_centroids()
+            st.session_state["feedback_centroids_refreshed"] = n
             st.rerun()
 
     with col_b:
@@ -705,3 +830,70 @@ Day-to-day: keep feedback collection ON. Enable calibration or injection only
 after the evaluation gates in the operations runbook pass.
 """
         )
+
+def render_review_queue(settings: Settings, *, limit: int = 30) -> None:
+    """Approve or reject pending hybrid (v2) feedback lessons."""
+    _section_header(
+        "Human review queue (v2)",
+        """
+LLM-enriched lessons start as **pending**. Only **approved** rows are eligible
+for prompt injection. Reject ungrounded or unsafe text.
+
+Prod injection remains OFF after Phase F; use this queue in staging to build
+a trusted lesson set before reconsidering injection.
+""",
+    )
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        pending = list_pending_feedback_for_review(conn, limit=limit)
+    finally:
+        conn.close()
+
+    if not pending:
+        st.info("No pending hybrid feedback rows.")
+        return
+
+    st.caption(f"{len(pending)} pending row(s), highest |delta| first.")
+    for record in pending:
+        delta = record.feedback_json.delta_summary
+        with st.expander(
+            f"{record.cluster_id or 'unknown'} · "
+            f"delta {delta.prediction_delta:+.1f} · {record.feedback_version} · "
+            f"{record.generation_method}",
+            expanded=False,
+        ):
+            st.markdown(
+                f"**Predicted** {delta.predicted_percentile:.1f} → "
+                f"**actual** {delta.actual_percentile:.1f} "
+                f"({delta.direction})"
+            )
+            st.markdown("**What missed**")
+            for item in record.feedback_json.what_missed or ["—"]:
+                st.write(f"- {item}")
+            st.markdown("**Lessons**")
+            for item in record.feedback_json.lessons_for_similar_posts or ["—"]:
+                st.write(f"- {item}")
+            c1, c2, c3 = st.columns(3)
+            if c1.button("Approve", key=f"approve_{record.feedback_id}"):
+                conn = get_connection(settings)
+                try:
+                    create_schema(conn)
+                    set_feedback_review_status(
+                        conn, record.feedback_id, "approved", reviewed_by="dashboard"
+                    )
+                finally:
+                    conn.close()
+                st.rerun()
+            if c2.button("Reject", key=f"reject_{record.feedback_id}"):
+                conn = get_connection(settings)
+                try:
+                    create_schema(conn)
+                    set_feedback_review_status(
+                        conn, record.feedback_id, "rejected", reviewed_by="dashboard"
+                    )
+                finally:
+                    conn.close()
+                st.rerun()
+            c3.caption(str(record.feedback_id))
+

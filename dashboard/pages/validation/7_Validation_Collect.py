@@ -8,8 +8,7 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
-from config.paths import resolve_data_path  # noqa: E402
-from config.settings import load_settings  # noqa: E402
+from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
 from telemetry.apify import load_apify_runs  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.corpus_import import (  # noqa: E402
@@ -17,17 +16,119 @@ from validation_pipeline.corpus_import import (  # noqa: E402
     list_saved_collections,
 )
 from validation_pipeline.pipeline import run_collect_and_predict, run_predict_on_posts  # noqa: E402
+from validation_pipeline.reset import reset_validation_data_for_settings  # noqa: E402
 from validation_pipeline.ui import load_predictions, render_predictions_table  # noqa: E402
+from validation_pipeline.vectorized_corpus import (  # noqa: E402
+    bulk_import_vectorized_and_predict,
+    discover_vectorized_datasets,
+    load_all_vectorized_collected_posts,
+)
 
 st.set_page_config(page_title="Validation Collect", layout="wide")
 st.title("Validation Pipeline — Collect & Predict")
 st.caption(
-    "Scrape fresh posts or reuse a Scraper Stage collection, run the predictor, "
-    "and schedule validation (default 48h). Calibration + feedback injection "
-    "apply at predict time when enabled — see **Feedback Loop**."
+    "Scrape fresh posts or bulk-load **vectorized LinkedIn analysed CSVs** from the "
+    "Corpus Pipeline, run gemini-2.5-flash-lite predictions, and schedule validation."
 )
 
 settings = load_settings()
+
+# ── Step 1: reset + vectorized corpus import ─────────────────────────────────
+
+st.subheader("1. Reset and import vectorized corpus")
+st.markdown(
+    """
+Use analysed LinkedIn **CSV/JSONL bundles that already have matching `.npy` embeddings**
+from **Corpus Pipeline → Vectorisation** (not raw scraper JSON). Posts are merged and
+deduped by `post_id`, then predicted with **flash-lite**.
+    """
+)
+st.caption(f"Predictor model: `{pydantic_ai_gemini_model()}`")
+
+vectorized_datasets = discover_vectorized_datasets(settings)
+if vectorized_datasets:
+    for dataset in vectorized_datasets:
+        st.markdown(f"- `{dataset.label}`")
+else:
+    st.warning(
+        "No vectorized LinkedIn datasets found. Complete **Post Analyser** then "
+        "**Vectorisation** in the Corpus Pipeline first."
+    )
+
+posts_ready, _ = (
+    load_all_vectorized_collected_posts(settings)
+    if vectorized_datasets
+    else ([], [])
+)
+st.metric("Unique vectorized posts ready", len(posts_ready))
+
+col_reset, col_max, col_due = st.columns(3)
+with col_reset:
+    if st.button(
+        "Reset validation data",
+        help="Clear predictions, snapshots, feedback rows, and cluster stats.",
+    ):
+        reset = reset_validation_data_for_settings(settings)
+        st.session_state["validation_reset_counts"] = reset
+        st.rerun()
+with col_max:
+    bulk_max = st.number_input(
+        "Max posts",
+        min_value=1,
+        max_value=2000,
+        value=min(len(posts_ready) or 1, 500),
+        key="vectorized_import_max",
+    )
+with col_due:
+    bulk_due_now = st.checkbox(
+        "Due immediately",
+        value=False,
+        key="vectorized_due_immediately",
+        help="Otherwise validation is scheduled for posted_at + 48h (old posts are already due).",
+    )
+
+if "validation_reset_counts" in st.session_state:
+    reset = st.session_state["validation_reset_counts"]
+    st.success(
+        f"Reset complete — predictions={reset.predictions}, "
+        f"feedback={reset.prediction_feedback}, clusters={reset.prediction_clusters}"
+    )
+
+can_bulk = bool(
+    settings.database_url
+    and settings.gemini_api_key
+    and vectorized_datasets
+    and posts_ready
+)
+if st.button(
+    "Import vectorized posts and predict",
+    type="primary",
+    disabled=not can_bulk,
+):
+    with st.spinner("Predicting vectorized corpus..."):
+        result = bulk_import_vectorized_and_predict(
+            settings,
+            max_posts=int(bulk_max),
+            due_immediately=bulk_due_now,
+        )
+    st.session_state["vectorized_import_result"] = result
+    st.rerun()
+
+if "vectorized_import_result" in st.session_state:
+    bulk = st.session_state["vectorized_import_result"]
+    st.success(
+        f"Vectorized import: loaded={bulk.loaded} imported={bulk.imported} "
+        f"skipped={bulk.skipped} errors={len(bulk.errors)}"
+    )
+    if bulk.errors:
+        for err in bulk.errors[:10]:
+            st.error(err)
+
+st.divider()
+
+# ── Step 2: single-run collect / predict ─────────────────────────────────────
+
+st.subheader("2. Single run (live scrape or one saved collection)")
 
 with st.sidebar:
     source_mode = st.radio(
@@ -91,12 +192,11 @@ with st.sidebar:
             )
         else:
             selected_scan = "-- Select a saved collection --"
+            from config.paths import resolve_data_path
+
             st.info(f"No saved collections in `{resolve_data_path(settings.raw_data_dir)}`.")
 
-        can_run = (
-            can_predict
-            and selected_scan != "-- Select a saved collection --"
-        )
+        can_run = can_predict and selected_scan != "-- Select a saved collection --"
         run_clicked = st.button("Run Predict on Collection", type="primary", disabled=not can_run)
 
 if run_clicked:

@@ -129,9 +129,11 @@ def test_load_feedback_context_disabled():
 
 @patch("validation_pipeline.predict.get_connection")
 @patch("validation_pipeline.predict.create_schema")
+@patch("validation_pipeline.predict.fetch_cluster_centroids")
 @patch("validation_pipeline.predict.fetch_cluster_feedback")
 def test_load_feedback_context_formats_records(
     mock_fetch,
+    mock_centroids,
     _mock_schema,
     mock_conn,
 ):
@@ -139,6 +141,7 @@ def test_load_feedback_context_formats_records(
     settings.validation_feedback_injection_enabled = True
     settings.validation_feedback_injection_limit = 5
     mock_conn.return_value = MagicMock()
+    mock_centroids.return_value = []
     mock_fetch.return_value = [_record()]
 
     block, cluster_id, count = _load_feedback_context(
@@ -150,3 +153,4 @@ def test_load_feedback_context_formats_records(
     assert cluster_id == "short_prose_micro"
     assert block is not None
     assert "Lesson:" in block
+    assert "feedback_lesson" in block

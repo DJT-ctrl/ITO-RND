@@ -48,7 +48,7 @@ from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.benchmark import compute_neighbor_prediction
-from processors.embedder import embed_query
+from processors.embedder import embed_query, EMBEDDING_MODEL_VERSION
 from storage.profile_store import get_follower_count
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
@@ -104,6 +104,8 @@ async def _gather_similar_posts(
     t0 = time.perf_counter()
     try:
         query_vector, prompt_tokens = await asyncio.to_thread(_embed)
+        state.query_embedding = [float(x) for x in query_vector.tolist()]
+        state.embedding_model_version = EMBEDDING_MODEL_VERSION
         if collector is not None:
             collector.record_embedding(
                 step_id="retrieval.embed_query",

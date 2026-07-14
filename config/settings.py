@@ -9,7 +9,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -106,6 +106,16 @@ class Settings:
     # Phase D: inject cluster feedback lessons into the predictor prompt (A/B flag).
     validation_feedback_injection_enabled: bool = False
     validation_feedback_injection_limit: int = 5
+    # Phase G: LLM hybrid feedback (staging; default off).
+    validation_feedback_llm_enabled: bool = False
+    validation_feedback_llm_delta_min: float = 10.0
+    validation_feedback_llm_max_per_day: int = 50
+    # Phase J: injectability unlock (default hard_lock keeps live scores safe).
+    validation_shadow_mode_enabled: bool = False
+    validation_injectability_mode: Literal[
+        "hard_lock", "soft_blend", "shadow_only"
+    ] = "hard_lock"
+    validation_soft_blend_weight: float = 0.15
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -166,6 +176,24 @@ def load_settings() -> Settings:
         validation_feedback_injection_limit=int(
             os.getenv("VALIDATION_FEEDBACK_INJECTION_LIMIT", "5")
         ),
+        validation_feedback_llm_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_LLM_ENABLED", default=False
+        ),
+        validation_feedback_llm_delta_min=float(
+            os.getenv("VALIDATION_FEEDBACK_LLM_DELTA_MIN", "10")
+        ),
+        validation_feedback_llm_max_per_day=int(
+            os.getenv("VALIDATION_FEEDBACK_LLM_MAX_PER_DAY", "50")
+        ),
+        validation_shadow_mode_enabled=_env_bool(
+            "VALIDATION_SHADOW_MODE_ENABLED", default=False
+        ),
+        validation_injectability_mode=_env_injectability_mode(
+            "VALIDATION_INJECTABILITY_MODE", default="hard_lock"
+        ),
+        validation_soft_blend_weight=float(
+            os.getenv("VALIDATION_SOFT_BLEND_WEIGHT", "0.15")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
@@ -182,6 +210,20 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_injectability_mode(
+    name: str,
+    *,
+    default: Literal["hard_lock", "soft_blend", "shadow_only"] = "hard_lock",
+) -> Literal["hard_lock", "soft_blend", "shadow_only"]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in {"hard_lock", "soft_blend", "shadow_only"}:
+        return value  # type: ignore[return-value]
+    return default
 
 
 def _env_optional_int(name: str) -> Optional[int]:

@@ -139,6 +139,75 @@ def apply_deterministic_prediction(
     )
 
 
+def soft_blend_percentile(
+    neighbor_percentile: float,
+    llm_percentile: float,
+    weight: float,
+) -> float:
+    """Blend: neighbor + w * (llm − neighbor), clamped to [0, 100]."""
+    w = max(0.0, min(1.0, float(weight)))
+    blended = float(neighbor_percentile) + w * (
+        float(llm_percentile) - float(neighbor_percentile)
+    )
+    return max(0.0, min(100.0, blended))
+
+
+def resolve_final_prediction(
+    llm_output: PredictorOutput,
+    neighbor_prediction: Optional[dict[str, Any]],
+    *,
+    mode: str = "hard_lock",
+    soft_blend_weight: float = 0.15,
+    shadow_mode_enabled: bool = False,
+) -> tuple[PredictorOutput, dict[str, Any]]:
+    """Resolve live score + Phase J shadow metadata after the Predictor LLM.
+
+    Modes:
+    - hard_lock: live = neighbor (current safe default)
+    - soft_blend: live = soft blend of neighbor and LLM percentile
+    - shadow_only: live = hard lock; always compute soft-blend shadow
+
+    When shadow_mode_enabled and mode is hard_lock, also compute soft-blend shadow.
+    """
+    meta: dict[str, Any] = {
+        "llm_percentile": float(llm_output.predicted_engagement_percentile),
+        "injectability_mode": mode,
+        "soft_blend_weight": float(soft_blend_weight),
+        "shadow_percentile": None,
+        "shadow_calibration_applied": False,
+        "shadow_feedback_count": 0,
+    }
+    if not neighbor_prediction:
+        return llm_output, meta
+
+    neighbor = float(neighbor_prediction["percentile"])
+    llm_pct = float(llm_output.predicted_engagement_percentile)
+    locked = apply_deterministic_prediction(llm_output, neighbor_prediction)
+    blended_pct = soft_blend_percentile(neighbor, llm_pct, soft_blend_weight)
+    blended = PredictorOutput(
+        predicted_engagement_percentile=blended_pct,
+        predicted_total_engagement=locked.predicted_total_engagement,
+        predicted_likes=locked.predicted_likes,
+        predicted_comments=locked.predicted_comments,
+        predicted_shares=locked.predicted_shares,
+        reasoning=llm_output.reasoning,
+    )
+
+    meta["shadow_calibration_applied"] = bool(
+        neighbor_prediction.get("calibration_applied", False)
+    )
+    meta["shadow_feedback_count"] = int(neighbor_prediction.get("feedback_count") or 0)
+
+    if mode == "soft_blend":
+        meta["shadow_percentile"] = blended_pct
+        return blended, meta
+
+    if mode == "shadow_only" or shadow_mode_enabled:
+        meta["shadow_percentile"] = blended_pct
+
+    return locked, meta
+
+
 def build_predictor_agent(model: Any = None) -> Agent[EvaluationDeps, PredictorOutput]:
     """Create the T3.2 Predictor Agent."""
     resolved_model = pydantic_ai_gemini_model() if model is None else model

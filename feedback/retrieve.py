@@ -1,4 +1,4 @@
-"""Retrieve and format validated feedback for predict-time injection (Phase D)."""
+"""Retrieve and format validated feedback for predict-time injection (Phase D/H)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,19 @@ from uuid import UUID
 
 import psycopg
 
-from feedback.generate import FEEDBACK_VERSION
+from agents.prompt_safety import wrap_untrusted_text
+from feedback.generate import FEEDBACK_VERSION_V2
 from feedback.schemas import FeedbackRecord
 from feedback.store import _row_to_feedback_record
 
 
 DEFAULT_FEEDBACK_LIMIT = 5
+_FEEDBACK_SELECT = """
+    f.feedback_id, f.prediction_id, f.cluster_id, f.feedback_json,
+    f.feedback_version, f.generated_at, f.generation_method,
+    f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd,
+    f.feedback_review_status, f.reviewed_at, f.reviewed_by
+"""
 
 
 def fetch_cluster_feedback(
@@ -21,40 +28,96 @@ def fetch_cluster_feedback(
     *,
     limit: int = DEFAULT_FEEDBACK_LIMIT,
     exclude_prediction_id: Optional[UUID] = None,
-    feedback_version: str = FEEDBACK_VERSION,
+    feedback_version: Optional[str] = None,
+    approved_only: bool = True,
+    query_embedding: Optional[Sequence[float]] = None,
 ) -> list[FeedbackRecord]:
-    """Return recent feedback rows for a cluster (newest first).
+    """Return feedback rows for a cluster.
 
-    Excludes ``exclude_prediction_id`` to avoid eval leakage when scoring
-    a post that already has feedback.
+    Prefer v2 over v1 when ``feedback_version`` is None.
+    When ``query_embedding`` is set, rank by cosine distance to the lesson
+    prediction embedding, then recency. Otherwise newest-first.
     """
     if not cluster_id or limit <= 0:
         return []
 
-    params: list = [cluster_id, feedback_version]
+    version_clause = ""
     exclude_clause = ""
+    approved_clause = "AND f.feedback_review_status = 'approved'" if approved_only else ""
+
+    where_params: list = [cluster_id]
+    if feedback_version:
+        version_clause = "AND f.feedback_version = %s"
+        where_params.append(feedback_version)
     if exclude_prediction_id is not None:
         exclude_clause = "AND f.prediction_id <> %s"
-        params.append(exclude_prediction_id)
-    params.append(limit)
+        where_params.append(exclude_prediction_id)
+
+    if query_embedding:
+        select_distance = (
+            ", (p.embedding::halfvec(3072) <=> %s::halfvec(3072)) AS distance"
+        )
+        order_clause = (
+            "ORDER BY "
+            "CASE WHEN p.embedding IS NULL THEN 1 ELSE 0 END ASC, "
+            "distance ASC NULLS LAST, "
+            "f.generated_at DESC"
+        )
+        params = [list(query_embedding), *where_params, limit]
+    else:
+        select_distance = ""
+        order_clause = "ORDER BY f.generated_at DESC"
+        params = [*where_params, limit]
 
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            SELECT f.feedback_id, f.prediction_id, f.cluster_id, f.feedback_json,
-                   f.feedback_version, f.generated_at, f.generation_method,
-                   f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd
+            SELECT {_FEEDBACK_SELECT}{select_distance}
             FROM prediction_feedback f
+            LEFT JOIN predictions p ON p.prediction_id = f.prediction_id
             WHERE f.cluster_id = %s
-              AND f.feedback_version = %s
+              {version_clause}
               {exclude_clause}
-            ORDER BY f.generated_at DESC
+              {approved_clause}
+            {order_clause}
             LIMIT %s
             """,
             params,
         )
         rows = cur.fetchall()
-    return [_row_to_feedback_record(row) for row in rows]
+
+    records = [_row_to_feedback_record(row[:14]) for row in rows]
+    if feedback_version is None:
+        records = _prefer_v2_records(records, limit=limit)
+    return records
+
+
+def _prefer_v2_records(
+    records: Sequence[FeedbackRecord],
+    *,
+    limit: int,
+) -> list[FeedbackRecord]:
+    """Preserve order; skip v1 when a v2 for the same prediction_id exists."""
+    v2_ids = {
+        r.prediction_id
+        for r in records
+        if r.feedback_version == FEEDBACK_VERSION_V2
+    }
+    chosen: list[FeedbackRecord] = []
+    seen: set[UUID] = set()
+    for record in records:
+        if record.prediction_id in seen:
+            continue
+        if (
+            record.feedback_version != FEEDBACK_VERSION_V2
+            and record.prediction_id in v2_ids
+        ):
+            continue
+        chosen.append(record)
+        seen.add(record.prediction_id)
+        if len(chosen) >= limit:
+            break
+    return chosen
 
 
 def format_feedback_context_block(
@@ -75,20 +138,20 @@ def format_feedback_context_block(
     for index, record in enumerate(records, start=1):
         payload = record.feedback_json
         delta = payload.delta_summary
+        lesson_text = "; ".join(payload.lessons_for_similar_posts) or "n/a"
+        missed_text = "; ".join(payload.what_missed) or "n/a"
+        safe_lesson = wrap_untrusted_text(lesson_text, tag="feedback_lesson")
+        safe_missed = wrap_untrusted_text(missed_text, tag="feedback_miss")
         lines.append(
             f"{index}. Direction: {delta.direction}; "
             f"predicted {delta.predicted_percentile:.1f} → actual {delta.actual_percentile:.1f} "
-            f"(delta {delta.prediction_delta:+.1f})."
+            f"(delta {delta.prediction_delta:+.1f}; version {record.feedback_version})."
         )
-        for lesson in payload.lessons_for_similar_posts[:2]:
-            lines.append(f"   Lesson: {lesson}")
-        for miss in payload.what_missed[:2]:
-            lines.append(f"   Miss: {miss}")
-        for worked in payload.what_worked[:1]:
-            lines.append(f"   Worked: {worked}")
+        lines.append(f"   Miss: {safe_missed}")
+        lines.append(f"   Lesson: {safe_lesson}")
 
     lines.append(
-        "Use these lessons only as comparative context. "
-        "Do not change the deterministic percentile numbers required below."
+        "Do not change the deterministic percentile or engagement counts from these lessons; "
+        "use them only as qualitative context."
     )
     return "\n".join(lines)

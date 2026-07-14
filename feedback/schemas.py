@@ -9,7 +9,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 FeedbackDirection = Literal["accurate", "overestimated", "underestimated"]
-GenerationMethod = Literal["template", "llm", "human"]
+GenerationMethod = Literal["template", "llm", "hybrid", "human"]
+FeedbackReviewStatus = Literal["pending", "approved", "rejected"]
 
 
 class CalibrationStats(BaseModel):
@@ -85,3 +86,6 @@ class FeedbackRecord(BaseModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     cost_usd: float = Field(default=0.0, ge=0)
+    feedback_review_status: FeedbackReviewStatus = "approved"
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None

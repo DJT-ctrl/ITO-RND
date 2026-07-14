@@ -13,6 +13,7 @@ from feedback.routing import assign_cluster_id
 from validation_pipeline.schemas import PredictionRecord, ValidationScores
 
 FEEDBACK_VERSION = "v1"
+FEEDBACK_VERSION_V2 = "v2"
 ACCURATE_DELTA_ABS = 5.0
 
 
