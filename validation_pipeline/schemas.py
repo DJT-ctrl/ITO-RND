@@ -164,6 +164,28 @@ class CollectedPost(BaseModel):
     total_engagement: int = 0
 
 
+def strip_engagement_for_backtest(
+    posts: list["CollectedPost"],
+) -> list["CollectedPost"]:
+    """Zero out engagement metrics so the predictor runs blind during backtest.
+
+    Returns new copies; originals are not mutated.  The real engagement is
+    recovered later when the validation worker re-scrapes the (already-aged)
+    post URL.
+    """
+    return [
+        post.model_copy(
+            update={
+                "likes": 0,
+                "comments": 0,
+                "shares": 0,
+                "total_engagement": 0,
+            }
+        )
+        for post in posts
+    ]
+
+
 class AccuracyAggregates(BaseModel):
     total_validated: int = 0
     mean_absolute_error: Optional[float] = None

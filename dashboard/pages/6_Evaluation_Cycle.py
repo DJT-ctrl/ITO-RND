@@ -345,7 +345,9 @@ if run_clicked and draft_content.strip():
 # ── Results + Accuracy History ───────────────────────────────────────────────
 
 st.divider()
-results_tab, accuracy_tab = st.tabs(["Evaluation Results", "Accuracy History"])
+results_tab, accuracy_tab, gemini_cost_tab = st.tabs(
+    ["Evaluation Results", "Accuracy History", "Gemini Spend"]
+)
 
 with accuracy_tab:
     st.caption(
@@ -353,6 +355,16 @@ with accuracy_tab:
         "predicted vs actual engagement after scheduled re-scrape."
     )
     render_accuracy_summary(settings, compact=True)
+
+with gemini_cost_tab:
+    st.caption(
+        "Estimated Gemini API cost across all logged evaluation runs. "
+        "Based on token counts and published per-1M-token rates."
+    )
+    from telemetry.ui import render_gemini_cost_history  # noqa: E402
+
+    render_gemini_cost_history(settings)
+
 
 with results_tab:
     if st.session_state.eval_result is not None:

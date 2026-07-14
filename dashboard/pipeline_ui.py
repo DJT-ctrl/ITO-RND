@@ -135,3 +135,8 @@ def render_corpus_sidebar(settings) -> None:
     from telemetry.apify_ui import render_apify_cost_sidebar
 
     render_apify_cost_sidebar(settings)
+
+    st.markdown("---")
+    from telemetry.ui import render_gemini_cost_sidebar
+
+    render_gemini_cost_sidebar(settings)

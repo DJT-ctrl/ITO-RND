@@ -336,14 +336,23 @@ async def bulk_import_vectorized_and_predict_async(
     max_posts: int | None = None,
     due_immediately: bool = False,
     skip_existing: bool = True,
+    backtest: bool = False,
 ):
-    """Discover vectorized bundles, predict, and schedule validation."""
+    """Discover vectorized bundles, predict, and schedule validation.
+
+    When *backtest* is True, engagement metrics are zeroed out before
+    prediction and ``due_immediately`` is forced to True.
+    """
     from validation_pipeline.corpus_import import CorpusImportResult, predict_on_posts_async
+    from validation_pipeline.schemas import strip_engagement_for_backtest
 
     posts, datasets = load_all_vectorized_collected_posts(
         settings,
         max_posts=max_posts,
     )
+    if backtest:
+        posts = strip_engagement_for_backtest(posts)
+        due_immediately = True
     result = await predict_on_posts_async(
         posts,
         settings,
@@ -368,5 +377,6 @@ def bulk_import_vectorized_and_predict(
             max_posts=kwargs.get("max_posts"),
             due_immediately=kwargs.get("due_immediately", False),
             skip_existing=kwargs.get("skip_existing", True),
+            backtest=kwargs.get("backtest", False),
         )
     )

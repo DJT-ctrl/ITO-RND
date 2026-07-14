@@ -66,31 +66,18 @@ def test_extract_engagement():
     assert actuals.total_engagement == 6
 
 
-def test_fetch_engagement_falls_back_to_author_profile():
+def test_fetch_engagement_skips_missing_posts_without_retry():
+    """Missing posts must not trigger extra Apify runs (see rescrape COST GUARDRAIL)."""
     prediction = _prediction(
         linkedin_post_id="7480224350739034112",
         linkedin_url="https://www.linkedin.com/posts/user_activity-7480224350739034112-abc",
         author_public_id="user",
     )
     settings = MagicMock()
-    settings.validation_rescrape_profile_max_posts = 50
     settings.validation_data_dir = "data/validation"
 
     scraper = MagicMock()
-    scraper.fetch_posts_by_urls.side_effect = [
-        ScrapeResult(items=[], run_record=None),
-        ScrapeResult(items=[], run_record=None),
-        ScrapeResult(
-            items=[
-                {
-                    "id": prediction.linkedin_post_id,
-                    "linkedinUrl": prediction.linkedin_url,
-                    "engagement": {"likes": 4, "comments": 1, "shares": 0},
-                }
-            ],
-            run_record=None,
-        ),
-    ]
+    scraper.fetch_posts_by_urls.return_value = ScrapeResult(items=[], run_record=None)
 
     actuals = fetch_engagement_by_urls(
         [prediction],
@@ -99,7 +86,5 @@ def test_fetch_engagement_falls_back_to_author_profile():
         context="test",
     )
 
-    assert actuals[prediction.prediction_id].total_engagement == 5
-    profile_call = scraper.fetch_posts_by_urls.call_args_list[-1]
-    assert profile_call.args[0] == ["https://www.linkedin.com/in/user"]
-    assert profile_call.kwargs["max_posts"] == 50
+    assert actuals == {}
+    scraper.fetch_posts_by_urls.assert_called_once()

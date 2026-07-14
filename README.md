@@ -401,8 +401,8 @@ python -m feedback.jobs.run_feedback_evaluation --holdout-size 30
 
 Reports are saved to `data/telemetry/eval_feedback_*.json`.
 
-Latest Phase F decision: [`planning/validation-feedback-loop/11_GO_NO_GO.md`](planning/validation-feedback-loop/11_GO_NO_GO.md)
-(calibration and injection remain OFF after holdout=30 eval on N=241).
+Latest Phase F decision: [`current md/11_GO_NO_GO.md`](current%20md/11_GO_NO_GO.md)
+(active feedback-loop docs live under [`current md/`](current%20md/)).
 
 **Enable global calibration only when:**
 

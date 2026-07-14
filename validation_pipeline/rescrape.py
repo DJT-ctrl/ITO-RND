@@ -42,13 +42,6 @@ def match_post_in_results(
     return None
 
 
-def _author_profile_url(author_public_id: str) -> str | None:
-    public_id = (author_public_id or "").strip()
-    if not public_id:
-        return None
-    return f"https://www.linkedin.com/in/{public_id}"
-
-
 def _normalize_post_url(url: str) -> str:
     return url.split("?")[0].rstrip("/")
 
@@ -99,38 +92,18 @@ def fetch_engagement_by_urls(
     result = scraper.fetch_posts_by_urls(unique_urls, context=context)
     _save_rescrape_artifact(settings, result.items, context.replace(":", "_"))
 
-    url_to_items: dict[str, list[dict[str, Any]]] = {}
-    for item in result.items:
-        raw_url = item.get("linkedinUrl")
-        if not raw_url:
-            continue
-        key = _normalize_post_url(str(raw_url))
-        url_to_items.setdefault(key, []).append(item)
-
+    # COST GUARDRAIL — do not add per-post retries or author-profile fallback here.
+    #
+    # A single batch URL scrape is the only Apify pass we run. Posts missing from
+    # that result are treated as deleted/private and left out of `actuals` so the
+    # worker marks them failed. Re-scraping the same URL or pulling up to 100
+    # recent posts from the author's profile has never recovered a missing post
+    # in practice but burns Apify credits (often one profile scrape per missing
+    # row in a batch). Keep this one-shot behaviour unless product explicitly
+    # accepts that cost and can dedupe profile scrapes by author.
     actuals: dict[UUID, EngagementActuals] = {}
-    missing: list[PredictionRecord] = []
     for prediction in predictions:
         matched = match_post_in_results(result.items, prediction)
-        if matched is not None:
-            actuals[prediction.prediction_id] = extract_engagement(matched)
-        else:
-            missing.append(prediction)
-
-    for prediction in missing:
-        single = scraper.fetch_posts_by_urls(
-            [prediction.linkedin_url],
-            context=f"{context}:{prediction.prediction_id}",
-        )
-        matched = match_post_in_results(single.items, prediction)
-        if matched is None:
-            profile_url = _author_profile_url(prediction.author_public_id)
-            if profile_url:
-                profile_result = scraper.fetch_posts_by_urls(
-                    [profile_url],
-                    max_posts=settings.validation_rescrape_profile_max_posts,
-                    context=f"{context}:{prediction.prediction_id}:profile",
-                )
-                matched = match_post_in_results(profile_result.items, prediction)
         if matched is not None:
             actuals[prediction.prediction_id] = extract_engagement(matched)
 
@@ -155,9 +128,8 @@ def fetch_engagement(
         raise ValueError(
             f"Could not re-match post {prediction.linkedin_post_id} "
             f"({prediction.linkedin_url}): Apify returned no matching post "
-            f"after direct URL scrape and author profile fallback "
-            f"(up to {settings.validation_rescrape_profile_max_posts} recent posts). "
-            f"The post may be deleted, private, or no longer on the public profile."
+            f"after the batch URL scrape. "
+            f"The post is treated as deleted, private, or no longer public."
         )
     return actuals
 

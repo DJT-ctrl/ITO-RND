@@ -51,12 +51,12 @@ def _validate_predictions(
         try:
             actuals = actuals_map.get(prediction.prediction_id)
             if actuals is None:
+                # See validation_pipeline/rescrape.py COST GUARDRAIL — no profile fallback.
                 raise ValueError(
                     f"Could not re-match post {prediction.linkedin_post_id} "
                     f"({prediction.linkedin_url}): Apify returned no matching post "
-                    f"after direct URL scrape and author profile fallback "
-                    f"(up to {settings.validation_rescrape_profile_max_posts} recent posts). "
-                    f"The post may be deleted, private, or no longer on the public profile."
+                    f"after the batch URL scrape. "
+                    f"The post is treated as deleted, private, or no longer public."
                 )
             scores = compute_validation_scores(actuals, prediction, corpus_totals)
             conn = get_connection(settings)

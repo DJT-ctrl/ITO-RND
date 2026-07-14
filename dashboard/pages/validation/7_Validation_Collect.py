@@ -1,4 +1,8 @@
-"""Validation Pipeline — collect & predict from live scrape or saved collections."""
+"""Validation Pipeline — collect & predict from live scrape or saved collections.
+
+Backtest mode strips engagement metrics from already-aged posts so the predictor
+runs blind, then allows immediate validation against real actuals (no 48h wait).
+"""
 
 import asyncio
 import sys
@@ -17,6 +21,7 @@ from validation_pipeline.corpus_import import (  # noqa: E402
 )
 from validation_pipeline.pipeline import run_collect_and_predict, run_predict_on_posts  # noqa: E402
 from validation_pipeline.reset import reset_validation_data_for_settings  # noqa: E402
+from validation_pipeline.schemas import strip_engagement_for_backtest  # noqa: E402
 from validation_pipeline.ui import load_predictions, render_predictions_table  # noqa: E402
 from validation_pipeline.vectorized_corpus import (  # noqa: E402
     bulk_import_vectorized_and_predict,
@@ -62,7 +67,7 @@ posts_ready, _ = (
 )
 st.metric("Unique vectorized posts ready", len(posts_ready))
 
-col_reset, col_max, col_due = st.columns(3)
+col_reset, col_max, col_due, col_bt = st.columns(4)
 with col_reset:
     if st.button(
         "Reset validation data",
@@ -86,6 +91,19 @@ with col_due:
         key="vectorized_due_immediately",
         help="Otherwise validation is scheduled for posted_at + 48h (old posts are already due).",
     )
+with col_bt:
+    bulk_backtest = st.checkbox(
+        "⚡ Backtest mode",
+        value=False,
+        key="vectorized_backtest",
+        help=(
+            "Strip likes/comments/shares so the predictor runs blind, "
+            "then validate immediately against real actuals. "
+            "Use with already-aged posts to skip the 48h wait."
+        ),
+    )
+    if bulk_backtest:
+        bulk_due_now = True
 
 if "validation_reset_counts" in st.session_state:
     reset = st.session_state["validation_reset_counts"]
@@ -105,11 +123,16 @@ if st.button(
     type="primary",
     disabled=not can_bulk,
 ):
-    with st.spinner("Predicting vectorized corpus..."):
+    with st.spinner(
+        "Backtest: predicting blind (engagement stripped)..."
+        if bulk_backtest
+        else "Predicting vectorized corpus..."
+    ):
         result = bulk_import_vectorized_and_predict(
             settings,
             max_posts=int(bulk_max),
             due_immediately=bulk_due_now,
+            backtest=bulk_backtest,
         )
     st.session_state["vectorized_import_result"] = result
     st.rerun()
@@ -149,6 +172,16 @@ with st.sidebar:
         value=False,
         help="Skip the 48h wait — use with saved collections to test validation in Queue.",
     )
+    backtest_mode = st.checkbox(
+        "⚡ Backtest mode",
+        value=False,
+        help=(
+            "Strip engagement metrics so the predictor runs blind on "
+            "already-aged posts. Forces 'Due immediately' ON."
+        ),
+    )
+    if backtest_mode:
+        due_immediately = True
 
     window_hours = settings.validation_window_hours
     if settings.validation_dev_window_minutes is not None:
@@ -207,21 +240,48 @@ if run_clicked:
         messages.append(msg)
         log.code("\n".join(messages[-8:]))
 
-    with st.spinner("Running..."):
+    with st.spinner(
+        "Backtest: predicting blind (engagement stripped)..."
+        if backtest_mode
+        else "Running..."
+    ):
         if source_mode == "Live Apify scrape":
+            from validation_pipeline.collect import collect_posts as _collect_posts
+
+            # Match Scraper Stage defaults: relevance, no time filter.
+            # date + week triggers LinkedIn's anonymous chronological-search throttle.
             search_params = {
                 "searchQueries": [search_query.strip()],
                 "maxPosts": int(max_posts),
-                "sortBy": "date",
-                "postedLimit": "week",
+                "sortBy": "relevance",
             }
-            result = asyncio.run(
-                run_collect_and_predict(
+            if backtest_mode:
+                # Collect first, strip engagement, then predict separately.
+                posts = _collect_posts(
                     search_params,
                     settings=settings,
                     on_progress=on_progress,
                 )
-            )
+                posts = strip_engagement_for_backtest(posts)
+                on_progress(
+                    f"⚡ Backtest: stripped engagement from {len(posts)} post(s)."
+                )
+                result = asyncio.run(
+                    run_predict_on_posts(
+                        posts,
+                        settings=settings,
+                        due_immediately=True,
+                        on_progress=on_progress,
+                    )
+                )
+            else:
+                result = asyncio.run(
+                    run_collect_and_predict(
+                        search_params,
+                        settings=settings,
+                        on_progress=on_progress,
+                    )
+                )
         else:
             scan_path = next(f for f in saved_scans if f.name == selected_scan)
             posts = collected_posts_from_saved_collection(
@@ -229,7 +289,14 @@ if run_clicked:
                 settings,
                 max_posts=int(max_posts),
             )
-            on_progress(f"Loaded {len(posts)} post(s) from `{selected_scan}`.")
+            if backtest_mode:
+                posts = strip_engagement_for_backtest(posts)
+                on_progress(
+                    f"⚡ Backtest: stripped engagement from {len(posts)} post(s) "
+                    f"loaded from `{selected_scan}`."
+                )
+            else:
+                on_progress(f"Loaded {len(posts)} post(s) from `{selected_scan}`.")
             result = asyncio.run(
                 run_predict_on_posts(
                     posts,
@@ -259,6 +326,7 @@ if "last_collect_result" in st.session_state:
     if result.predictions:
         st.subheader("Newly scheduled predictions")
         render_predictions_table(result.predictions)
+
 
 st.divider()
 render_apify_cost_history(settings, limit=40)

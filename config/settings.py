@@ -41,13 +41,17 @@ AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
 
 
 def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:
-    """Format a Gemini model id for pydantic-ai's Google GLA provider."""
+    """Format a Gemini model id for pydantic-ai's Google provider (google or google-gla)."""
     raw = model_id or AGENT_GEMINI_MODEL
-    if raw.startswith("google-gla:"):
-        return raw
-    if raw.startswith("google:"):
+    if raw.startswith("google-gla:") or raw.startswith("google:"):
         raw = raw.split(":", 1)[1]
-    return f"google-gla:{raw}"
+    
+    try:
+        from pydantic_ai import models
+        models.infer_model(f"google:{raw}")
+        return f"google:{raw}"
+    except Exception:
+        return f"google-gla:{raw}"
 
 
 PYDANTIC_AI_GEMINI_MODEL = pydantic_ai_gemini_model()
@@ -94,7 +98,9 @@ class Settings:
     validation_max_posts_per_run: int = 20
     validation_min_post_age_hours: int = 0
     validation_data_dir: str = "data/validation"
-    # Profile fallback depth when direct post-URL re-scrape returns no items.
+    # DEPRECATED / unused — author-profile fallback was removed from rescrape.py
+    # (2026-07) because it never recovered missing posts and cost one Apify run
+    # per missing row. Kept only so existing .env keys do not break startup.
     validation_rescrape_profile_max_posts: int = 100
     # Phase A feedback: passive percentile calibration from validated deltas.
     validation_calibration_enabled: bool = False

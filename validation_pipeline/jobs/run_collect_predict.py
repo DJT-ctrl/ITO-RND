@@ -33,8 +33,7 @@ def main() -> int:
     search_params = {
         "searchQueries": [args.search],
         "maxPosts": max_posts,
-        "sortBy": "date",
-        "postedLimit": "week",
+        "sortBy": "relevance",
     }
 
     def progress(msg: str) -> None:
