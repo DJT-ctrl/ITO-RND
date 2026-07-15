@@ -1,16 +1,26 @@
 # Feedback Loop — Future Phases After H
 
-**Date:** 2026-07-15 (updated after Phase F afternoon re-run)  
+**Date:** 2026-07-15 (updated after post-F engineering package)  
 **Purpose:** Roadmap for work **after Phase H** (and dependencies on gaps in [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md)).  
 **Prerequisite:** Phases A–H + J code landed; prod baseline = feedback ON, calibration OFF, injection OFF, injectability `hard_lock`.
 
-**Completed staging (2026-07-14 / 15):**
+**Completed staging / engineering (2026-07-14 / 15):**
 
 - [x] Approve ≥10 human-reviewed v2 hybrid rows (15 approved)
 - [x] Embedding backfill → centroids → routing MAE
 - [x] Phase J code (soft_blend / shadow_only / telemetry)
-- [x] Shadow mode ON; ~270+ rows with `shadow_percentile` (holdout still 16/30)
-- [x] Phase F re-runs through 2026-07-15 afternoon — still **NO-GO** (cal lift **2.97%** < 5%; shadow MAE ≉ better than live; afternoon = morning)
+- [x] Shadow mode ON; holdout shadow still 16/30
+- [x] Phase F re-runs through 2026-07-15 afternoon — still **NO-GO** (cal lift **2.97%**)
+- [x] Phase I.1 async feedback queue + worker + backlog UI
+- [x] Phase I.2 cluster roll-ups + injection formats (rollup_top2 / rollup_contrastive)
+- [x] Phase G+ auto-approve behind flags (default OFF)
+
+**Still open before prod learning ON:**
+
+- Keep collecting with shadow ON; re-run F when lift may clear 5% or shadow beats live
+- Only then consider calibration / soft_blend / injection flag flips
+- Gemini context caching (I.3), H+, K remain deferred
+- Note: `global_mean_delta` ≈ 5 is training bias, **not** MAE lift %
 
 **Still open before prod learning ON:**
 
@@ -42,9 +52,9 @@ flowchart LR
 0. **Staging ops** — DONE  
 1. **Phase J code** — DONE (live stays hard_lock; shadow ON OK)  
 2. **Re-run F** — DONE through 2026-07-15 afternoon (NO-GO; identical to morning); **repeat** when N grows and cal may clear 5% or shadow beats live  
-3. **Advanced injection** — after a GO (or explicit reasoning-only metrics)  
-4. **Phase I** — when volume/cost hurts  
-5. **G+** — after ≥50 manual reviews and low reject rate  
+3. **Advanced injection** — formats shipped behind `VALIDATION_FEEDBACK_INJECTION_FORMAT` (default `lessons`); enable after F GO when experimenting with injection ON  
+4. **Phase I** — I.1/I.2 **done**; I.3 Gemini caching still deferred  
+5. **G+** — **done** behind flags (default OFF); enable only after low reject rate  
 
 **Explicitly out of scope:** LLM-assigned `cluster_id` for routing (use embeddings + optional LLM labels only).
 
@@ -224,27 +234,30 @@ Not security “prompt injection” — this is **closed-loop context** in the P
 
 ## Phase I — Scale & cost (P3)
 
+**Status:** I.1 async queue + I.2 roll-ups / injection formats **shipped** (2026-07-15). Gemini context caching (I.3) still deferred.
+
 **Goal:** Sustainable worker latency and Gemini cost at higher validation volume.
 
 From [FEEDBACK_LOOP_PART2_PLAN.md](FEEDBACK_LOOP_PART2_PLAN.md) § Phase I.
 
-### 1. Async feedback queue
+### 1. Async feedback queue — DONE
 
-- Worker enqueues `prediction_id` after `mark_validated`
-- Separate job processes queue; idempotent upsert; dead-letter on failure
-- Decouple rescrape success from feedback + LLM latency
+- Worker enqueues `prediction_id` after `mark_validated` (`feedback_jobs`)
+- `python -m feedback.jobs.run_feedback_worker` processes queue; dead-letter on max attempts
+- Dashboard backlog: pending / processing / done / dead
 
-### 2. Cluster roll-up summaries
+### 2. Cluster roll-up summaries — DONE
 
-- Periodic job: one paragraph per cluster
-- Inject summary + top 2 examples instead of 5 full rows
+- `rollup_summary` on `prediction_clusters`; refreshed with stats / `run_cluster_rollups`
+- Inject summary + top 2 examples via `VALIDATION_FEEDBACK_INJECTION_FORMAT=rollup_top2`
+- Contrastive + structured bias via `rollup_contrastive`
 
-### 3. Gemini context caching
+### 3. Gemini context caching — DEFERRED
 
 - Cache stable prefix: global instructions + cluster summary
 - Refresh on cluster stats / centroid recompute
 - Track cache hit rate in telemetry
-- **Deferred from Phase D** — stable prefix not large enough to justify until roll-ups ship (see Advanced injection)
+- **Deferred** — stable prefix now exists via roll-ups; wire Gemini Cached Content when cost hurts
 
 ### 4. Multi-window validation (optional)
 
@@ -253,13 +266,13 @@ From [FEEDBACK_LOOP_PART2_PLAN.md](FEEDBACK_LOOP_PART2_PLAN.md) § Phase I.
 
 ### Definition of done
 
-- [ ] Worker p99 unchanged when LLM feedback enabled
-- [ ] Token cost per predict reduced ≥20% vs uncached at target volume
-- [ ] Queue backlog visible in dashboard or logs
+- [x] Worker validate path no longer blocks on hybrid LLM (enqueue only)
+- [ ] Token cost per predict reduced ≥20% vs uncached at target volume (needs I.3)
+- [x] Queue backlog visible in dashboard
 
-### When to start
+### When to start I.3
 
-When hybrid feedback volume or predict latency becomes painful — often **after** J + partial prod ON.
+When predict token cost becomes painful with roll-up prefixes in use.
 
 ### Carried from gaps appendix
 
@@ -305,21 +318,24 @@ Today `run_cluster_centroids` uses **mean embedding per metadata cluster**. True
 
 ## Phase G+ — Auto-approve hybrid lessons
 
+**Status:** Engineering **done** (2026-07-15). Default **OFF**.
+
 **Goal:** Remove human bottleneck once staging proves low reject rate.
 
 ### Build
 
-- Auto-approve when: schema valid, grounding check passed, \|delta\| below cap, daily budget OK
-- Settings: `VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED`, max auto-approved per day
-- Audit log for auto-approved rows
+- Auto-approve when: schema valid, grounding check passed, `|delta|` below cap, daily budget OK
+- Settings: `VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED`, max auto-approved per day, delta max
+- Audit: `reviewed_by=auto_approve` on approved rows
 
 ### Definition of done
 
-- [ ] ≥50 manual reviews completed first
-- [ ] Reject rate < 10% over rolling window
+- [x] Flags + dashboard toggles shipped (default off)
+- [ ] ≥50 manual reviews completed first (ops)
+- [ ] Reject rate < 10% over rolling window (ops before enabling)
 - [ ] Auto-approve only in staging until second review pass
 
-**Do not** auto-approve before Phase J unless injection remains reasoning-only.
+**Do not** enable in prod until reject rate is trusted; injection still OFF until F GO.
 
 ### Carried from gaps appendix
 
@@ -407,4 +423,4 @@ Consolidated map from [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md) out
 | Deterministic percentile overwrite | [Phase J](#phase-j--injectability-unlock-highest-priority) |
 | Eval D-v2 vs D-v1 numeric lift | Phase J (scaffold exists; MAE unlock post-J) |
 
-**Next implementation chat:** Keep **shadow ON**, grow validated N + holdout shadow coverage, **re-run Phase F** when the corpus changes. Advanced injection / I / G+ only after a GO (or volume/cost pain for I). Do not treat `global_mean_delta` ≈ 5 as the 5% MAE lift gate.
+**Next implementation chat:** Operate the loop — drain `run_feedback_worker` after validates, keep **shadow ON**, re-run Phase F when N grows. Optional: enable `rollup_top2` in staging with injection still OFF (no live effect) or experiment after F GO. I.3 caching / H+ / K only when needed. Do not treat `global_mean_delta` ≈ 5 as the 5% MAE lift gate.

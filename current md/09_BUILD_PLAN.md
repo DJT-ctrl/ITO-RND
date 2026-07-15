@@ -1,6 +1,6 @@
 # 09 — Build Plan
 
-**Status:** A–J engineering done; Phase F afternoon re-run 2026-07-15 still **NO-GO** (2.97% < 5%)  
+**Status:** A–J + post-F package (I.1/I.2, advanced inject formats, G+) engineering done; F still **NO-GO** (2.97% < 5%)  
 **Date:** 2026-07-15  
 **Source:** Planning docs 01–08 + peer review + `FEEDBACK_LOOP_PART2_PLAN.md`  
 **Active docs folder:** this directory (`current md/`)
@@ -22,15 +22,16 @@ Living tracker for implementing the validation feedback loop.
 | **F** | Prove lift (offline go/no-go) | **Re-run NO-GO** (2.97% < 5%; afternoon confirmed) |
 | **G** | LLM hybrid feedback v2 + human review | **Done (staging)** |
 | **H** | Embedding persistence + centroids + ranked retrieve | **Done (staging)** |
-| I | Scale (async, caching) | Deferred (after GO / volume pain) |
+| **I** | Scale (async queue + roll-ups) | **Done** (caching deferred; flags safe) |
 | **J** | Injectability unlock (soften overwrite + shadow) | **Done** (live=`hard_lock`; shadow ON OK) |
+| **G+** | Auto-approve hybrid | **Done** (default OFF) |
 
 Latest F re-run (afternoon): N=702, holdout=30, cal lift **2.97%**, shadow holdout **16/30** with
 MAE delta **−0.0004** — identical to morning. See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 
-**Next:** keep shadow ON; collect more validated + shadow predicts; re-run F when
-cal might clear 5% or shadow shows lift. Do **not** start Advanced injection /
-Phase I / G+ for prod learning flips yet.
+**Next (ops):** keep shadow ON; drain feedback queue after validates; re-run F when
+cal might clear 5% or shadow shows lift. Do **not** flip calibration / soft_blend /
+injection ON until gates pass. Gemini context caching (I.3), H+, K still deferred.
 
 ---
 
@@ -134,6 +135,26 @@ Validated rows → mean_delta → calibrate percentile (A)
 - [x] Phase F re-run 2026-07-15 morning (N=702, **2.97%**; shadow delta −0.0004) — still NO-GO
 - [x] Phase F re-run 2026-07-15 afternoon (N=702, **2.97%**; identical dual reports) — confirmed NO-GO
 - [ ] Next F re-run when N grows / cal may clear 5% or shadow MAE beats live
+
+---
+
+## Phase I checklist (post-F package)
+
+- [x] `feedback_jobs` table + enqueue after validate (`try_enqueue_feedback_after_validation`)
+- [x] `python -m feedback.jobs.run_feedback_worker` + dashboard Process feedback queue
+- [x] Queue backlog metrics (pending / processing / done / dead)
+- [x] Cluster `rollup_summary` + `python -m feedback.jobs.run_cluster_rollups`
+- [x] Injection formats: `lessons` | `rollup_top2` | `rollup_contrastive` (default `lessons`)
+- [x] Structured bias line in roll-up formats
+- [ ] Gemini context caching — deferred (I.3)
+
+---
+
+## Phase G+ checklist
+
+- [x] `VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED` (default false)
+- [x] Daily max + `|delta|` cap gating; `reviewed_by=auto_approve`
+- [x] Dashboard toggles on Feedback Loop settings
 
 ---
 

@@ -34,6 +34,10 @@ ALLOWED_KEYS = frozenset(
         "validation_shadow_mode_enabled",
         "validation_injectability_mode",
         "validation_soft_blend_weight",
+        "validation_feedback_injection_format",
+        "validation_feedback_auto_approve_enabled",
+        "validation_feedback_auto_approve_max_per_day",
+        "validation_feedback_auto_approve_delta_max",
     }
 )
 
@@ -113,12 +117,32 @@ def apply_overrides_to_settings(settings: Any) -> Any:
     mode = allowed.get("validation_injectability_mode")
     if mode is not None and mode not in {"hard_lock", "soft_blend", "shadow_only"}:
         allowed.pop("validation_injectability_mode", None)
+    fmt = allowed.get("validation_feedback_injection_format")
+    if fmt is not None and fmt not in {
+        "lessons",
+        "rollup_top2",
+        "rollup_contrastive",
+    }:
+        allowed.pop("validation_feedback_injection_format", None)
     weight = allowed.get("validation_soft_blend_weight")
     if weight is not None:
         try:
             allowed["validation_soft_blend_weight"] = float(weight)
         except (TypeError, ValueError):
             allowed.pop("validation_soft_blend_weight", None)
+    for key in (
+        "validation_feedback_auto_approve_max_per_day",
+        "validation_feedback_auto_approve_delta_max",
+    ):
+        if key in allowed:
+            try:
+                allowed[key] = (
+                    int(allowed[key])
+                    if key.endswith("_per_day")
+                    else float(allowed[key])
+                )
+            except (TypeError, ValueError):
+                allowed.pop(key, None)
     if not allowed:
         return settings
     return replace(settings, **allowed)

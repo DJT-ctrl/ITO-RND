@@ -18,7 +18,12 @@ from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from config.settings import Settings, load_settings, pydantic_ai_gemini_model
 from feedback.calibration import apply_calibration
-from feedback.retrieve import fetch_cluster_feedback, format_feedback_context_block
+from feedback.retrieve import (
+    example_limit_for_format,
+    fetch_cluster_feedback,
+    format_feedback_context_block,
+)
+from feedback.summarize import fetch_cluster_rollup
 from feedback.routing import assign_cluster_id
 from feedback.store import fetch_cluster_centroids, resolve_calibration_stats
 from processors.benchmark import compute_neighbor_prediction
@@ -164,10 +169,16 @@ def _load_feedback_context(
             records = fetch_cluster_feedback(
                 conn,
                 cluster_id,
-                limit=settings.validation_feedback_injection_limit,
+                limit=example_limit_for_format(
+                    settings.validation_feedback_injection_format,
+                    settings.validation_feedback_injection_limit,
+                ),
                 exclude_prediction_id=exclude_prediction_id,
                 approved_only=True,
                 query_embedding=embedding,
+            )
+            rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(
+                conn, cluster_id
             )
         finally:
             conn.close()
@@ -176,7 +187,14 @@ def _load_feedback_context(
         cluster_id = assign_cluster_id(content, follower_count, embedding=embedding)
         return None, cluster_id, 0
 
-    block = format_feedback_context_block(records, cluster_id=cluster_id)
+    block = format_feedback_context_block(
+        records,
+        cluster_id=cluster_id,
+        injection_format=settings.validation_feedback_injection_format,
+        rollup_summary=rollup_summary,
+        mean_delta=mean_delta,
+        sample_count=sample_count,
+    )
     return (block or None), cluster_id, len(records)
 
 

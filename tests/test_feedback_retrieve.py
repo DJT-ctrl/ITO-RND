@@ -130,9 +130,11 @@ def test_load_feedback_context_disabled():
 @patch("validation_pipeline.predict.get_connection")
 @patch("validation_pipeline.predict.create_schema")
 @patch("validation_pipeline.predict.fetch_cluster_centroids")
+@patch("validation_pipeline.predict.fetch_cluster_rollup")
 @patch("validation_pipeline.predict.fetch_cluster_feedback")
 def test_load_feedback_context_formats_records(
     mock_fetch,
+    mock_rollup,
     mock_centroids,
     _mock_schema,
     mock_conn,
@@ -140,8 +142,10 @@ def test_load_feedback_context_formats_records(
     settings = MagicMock()
     settings.validation_feedback_injection_enabled = True
     settings.validation_feedback_injection_limit = 5
+    settings.validation_feedback_injection_format = "lessons"
     mock_conn.return_value = MagicMock()
     mock_centroids.return_value = []
+    mock_rollup.return_value = (None, None, 0)
     mock_fetch.return_value = [_record()]
 
     block, cluster_id, count = _load_feedback_context(
@@ -154,3 +158,65 @@ def test_load_feedback_context_formats_records(
     assert block is not None
     assert "Lesson:" in block
     assert "feedback_lesson" in block
+
+
+def test_format_rollup_top2_includes_bias_and_two_examples():
+    records = [
+        _record(direction="overestimated"),
+        _record(direction="underestimated"),
+        _record(direction="accurate"),
+    ]
+    block = format_feedback_context_block(
+        records,
+        cluster_id="short_prose_micro",
+        injection_format="rollup_top2",
+        rollup_summary="Cluster roll-up text here.",
+        mean_delta=-4.5,
+        sample_count=12,
+    )
+    assert "Cluster roll-up:" in block
+    assert "Structured bias:" in block
+    assert "cluster_mean_delta" in block
+    assert "1." in block
+    assert "2." in block
+    assert "3." not in block
+
+
+def test_format_contrastive_pair_labels_miss_and_near():
+    big = _record(direction="overestimated")
+    near = _record(direction="accurate")
+    block = format_feedback_context_block(
+        [big, near],
+        cluster_id="short_prose_micro",
+        injection_format="rollup_contrastive",
+        rollup_summary="Summary",
+        mean_delta=2.0,
+        sample_count=5,
+    )
+    assert "Contrastive pair:" in block
+    assert "Big miss:" in block
+    assert "Near hit:" in block
+    assert "Structured bias:" in block
+
+
+def test_select_contrastive_pair_picks_extremes():
+    from feedback.retrieve import select_contrastive_pair
+
+    miss = _record(direction="overestimated")
+    near = _record(direction="accurate")
+    mid = _record(direction="underestimated")
+    # Force deltas via payload
+    miss.feedback_json.delta_summary.prediction_delta = -30.0
+    near.feedback_json.delta_summary.prediction_delta = 1.0
+    mid.feedback_json.delta_summary.prediction_delta = 10.0
+    got_miss, got_near = select_contrastive_pair([mid, miss, near])
+    assert got_miss is miss
+    assert got_near is near
+
+
+def test_example_limit_for_format():
+    from feedback.retrieve import example_limit_for_format
+
+    assert example_limit_for_format("lessons", 5) == 5
+    assert example_limit_for_format("rollup_top2", 5) == 2
+    assert example_limit_for_format("rollup_contrastive", 5) == 8

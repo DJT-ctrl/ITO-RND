@@ -15,8 +15,10 @@ from feedback.generate import (
     generate_template_feedback_from_scores,
 )
 from feedback.hybrid import generate_hybrid_feedback
+from feedback.queue import enqueue_feedback_job
 from feedback.schemas import FeedbackPayload, FeedbackRecord
 from feedback.store import (
+    count_auto_approved_feedback_today,
     count_llm_feedback_generated_today,
     fetch_validated_prediction_ids_missing_feedback,
     refresh_cluster_stats,
@@ -39,6 +41,14 @@ class FeedbackBatchResult:
     hybrid_generated: int = 0
 
 
+@dataclass
+class FeedbackWorkerResult:
+    claimed: int = 0
+    succeeded: int = 0
+    failed: int = 0
+    dead_lettered: int = 0
+
+
 def _timed_template_generation(
     generator: Callable[..., FeedbackPayload],
     *args: Any,
@@ -48,6 +58,26 @@ def _timed_template_generation(
     payload = generator(*args, **kwargs)
     latency_ms = round((time.perf_counter() - started) * 1000, 3)
     return payload, latency_ms
+
+
+def resolve_hybrid_review_status(
+    settings: Settings,
+    *,
+    prediction_delta: float,
+    auto_approved_today: int,
+) -> tuple[str, str | None]:
+    """Return (status, reviewed_by) for a successful hybrid write."""
+    if not settings.validation_feedback_auto_approve_enabled:
+        return "pending", None
+    if abs(float(prediction_delta)) > float(
+        settings.validation_feedback_auto_approve_delta_max
+    ):
+        return "pending", None
+    if auto_approved_today >= int(
+        settings.validation_feedback_auto_approve_max_per_day
+    ):
+        return "pending", None
+    return "approved", "auto_approve"
 
 
 def _store_feedback_for_prediction(
@@ -103,6 +133,17 @@ def _store_feedback_for_prediction(
             input_tokens=hybrid.input_tokens,
             output_tokens=hybrid.output_tokens,
         )
+        auto_today = count_auto_approved_feedback_today(conn)
+        delta = float(
+            prediction.prediction_delta
+            if prediction.prediction_delta is not None
+            else hybrid.payload.delta_summary.prediction_delta
+        )
+        review_status, reviewed_by = resolve_hybrid_review_status(
+            settings,
+            prediction_delta=delta,
+            auto_approved_today=auto_today,
+        )
         return upsert_prediction_feedback(
             conn,
             hybrid.payload,
@@ -112,10 +153,34 @@ def _store_feedback_for_prediction(
             input_tokens=hybrid.input_tokens,
             output_tokens=hybrid.output_tokens,
             cost_usd=cost_usd,
-            feedback_review_status="pending",  # type: ignore[arg-type]
+            feedback_review_status=review_status,  # type: ignore[arg-type]
+            reviewed_by=reviewed_by,
         )
     finally:
         conn.close()
+
+
+def try_enqueue_feedback_after_validation(
+    prediction: PredictionRecord,
+    settings: Settings,
+) -> bool:
+    """Enqueue async feedback job after validate (fail open). Returns True if enqueued."""
+    if not settings.validation_feedback_enabled:
+        return False
+    try:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            enqueue_feedback_job(conn, prediction.prediction_id)
+        finally:
+            conn.close()
+        return True
+    except Exception:
+        logger.exception(
+            "Feedback enqueue failed for prediction %s; continuing",
+            prediction.prediction_id,
+        )
+        return False
 
 
 def try_store_feedback_after_validation(
@@ -123,7 +188,11 @@ def try_store_feedback_after_validation(
     scores: ValidationScores,
     settings: Settings,
 ) -> FeedbackRecord | None:
-    """Thin post-validate hook: template (+ optional hybrid), fail open on errors."""
+    """Sync post-validate hook: template (+ optional hybrid), fail open on errors.
+
+    Prefer ``try_enqueue_feedback_after_validation`` from the validation worker;
+    keep this for manual/backfill paths.
+    """
     if not settings.validation_feedback_enabled:
         return None
     try:
@@ -144,6 +213,91 @@ def try_store_feedback_after_validation(
             prediction.prediction_id,
         )
         return None
+
+
+def process_feedback_job(
+    prediction_id: UUID,
+    settings: Settings,
+) -> FeedbackRecord:
+    """Generate feedback for one queued prediction (raises on failure)."""
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        rows = fetch_predictions_by_ids(conn, [prediction_id])
+        if not rows:
+            raise ValueError(f"Prediction not found: {prediction_id}")
+        prediction = rows[0]
+        if prediction.status != "validated":
+            raise ValueError(
+                f"Prediction {prediction_id} status is {prediction.status!r}, "
+                "expected validated"
+            )
+    finally:
+        conn.close()
+
+    record = _store_feedback_for_prediction(prediction, settings)
+    try:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            refresh_cluster_stats(conn)
+        finally:
+            conn.close()
+    except Exception:
+        logger.exception("Cluster stats refresh after feedback job failed")
+    return record
+
+
+def run_feedback_worker(
+    settings: Settings | None = None,
+    *,
+    limit: int = 20,
+) -> FeedbackWorkerResult:
+    """Claim and process pending feedback jobs."""
+    from feedback.queue import (
+        claim_feedback_jobs,
+        mark_feedback_job_done,
+        mark_feedback_job_failed,
+    )
+
+    settings = settings or load_settings()
+    if not settings.database_url:
+        raise ValueError("DATABASE_URL is not set (check your .env file).")
+    if not settings.validation_feedback_enabled:
+        return FeedbackWorkerResult()
+
+    result = FeedbackWorkerResult()
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        claimed = claim_feedback_jobs(conn, limit=limit)
+    finally:
+        conn.close()
+
+    result.claimed = len(claimed)
+    for prediction_id in claimed:
+        try:
+            process_feedback_job(prediction_id, settings)
+            conn = get_connection(settings)
+            try:
+                create_schema(conn)
+                mark_feedback_job_done(conn, prediction_id)
+            finally:
+                conn.close()
+            result.succeeded += 1
+        except Exception as exc:
+            logger.exception("Feedback worker failed for %s", prediction_id)
+            conn = get_connection(settings)
+            try:
+                create_schema(conn)
+                status = mark_feedback_job_failed(conn, prediction_id, str(exc))
+            finally:
+                conn.close()
+            result.failed += 1
+            if status == "dead":
+                result.dead_lettered += 1
+
+    return result
 
 
 def run_feedback_batch(

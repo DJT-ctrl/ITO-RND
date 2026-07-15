@@ -11,9 +11,11 @@ from config.settings import Settings
 from feedback.batch import (
     generate_feedback_for_prediction_id,
     run_feedback_batch,
+    run_feedback_worker,
 )
 from feedback.calibration import apply_calibration
 from feedback.generate import FEEDBACK_VERSION
+from feedback.queue import count_feedback_queue_backlog
 from feedback.runtime_flags import clear_overrides, load_overrides, save_overrides
 from feedback.schemas import CalibrationStats, ClusterStats, FeedbackRecord
 from feedback.dashboard_queries import (
@@ -29,6 +31,7 @@ from feedback.store import (
     set_feedback_review_status,
 )
 from feedback.jobs.run_cluster_centroids import refresh_cluster_centroids
+from feedback.summarize import refresh_cluster_rollups
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.store import list_predictions
 
@@ -207,12 +210,63 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
             key="fb_soft_blend_weight",
         )
     with g9:
+        inj_format = st.selectbox(
+            "Injection format",
+            options=["lessons", "rollup_top2", "rollup_contrastive"],
+            index=["lessons", "rollup_top2", "rollup_contrastive"].index(
+                settings.validation_feedback_injection_format
+                if settings.validation_feedback_injection_format
+                in {"lessons", "rollup_top2", "rollup_contrastive"}
+                else "lessons"
+            ),
+            help=(
+                "lessons = numbered rows (default). "
+                "rollup_top2 = cluster roll-up + structured bias + top 2 examples. "
+                "rollup_contrastive = roll-up + big-miss vs near-hit pair."
+            ),
+            key="fb_injection_format",
+        )
+    with g10:
+        st.write("")
+
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        auto_on = st.toggle(
+            "Auto-approve hybrid",
+            value=settings.validation_feedback_auto_approve_enabled,
+            help=(
+                "When ON, grounded hybrid v2 rows with |delta| ≤ cap can skip the "
+                "human queue (reviewed_by=auto_approve). Default OFF."
+            ),
+            key="fb_toggle_auto_approve",
+        )
+    with a2:
+        auto_max = st.number_input(
+            "Auto-approve max / day",
+            min_value=0,
+            max_value=500,
+            value=int(settings.validation_feedback_auto_approve_max_per_day),
+            help="Daily cap on auto-approved hybrid rows (UTC).",
+            key="fb_auto_approve_max",
+        )
+    with a3:
+        auto_delta = st.number_input(
+            "Auto-approve |delta| max",
+            min_value=1.0,
+            max_value=100.0,
+            value=float(settings.validation_feedback_auto_approve_delta_max),
+            help="Only auto-approve when absolute prediction delta is at or below this.",
+            key="fb_auto_approve_delta_max",
+        )
+    with a4:
         st.write("")
         st.write("")
         save = st.button("Save settings", type="primary", key="fb_save_settings")
-    with g10:
+
+    r1, r2 = st.columns(2)
+    with r1:
         st.write("")
-        st.write("")
+    with r2:
         reset = st.button("Reset to .env defaults", key="fb_reset_settings")
 
     if save:
@@ -230,6 +284,10 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
                 "validation_shadow_mode_enabled": bool(shadow_on),
                 "validation_injectability_mode": str(inj_mode),
                 "validation_soft_blend_weight": float(blend_w),
+                "validation_feedback_injection_format": str(inj_format),
+                "validation_feedback_auto_approve_enabled": bool(auto_on),
+                "validation_feedback_auto_approve_max_per_day": int(auto_max),
+                "validation_feedback_auto_approve_delta_max": float(auto_delta),
             }
         )
         st.success("Saved — applies on this page reload and to new worker/predict runs.")
@@ -266,6 +324,10 @@ next `load_settings()` call (Streamlit page reload, worker, CLI).
         validation_shadow_mode_enabled=bool(shadow_on),
         validation_injectability_mode=str(inj_mode),  # type: ignore[arg-type]
         validation_soft_blend_weight=float(blend_w),
+        validation_feedback_injection_format=str(inj_format),  # type: ignore[arg-type]
+        validation_feedback_auto_approve_enabled=bool(auto_on),
+        validation_feedback_auto_approve_max_per_day=int(auto_max),
+        validation_feedback_auto_approve_delta_max=float(auto_delta),
     )
 
 
@@ -379,8 +441,9 @@ actual engagement and computed deltas. This section only answers:
 - **With feedback** — a template lesson JSON exists (version v1)  
 - **Missing** — validated but no lesson yet (use **Generate missing feedback**)
 
-Lessons are written automatically when Feedback records is ON and validation
-succeeds. The manual button below is for backfill / recovery.
+Lessons are enqueued when Feedback records is ON and validation succeeds;
+run **Process feedback queue** (or the CLI worker) to write them. The
+manual generate button below is for sync backfill / recovery.
 """,
     )
     conn = get_connection(settings)
@@ -388,6 +451,7 @@ succeeds. The manual button below is for backfill / recovery.
         create_schema(conn)
         coverage = count_feedback_coverage(conn, feedback_version=FEEDBACK_VERSION)
         hybrid_cost = hybrid_feedback_cost_stats(conn)
+        backlog = count_feedback_queue_backlog(conn)
     finally:
         conn.close()
 
@@ -412,7 +476,39 @@ succeeds. The manual button below is for backfill / recovery.
     )
     if coverage["missing_feedback"] > 0:
         st.caption(
-            "Use **Generate missing feedback** below to backfill template lessons."
+            "Use **Generate missing feedback** below to backfill template lessons, "
+            "or **Process feedback queue** if jobs are pending."
+        )
+
+    qcols = st.columns(4)
+    _metric(
+        qcols[0],
+        "Queue pending",
+        backlog.pending,
+        help_text="feedback_jobs waiting for the async worker.",
+    )
+    _metric(
+        qcols[1],
+        "Queue processing",
+        backlog.processing,
+        help_text="Jobs currently claimed (or stuck mid-run).",
+    )
+    _metric(
+        qcols[2],
+        "Queue done",
+        backlog.done,
+        help_text="Successfully processed feedback jobs.",
+    )
+    _metric(
+        qcols[3],
+        "Queue dead",
+        backlog.dead,
+        help_text="Failed after max attempts — inspect last_error / regenerate one.",
+    )
+    if backlog.dead > 0:
+        st.warning(
+            f"{backlog.dead} feedback job(s) dead-lettered. "
+            "Use Regenerate one or re-enqueue via a new validate."
         )
 
     cost_cols = st.columns(3)
@@ -589,8 +685,10 @@ recompute cluster stats without waiting for the next validation.
 
 | Button | Does |
 |--------|------|
-| **Generate missing feedback** | Create template lessons for validated rows that lack v1 feedback |
-| **Refresh cluster stats** | Recompute sample_count / mean_delta / std_delta per cluster |
+| **Process feedback queue** | Claim pending `feedback_jobs` and generate lessons (Phase I) |
+| **Generate missing feedback** | Sync template lessons for validated rows that lack v1 feedback |
+| **Refresh cluster stats** | Recompute sample_count / mean_delta / std_delta (+ roll-ups) |
+| **Refresh roll-ups** | Rewrite `rollup_summary` text for injection formats |
 | **Refresh centroids** | Mean embedding per metadata cluster (Phase H routing) |
 | **Regenerate one** | Rebuild one lesson (e.g. after a template change) |
 """,
@@ -604,16 +702,29 @@ recompute cluster stats without waiting for the next validation.
 
     with col_a:
         limit = st.number_input(
-            "Backfill limit",
+            "Backfill / queue limit",
             min_value=1,
             max_value=500,
             value=50,
             key="feedback_batch_limit",
-            help="Max validated-but-missing rows to process in one click.",
+            help="Max jobs or missing rows to process in one click.",
         )
         if st.button(
-            "Generate missing feedback",
+            "Process feedback queue",
             type="primary",
+            disabled=not settings.validation_feedback_enabled,
+            help=(
+                "Same as: python -m feedback.jobs.run_feedback_worker. "
+                "Validations enqueue jobs; this drains them."
+            ),
+        ):
+            with st.spinner("Processing feedback queue..."):
+                worker = run_feedback_worker(settings, limit=int(limit))
+            st.session_state["feedback_last_worker"] = worker
+            st.rerun()
+
+        if st.button(
+            "Generate missing feedback",
             disabled=not settings.validation_feedback_enabled,
             help=(
                 "Template feedback for validated predictions that lack a v1 row. "
@@ -637,6 +748,20 @@ recompute cluster stats without waiting for the next validation.
                 finally:
                     conn.close()
             st.session_state["feedback_clusters_refreshed"] = n
+            st.rerun()
+
+        if st.button(
+            "Refresh roll-ups",
+            help="Rewrite template rollup_summary on prediction_clusters.",
+        ):
+            with st.spinner("Writing cluster roll-up summaries..."):
+                conn = get_connection(settings)
+                try:
+                    create_schema(conn)
+                    n = refresh_cluster_rollups(conn)
+                finally:
+                    conn.close()
+            st.session_state["feedback_rollups_refreshed"] = n
             st.rerun()
 
         if st.button(
@@ -697,10 +822,21 @@ recompute cluster stats without waiting for the next validation.
             f"Batch done: processed={batch.processed} · generated={batch.generated} · "
             f"failed={batch.failed} · skipped={batch.skipped}"
         )
+    if "feedback_last_worker" in st.session_state:
+        worker = st.session_state["feedback_last_worker"]
+        st.success(
+            f"Queue worker: claimed={worker.claimed} · succeeded={worker.succeeded} · "
+            f"failed={worker.failed} · dead={worker.dead_lettered}"
+        )
     if "feedback_clusters_refreshed" in st.session_state:
         st.success(
             f"Cluster stats refreshed for "
             f"{st.session_state['feedback_clusters_refreshed']} cluster(s)."
+        )
+    if "feedback_rollups_refreshed" in st.session_state:
+        st.success(
+            f"Roll-up summaries written for "
+            f"{st.session_state['feedback_rollups_refreshed']} cluster(s)."
         )
     if "feedback_last_regen" in st.session_state:
         st.success(

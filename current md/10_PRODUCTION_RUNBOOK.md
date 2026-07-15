@@ -16,6 +16,43 @@ shadow MAE ≉ better than live (delta −0.0004). Keep `hard_lock`; shadow mode
 for more data is OK. Do not confuse `global_mean_delta` (~5) with MAE lift %.
 Feedback Loop UI shows Phase F gate metrics from the latest `eval_feedback_*.json`.
 
+## Phase I — async feedback + roll-ups
+
+After validate, the worker **enqueues** a `feedback_jobs` row (fail-open). Drain with:
+
+```bash
+python -m feedback.jobs.run_feedback_worker --limit 20
+```
+
+Or **Feedback Loop → Process feedback queue**. Coverage panel shows pending / dead backlog.
+
+Refresh template cluster roll-ups (also runs after cluster stats refresh):
+
+```bash
+python -m feedback.jobs.run_cluster_rollups
+```
+
+Injection format (default `lessons` = numbered rows):
+
+- `VALIDATION_FEEDBACK_INJECTION_FORMAT=lessons|rollup_top2|rollup_contrastive`
+- Dashboard: **Injection format** selectbox
+
+Keep injection OFF in prod until Phase F GO. Formats only matter when injection is ON.
+
+## Phase G+ — auto-approve (staging)
+
+Defaults stay OFF:
+
+```
+VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED=false
+VALIDATION_FEEDBACK_AUTO_APPROVE_MAX_PER_DAY=20
+VALIDATION_FEEDBACK_AUTO_APPROVE_DELTA_MAX=40
+```
+
+When enabled, grounded hybrid rows with `|delta| ≤ cap` and under the daily max
+are written `approved` with `reviewed_by=auto_approve`. Prefer human review until
+reject rate is low.
+
 ## Phase G / H staging
 
 - `VALIDATION_FEEDBACK_LLM_ENABLED=false` by default. Enable only in staging to

@@ -122,6 +122,14 @@ class Settings:
         "hard_lock", "soft_blend", "shadow_only"
     ] = "hard_lock"
     validation_soft_blend_weight: float = 0.15
+    # Phase I / advanced: injection block format (default = full lesson rows).
+    validation_feedback_injection_format: Literal[
+        "lessons", "rollup_top2", "rollup_contrastive"
+    ] = "lessons"
+    # Phase G+: auto-approve hybrid lessons (default off — staging only).
+    validation_feedback_auto_approve_enabled: bool = False
+    validation_feedback_auto_approve_max_per_day: int = 20
+    validation_feedback_auto_approve_delta_max: float = 40.0
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -200,6 +208,18 @@ def load_settings() -> Settings:
         validation_soft_blend_weight=float(
             os.getenv("VALIDATION_SOFT_BLEND_WEIGHT", "0.15")
         ),
+        validation_feedback_injection_format=_env_injection_format(
+            "VALIDATION_FEEDBACK_INJECTION_FORMAT", default="lessons"
+        ),
+        validation_feedback_auto_approve_enabled=_env_bool(
+            "VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED", default=False
+        ),
+        validation_feedback_auto_approve_max_per_day=int(
+            os.getenv("VALIDATION_FEEDBACK_AUTO_APPROVE_MAX_PER_DAY", "20")
+        ),
+        validation_feedback_auto_approve_delta_max=float(
+            os.getenv("VALIDATION_FEEDBACK_AUTO_APPROVE_DELTA_MAX", "40")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
@@ -228,6 +248,22 @@ def _env_injectability_mode(
         return default
     value = raw.strip().lower()
     if value in {"hard_lock", "soft_blend", "shadow_only"}:
+        return value  # type: ignore[return-value]
+    return default
+
+
+def _env_injection_format(
+    name: str,
+    *,
+    default: Literal[
+        "lessons", "rollup_top2", "rollup_contrastive"
+    ] = "lessons",
+) -> Literal["lessons", "rollup_top2", "rollup_contrastive"]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in {"lessons", "rollup_top2", "rollup_contrastive"}:
         return value  # type: ignore[return-value]
     return default
 

@@ -239,6 +239,24 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_telemetry JSONB NOT 
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding vector(3072);
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding_model_version TEXT;
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS centroid_embedding vector(3072);
+ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_summary TEXT;
+ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_updated_at TIMESTAMPTZ;
+
+-- Phase I: async feedback generation queue (validate enqueues; worker processes).
+CREATE TABLE IF NOT EXISTS feedback_jobs (
+    prediction_id       UUID PRIMARY KEY REFERENCES predictions(prediction_id),
+    status              TEXT NOT NULL DEFAULT 'pending',
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    max_attempts        INTEGER NOT NULL DEFAULT 3,
+    last_error          TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claimed_at          TIMESTAMPTZ,
+    completed_at        TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS feedback_jobs_status_created_idx
+    ON feedback_jobs (status, created_at);
 
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5

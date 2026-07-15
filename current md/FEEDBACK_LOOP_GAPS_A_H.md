@@ -29,8 +29,9 @@ See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 | D | Injection | Prod OFF; advanced formats — OOS |
 | E | Observability | None blocking |
 | F | Prove lift | Afternoon re-run NO-GO (N=702); keep shadow — ops |
-| G | Hybrid LLM | ≥10 approved v2 **done**; auto-approve — OOS |
+| G | Hybrid LLM | ≥10 approved v2 **done**; G+ auto-approve shipped (default OFF) |
 | H | Embeddings | Bounded backfill **done**; k-means/labels — OOS |
+| I | Scale | Async queue + roll-ups **done**; Gemini cache — OOS |
 | J | Injectability | Code done; soft_blend GO blocked on F |
 
 ---
@@ -261,11 +262,11 @@ Items that require work beyond closing A–H staging gaps. Full placement and op
 | Phase J soft overwrite + shadow mode | New predictor post-process + `VALIDATION_SHADOW_MODE_*` |
 | Prod calibration / injection ON | Policy gates + needs J for injection proof |
 | Re-open go/no-go | Process after J / fresh ≥5% calibration |
-| Gemini context caching | Phase I |
-| Advanced injection formats | Post-J |
-| Auto-approve v2 | Explicitly deferred |
+| Gemini context caching | Phase I.3 still deferred |
+| Advanced injection formats | Shipped behind format flag |
+| Auto-approve v2 | Shipped behind flags (default OFF) |
 | k-means / incremental centroids | Deferred until N justifies |
 | LLM cluster labels | Dashboard-only, low priority |
 | Corpus/benchmark version on predictions | Peer-review P1 cross-cut |
 
-**Next implementation chat:** keep **shadow ON**, re-run Phase F when cal may clear 5% or shadow beats live. Phase J code is already landed.
+**Next implementation chat:** keep **shadow ON**, drain feedback queue, re-run Phase F when cal may clear 5% or shadow MAE beats live. I.1/I.2 + G+ engineering landed; I.3 caching / H+ / K still deferred.

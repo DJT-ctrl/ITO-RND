@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 from uuid import UUID
@@ -20,6 +21,8 @@ from feedback.schemas import (
     FeedbackReviewStatus,
     GenerationMethod,
 )
+
+logger = logging.getLogger(__name__)
 
 
 _FEEDBACK_SELECT = """
@@ -171,6 +174,13 @@ def refresh_cluster_stats(conn: psycopg.Connection) -> int:
                 ),
             )
     conn.commit()
+    # Keep injection roll-ups in sync with stats (template, no LLM).
+    try:
+        from feedback.summarize import refresh_cluster_rollups
+
+        refresh_cluster_rollups(conn)
+    except Exception:
+        logger.exception("Cluster roll-up refresh after stats failed")
     return len(rows)
 
 
@@ -186,16 +196,24 @@ def upsert_prediction_feedback(
     output_tokens: int = 0,
     cost_usd: float = 0.0,
     feedback_review_status: FeedbackReviewStatus = "approved",
+    reviewed_by: Optional[str] = None,
 ) -> FeedbackRecord:
     """Insert or replace feedback for (prediction_id, feedback_version)."""
     cluster = cluster_id if cluster_id is not None else payload.cluster_id
     payload_dict = payload.model_dump(mode="json")
+    reviewer = reviewed_by
+    reviewed_at = None
+    if feedback_review_status == "approved" and reviewer:
+        reviewed_at = datetime.now(timezone.utc)
+    elif feedback_review_status == "pending":
+        reviewer = None
+        reviewed_at = None
     sql = f"""
         INSERT INTO prediction_feedback (
             prediction_id, cluster_id, feedback_json, feedback_version, generation_method,
             generation_latency_ms, input_tokens, output_tokens, cost_usd,
-            feedback_review_status
-        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            feedback_review_status, reviewed_at, reviewed_by
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (prediction_id, feedback_version) DO UPDATE SET
             cluster_id = EXCLUDED.cluster_id,
             feedback_json = EXCLUDED.feedback_json,
@@ -207,10 +225,12 @@ def upsert_prediction_feedback(
             feedback_review_status = EXCLUDED.feedback_review_status,
             reviewed_at = CASE
                 WHEN EXCLUDED.feedback_review_status = 'pending' THEN NULL
+                WHEN EXCLUDED.reviewed_by IS NOT NULL THEN EXCLUDED.reviewed_at
                 ELSE prediction_feedback.reviewed_at
             END,
             reviewed_by = CASE
                 WHEN EXCLUDED.feedback_review_status = 'pending' THEN NULL
+                WHEN EXCLUDED.reviewed_by IS NOT NULL THEN EXCLUDED.reviewed_by
                 ELSE prediction_feedback.reviewed_by
             END,
             generated_at = now()
@@ -230,6 +250,8 @@ def upsert_prediction_feedback(
                 max(0, output_tokens),
                 max(0.0, cost_usd),
                 feedback_review_status,
+                reviewed_at,
+                reviewer,
             ),
         )
         row = cur.fetchone()
@@ -277,6 +299,23 @@ def count_llm_feedback_generated_today(conn: psycopg.Connection) -> int:
             FROM prediction_feedback
             WHERE generation_method IN ('hybrid', 'llm')
               AND generated_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+            """
+        )
+        row = cur.fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def count_auto_approved_feedback_today(conn: psycopg.Connection) -> int:
+    """Count hybrid rows auto-approved since UTC midnight."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*)
+            FROM prediction_feedback
+            WHERE generation_method = 'hybrid'
+              AND feedback_review_status = 'approved'
+              AND reviewed_by = 'auto_approve'
+              AND reviewed_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
             """
         )
         row = cur.fetchone()

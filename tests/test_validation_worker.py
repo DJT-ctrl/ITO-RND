@@ -22,7 +22,7 @@ def _due_prediction() -> PredictionRecord:
     )
 
 
-@patch("validation_pipeline.worker.try_store_feedback_after_validation")
+@patch("validation_pipeline.worker.try_enqueue_feedback_after_validation")
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")
 @patch("validation_pipeline.worker.insert_snapshot")
@@ -76,7 +76,7 @@ def test_run_due_validations_success(
     mock_mark_validated.assert_called_once()
     mock_insert_snapshot.assert_called_once()
     mock_mark_failed.assert_not_called()
-    mock_feedback.assert_called_once_with(prediction, scores, settings)
+    mock_feedback.assert_called_once_with(prediction, settings)
 
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")
