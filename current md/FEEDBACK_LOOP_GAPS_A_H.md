@@ -1,11 +1,11 @@
 # Feedback Loop — Gaps & Incomplete Work (Phases A–H)
 
-**Date:** 2026-07-14  
+**Date:** 2026-07-15  
 **Purpose:** Track what is **not fully done** across Phases 0–H, even when the phase is marked “complete” or “staging.”  
 **Companion:** [FEEDBACK_LOOP_FUTURE_AFTER_H.md](FEEDBACK_LOOP_FUTURE_AFTER_H.md) for work after H.
 
-**Current prod baseline** (Phase F evening re-run 2026-07-14): feedback records **ON**; calibration and injection **OFF**; injectability `hard_lock`; shadow **ON** (staging).  
-Latest: calibration lift **4.90%** < 5% gate — still NO-GO.  
+**Current prod baseline** (Phase F morning re-run 2026-07-15): feedback records **ON**; calibration and injection **OFF**; injectability `hard_lock`; shadow **ON** (staging).  
+Latest: calibration lift **2.97%** < 5% gate — still NO-GO (regressed from 4.90% on N=553).  
 See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 
 **Triage tags** on open checkboxes:
@@ -23,12 +23,12 @@ See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 | Phase | Label | Open items |
 |-------|-------|------------|
 | 0 | Foundation | None blocking |
-| A | Calibration | Prod OFF; gate not met (**4.90%** lift < 5%) — OOS |
+| A | Calibration | Prod OFF; gate not met (**2.97%** lift < 5%) — OOS |
 | B | Template feedback | None blocking |
 | C | Metadata routing | Ops done (centroids + MAE report) |
 | D | Injection | Prod OFF; advanced formats — OOS |
 | E | Observability | None blocking |
-| F | Prove lift | Re-run NO-GO (N=553); keep shadow — ops |
+| F | Prove lift | Re-run NO-GO (N=702); keep shadow — ops |
 | G | Hybrid LLM | ≥10 approved v2 **done**; auto-approve — OOS |
 | H | Embeddings | Bounded backfill **done**; k-means/labels — OOS |
 | J | Injectability | Code done; soft_blend GO blocked on F |
@@ -55,7 +55,7 @@ Validation pipeline grades predictions (collect → predict → validate → sco
 
 ### Not done / blocked
 
-- [ ] **Out of scope** — **Turn calibration ON in prod** — requires raw→calibrated MAE improvement ≥5% on holdout≥30, stable over 2 runs ([11_GO_NO_GO.md](11_GO_NO_GO.md)); latest re-run **4.90%**
+- [ ] **Out of scope** — **Turn calibration ON in prod** — requires raw→calibrated MAE improvement ≥5% on holdout≥30, stable over 2 runs ([11_GO_NO_GO.md](11_GO_NO_GO.md)); latest re-run **2.97%**
 - [ ] **Out of scope** — **Per-cluster calibration ship criteria** — cluster training N≥50 and better than global; not separately evaluated for prod ON
 - [ ] **Ops-only** — Re-run eval after corpus drift or major validation bulk import:  
   `python -m feedback.jobs.run_feedback_evaluation --holdout-size 30`
@@ -133,19 +133,20 @@ Validation pipeline grades predictions (collect → predict → validate → sco
 
 ## Phase F — Prove lift (offline go/no-go)
 
-**Status:** Offline decision recorded — **NO-GO** for calibration and injection.
+**Status:** Offline decision recorded — **NO-GO** for calibration and injection (latest 2026-07-15: N=702, lift **2.97%**).
 
 ### Done
 
-- Holdout=30 eval on N=241 (two identical reports in `data/telemetry/eval_feedback_*.json`)
-- [11_GO_NO_GO.md](11_GO_NO_GO.md)
-- Dashboard overrides locked to safe baseline
+- Holdout=30 evals through N=702 (identical dual reports in `data/telemetry/eval_feedback_*.json`)
+- [11_GO_NO_GO.md](11_GO_NO_GO.md) updated 2026-07-15
+- Dashboard overrides locked to safe baseline (shadow ON; cal/injection OFF; `hard_lock`)
+- Phase J shadow telemetry + `shadow_live` comparison in eval reports
 
 ### Not done
 
-- [ ] **Out of scope** — **Shadow mode** — run calibration/injection in predict path, log shadow scores, serve live safe path; compare 2 weeks or 50 predicts before flipping flags
-- [ ] **Out of scope** — **Re-open go/no-go** after Phase J or when calibration clears ≥5% gate on a fresh eval
+- [ ] **Ops-only** — **Re-open go/no-go** when calibration clears ≥5% gate on two fresh evals, or shadow MAE clearly beats live
 - [ ] **Out of scope** — **Cluster calibration** — separate prod decision if global ever passes
+- Soft_blend / prod injection remain blocked until shadow evidence (independent of cal gate)
 
 ---
 
@@ -266,4 +267,4 @@ Items that require work beyond closing A–H staging gaps. Full placement and op
 | LLM cluster labels | Dashboard-only, low priority |
 | Corpus/benchmark version on predictions | Peer-review P1 cross-cut |
 
-**Next implementation chat:** start with **Phase J** (shadow + soft overwrite), then re-run Phase F eval.
+**Next implementation chat:** keep **shadow ON**, re-run Phase F when cal may clear 5% or shadow beats live. Phase J code is already landed.

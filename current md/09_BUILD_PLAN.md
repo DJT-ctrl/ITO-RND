@@ -1,7 +1,7 @@
 # 09 — Build Plan
 
-**Status:** A–J engineering done; Phase F evening re-run 2026-07-14 still **NO-GO** (4.90% < 5%)  
-**Date:** 2026-07-14  
+**Status:** A–J engineering done; Phase F morning re-run 2026-07-15 still **NO-GO** (2.97% < 5%)  
+**Date:** 2026-07-15  
 **Source:** Planning docs 01–08 + peer review + `FEEDBACK_LOOP_PART2_PLAN.md`  
 **Active docs folder:** this directory (`current md/`)
 
@@ -19,14 +19,14 @@ Living tracker for implementing the validation feedback loop.
 | **C** | Deterministic cluster routing | **Done** |
 | **D** | Feedback injection + A/B flag | **Done** (prod OFF) |
 | **E** | Production hardening & observability | **Done** |
-| **F** | Prove lift (offline go/no-go) | **Re-run NO-GO** (4.90% < 5%) |
+| **F** | Prove lift (offline go/no-go) | **Re-run NO-GO** (2.97% < 5%) |
 | **G** | LLM hybrid feedback v2 + human review | **Done (staging)** |
 | **H** | Embedding persistence + centroids + ranked retrieve | **Done (staging)** |
 | I | Scale (async, caching) | Deferred (after GO / volume pain) |
 | **J** | Injectability unlock (soften overwrite + shadow) | **Done** (live=`hard_lock`; shadow ON OK) |
 
-Latest F re-run: N=553, holdout=30, cal lift **4.90%**, shadow holdout **16/30** with
-MAE delta **0**. See [11_GO_NO_GO.md](11_GO_NO_GO.md).
+Latest F re-run: N=702, holdout=30, cal lift **2.97%**, shadow holdout **16/30** with
+MAE delta **−0.0004**. See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 
 **Next:** keep shadow ON; re-run F when cal might clear 5% or shadow shows lift.
 Do **not** start Advanced injection / Phase I / G+ for prod learning flips yet.
@@ -43,7 +43,7 @@ Do **not** start Advanced injection / Phase I / G+ for prod learning flips yet.
 | **C — Cluster routing** | 03 Phase C, 05 §2 | Deterministic routing + `prediction_clusters` | Done |
 | **D — Injection** | 03 Phase D, 05 caching | Predict-time feedback + A/B flag | Done |
 | **E — Observability** | Part 2 §E, 10 runbook | Telemetry + 4-arm harness + Accuracy History | Done |
-| **F — Prove lift** | Part 2 §F, [11](11_GO_NO_GO.md) | Offline eval; prod defaults from evidence | Done (NO-GO) |
+| **F — Prove lift** | Part 2 §F, [11](11_GO_NO_GO.md) | Offline eval; prod defaults from evidence | Re-run NO-GO (2.97%) |
 | **G — Hybrid LLM** | Part 2 §G | v2 hybrid + review queue (staging; injection OFF) | Done |
 | **H — Embeddings** | Part 2 §H | Persist vectors, centroids, ranked retrieve | Done |
 
@@ -96,7 +96,7 @@ Validated rows → mean_delta → calibrate percentile (A)
 - [x] Holdout=30 eval on ≥31 validated rows (ran on N=241; two identical reports)
 - [x] Go/no-go doc ([11](11_GO_NO_GO.md)) — **NO-GO** for calibration and injection
 - [x] Prod/dashboard baseline locked: feedback ON, calibration OFF, injection OFF
-- [x] Shadow mode — landed in Phase J; staging ON; F re-run 2026-07-14 still NO-GO (see [11](11_GO_NO_GO.md))
+- [x] Shadow mode — landed in Phase J; staging ON; F re-run 2026-07-15 still NO-GO (see [11](11_GO_NO_GO.md))
 
 ---
 
@@ -128,7 +128,8 @@ Validated rows → mean_delta → calibrate percentile (A)
 - [x] Dashboard toggles + runtime overrides
 - [x] Telemetry: `llm_percentile`, `shadow_percentile`, injectability fields
 - [x] Eval: `shadow_live` comparison + injection arms use shadow when present
-- [x] Phase F re-run 2026-07-14 afternoon (N=365, 4.48%) and evening (N=553, **4.90%**) — still NO-GO
+- [x] Phase F re-run 2026-07-14 afternoon (N=365, 4.48%) and evening (N=553, 4.90%) — NO-GO
+- [x] Phase F re-run 2026-07-15 morning (N=702, **2.97%**; shadow delta −0.0004) — still NO-GO
 - [ ] Next F re-run when cal may clear 5% or shadow MAE beats live
 
 ---

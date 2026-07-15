@@ -1,6 +1,6 @@
 # Current MD — Feedback Loop (active work)
 
-**Updated:** 2026-07-14  
+**Updated:** 2026-07-15  
 **Purpose:** Single place for the docs we are actively using right now (Phase F re-runs, ops, roadmap).
 
 Historical design notes (01–08) stay in [`planning/validation-feedback-loop/`](../planning/validation-feedback-loop/).
@@ -24,9 +24,10 @@ Historical design notes (01–08) stay in [`planning/validation-feedback-loop/`]
 
 - Phases A–J **engineering done**
 - Live: feedback ON, calibration OFF, injection OFF, injectability `hard_lock`
-- Shadow mode ON (~270 rows with shadow telemetry)
-- Phase F latest (N=553): cal lift **4.90%** → still **NO-GO** (need ≥5%)
-- Shadow holdout 16/30: MAE delta **0** → no soft_blend / injection GO
+- Shadow mode ON (holdout shadow coverage still 16/30)
+- Phase F latest (N=702): cal lift **2.97%** → still **NO-GO** (need ≥5%; regressed from 4.90%)
+- Shadow holdout 16/30: MAE delta **−0.0004** → no soft_blend / injection GO
+- Note: `global_mean_delta` ≈ 5 is bias, not MAE lift %
 
 ---
 

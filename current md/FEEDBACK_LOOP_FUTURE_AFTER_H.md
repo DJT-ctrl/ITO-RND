@@ -1,21 +1,22 @@
 # Feedback Loop — Future Phases After H
 
-**Date:** 2026-07-14 (updated after F re-run)  
+**Date:** 2026-07-15 (updated after Phase J outcome unlock / F re-run)  
 **Purpose:** Roadmap for work **after Phase H** (and dependencies on gaps in [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md)).  
-**Prerequisite:** Phases A–H + J landed; prod baseline = feedback ON, calibration OFF, injection OFF, injectability `hard_lock`.
+**Prerequisite:** Phases A–H + J code landed; prod baseline = feedback ON, calibration OFF, injection OFF, injectability `hard_lock`.
 
-**Completed staging (2026-07-14):**
+**Completed staging (2026-07-14 / 15):**
 
 - [x] Approve ≥10 human-reviewed v2 hybrid rows (15 approved)
 - [x] Embedding backfill → centroids → routing MAE
 - [x] Phase J code (soft_blend / shadow_only / telemetry)
-- [x] Shadow mode ON; ~270 rows with `shadow_percentile` (253 validated)
-- [x] Phase F re-runs 2026-07-14 — still **NO-GO** (latest cal lift **4.90%** < 5%; shadow MAE == live)
+- [x] Shadow mode ON; ~270+ rows with `shadow_percentile` (holdout still 16/30)
+- [x] Phase F re-runs through 2026-07-15 — still **NO-GO** (latest cal lift **2.97%** < 5%; shadow MAE ≉ better than live)
 
 **Still open before prod learning ON:**
 
 - Keep collecting with shadow ON; re-run F when lift may clear 5% or shadow beats live
 - Only then consider calibration / soft_blend / injection flag flips
+- Note: `global_mean_delta` ≈ 5 is training bias, **not** MAE lift %
 
 ---
 
@@ -39,8 +40,8 @@ flowchart LR
 ```
 
 0. **Staging ops** — DONE  
-1. **Phase J** — DONE (live stays hard_lock)  
-2. **Re-run F** — DONE once (NO-GO); **repeat** when shadow covers holdout better  
+1. **Phase J code** — DONE (live stays hard_lock; shadow ON OK)  
+2. **Re-run F** — DONE through 2026-07-15 (NO-GO); **repeat** when cal may clear 5% or shadow beats live  
 3. **Advanced injection** — after a GO (or explicit reasoning-only metrics)  
 4. **Phase I** — when volume/cost hurts  
 5. **G+** — after ≥50 manual reviews and low reject rate  
@@ -103,9 +104,11 @@ Reports land under `data/telemetry/routing_mae_*.json`. Re-run after major corpu
 
 ## Phase J — Injectability unlock (highest priority)
 
-**Status:** Engineering **done** (2026-07-14). Live default remains `hard_lock`. Shadow ON in staging is OK.
+**Status:** Engineering **done** (2026-07-14). Outcome unlock via Phase F still **NO-GO** (2026-07-15). Live default remains `hard_lock`. Shadow ON in staging is OK.
 
-**Goal:** Make learning mechanisms *measurable* on MAE (or agreed shadow metrics), not only reasoning.
+**Goal:** Make learning mechanisms *measurable* on MAE (or agreed shadow metrics), not only reasoning — then pass Phase F gates before flipping prod learning flags.
+
+**Code vs outcome:** “Phase J done” in the build tracker means the machinery shipped. The Definition of done below is the **outcome checklist** (gates + docs), not a code rebuild.
 
 ### Problem today
 
@@ -140,30 +143,32 @@ Reports land under `data/telemetry/routing_mae_*.json`. Re-run after major corpu
 | Shadow mode | §2 Shadow mode — safe prod experiment before flag flips |
 | Eval D-v2 vs D-v1 numeric lift | Blocked until non-`hard_lock` mode ships |
 
-### Definition of done
+### Definition of done (outcome)
 
-- [ ] Shadow telemetry on every predict when enabled
-- [ ] At least one non-`hard_lock` mode implemented behind a flag
-- [ ] Re-run `run_feedback_evaluation`; injection arm MAE can differ from control
-- [ ] Updated go/no-go doc if gates pass
+- [x] Shadow telemetry on every predict when enabled (validation path; staging ON)
+- [x] At least one non-`hard_lock` mode implemented behind a flag (`soft_blend`, `shadow_only`)
+- [x] Re-run `run_feedback_evaluation`; injection arm MAE *can* differ from control (harness + unit test; live reports still ≈ identical)
+- [ ] Updated go/no-go doc **with a GO** if gates pass — latest 2026-07-15 still **NO-GO** (cal 2.97%; shadow delta −0.0004); see [11_GO_NO_GO.md](11_GO_NO_GO.md)
 
 ### Estimated effort
 
-1–2 PRs (telemetry + predictor post-process + settings).
+1–2 PRs (telemetry + predictor post-process + settings) — **landed**. Remaining work is ops: more shadow coverage + F re-runs until a gate passes.
 
 ---
 
 ## Phase F (re-run) — Prod learning ON/OFF
 
-**Status:** Re-run **2026-07-14 evening — NO-GO** (N=553, cal lift 4.90%). See [11_GO_NO_GO.md](11_GO_NO_GO.md).
+**Status:** Re-run **2026-07-15 morning — NO-GO** (N=702, cal lift 2.97%). See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 
 **Goal:** Data-driven flip of calibration and/or injection after J. Includes **re-opening go/no-go** and **prod flag flips** only when gates pass.
 
 | Mechanism | Latest | Gate | Prod flag |
 |-----------|--------|------|-----------|
-| Global calibration | **4.90%** MAE lift | Need ≥5%, holdout≥30, 2 stable evals | stay `false` |
-| Shadow vs live | 16/30 holdout; delta **0** | Need clear shadow lift | shadow ON OK; soft_blend OFF |
+| Global calibration | **2.97%** MAE lift | Need ≥5%, holdout≥30, 2 stable evals | stay `false` |
+| Shadow vs live | 16/30 holdout; delta **−0.0004** | Need clear shadow lift | shadow ON OK; soft_blend OFF |
 | Injection | No GO | Shadow/soft_blend must prove signal first | stay `false` |
+
+Calibration and soft_blend/injection are **independent**: a future ≥5% cal lift alone is enough to flip calibration ON without waiting for shadow.
 
 **Commands:**
 
@@ -402,4 +407,4 @@ Consolidated map from [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md) out
 | Deterministic percentile overwrite | [Phase J](#phase-j--injectability-unlock-highest-priority) |
 | Eval D-v2 vs D-v1 numeric lift | Phase J (scaffold exists; MAE unlock post-J) |
 
-**Next implementation chat:** Keep **shadow ON**, accumulate holdout shadow coverage, **re-run Phase F**. Advanced injection / I / G+ only after a GO (or volume/cost pain for I).
+**Next implementation chat:** Keep **shadow ON**, accumulate holdout shadow coverage, **re-run Phase F**. Advanced injection / I / G+ only after a GO (or volume/cost pain for I). Do not treat `global_mean_delta` ≈ 5 as the 5% MAE lift gate.
