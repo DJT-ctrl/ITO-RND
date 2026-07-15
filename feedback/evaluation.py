@@ -82,6 +82,64 @@ class FeedbackEvaluationReport(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+# Phase F offline go/no-go gates (see current md/11_GO_NO_GO.md).
+CALIBRATION_LIFT_GATE_PCT = 5.0
+
+
+class PhaseFDecision(BaseModel):
+    """Derived Phase F ship decision from an offline evaluation report."""
+
+    calibration_lift_pct: Optional[float] = None
+    calibration_gate_met: bool = False
+    calibration_decision: Literal["GO", "NO-GO"] = "NO-GO"
+    shadow_sample_count: int = 0
+    shadow_mae_delta: Optional[float] = None
+    shadow_beats_live: bool = False
+    injection_decision: Literal["GO", "NO-GO"] = "NO-GO"
+    soft_blend_decision: Literal["GO", "NO-GO"] = "NO-GO"
+
+
+def arm_mae(report: FeedbackEvaluationReport, arm_name: str) -> Optional[float]:
+    """Return MAE for a named arm, or None if missing."""
+    for arm in report.arms:
+        if arm.arm == arm_name:
+            return arm.mae
+    return None
+
+
+def calibration_mae_lift_pct(report: FeedbackEvaluationReport) -> Optional[float]:
+    """Raw → calibrated MAE improvement % on holdout (primary Phase F gate)."""
+    raw = arm_mae(report, "raw_no_feedback")
+    calibrated = arm_mae(report, "calibrated_no_feedback")
+    if raw is None or calibrated is None or raw <= 0:
+        return None
+    return round((raw - calibrated) / raw * 100, 2)
+
+
+def phase_f_decision(report: FeedbackEvaluationReport) -> PhaseFDecision:
+    """Map an eval report onto calibration / injection / soft_blend decisions."""
+    lift = calibration_mae_lift_pct(report)
+    cal_gate = lift is not None and lift >= CALIBRATION_LIFT_GATE_PCT
+    shadow = report.shadow_live
+    delta = shadow.mae_delta
+    # mae_delta = live_mae − shadow_mae; positive means shadow is better.
+    shadow_beats = (
+        shadow.sample_count > 0
+        and delta is not None
+        and delta > 0
+    )
+    return PhaseFDecision(
+        calibration_lift_pct=lift,
+        calibration_gate_met=cal_gate,
+        calibration_decision="GO" if cal_gate else "NO-GO",
+        shadow_sample_count=shadow.sample_count,
+        shadow_mae_delta=delta,
+        shadow_beats_live=shadow_beats,
+        injection_decision="GO" if shadow_beats else "NO-GO",
+        soft_blend_decision="GO" if shadow_beats else "NO-GO",
+    )
+
+
 def run_offline_replay(
     rows: Sequence[ReplayRow],
     *,

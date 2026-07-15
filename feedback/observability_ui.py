@@ -9,7 +9,12 @@ import streamlit as st
 
 from config.settings import Settings
 from feedback.dashboard_queries import fetch_learning_status, list_cluster_accuracy
-from feedback.evaluation import FeedbackEvaluationReport
+from feedback.evaluation import (
+    CALIBRATION_LIFT_GATE_PCT,
+    FeedbackEvaluationReport,
+    PhaseFDecision,
+    phase_f_decision,
+)
 from feedback.evaluation_reports import load_latest_eval_feedback_report
 from feedback.evaluation_runner import run_and_save_offline_evaluation
 from storage.vector_store import create_schema, get_connection
@@ -60,6 +65,11 @@ def render_learning_status(settings: Settings) -> None:
     else:
         st.info("Calibration is in monitor-only mode; raw scores remain user-facing.")
 
+    report, path = load_latest_eval_feedback_report(settings)
+    if report is not None and path is not None:
+        decision = phase_f_decision(report)
+        _render_phase_f_status_banner(decision, report, path)
+
 
 def render_cluster_accuracy(settings: Settings) -> None:
     """Render raw and calibrated MAE by deterministic metadata cluster."""
@@ -97,10 +107,12 @@ def render_offline_evaluation_panel(
     holdout_size: int = 30,
 ) -> None:
     """Run leakage-safe 4-arm replay and show the latest saved report."""
-    st.subheader("Offline evaluation (4 arms)")
+    st.subheader("Offline evaluation (Phase F)")
     st.caption(
         "Held-out replay compares raw vs calibrated × injection on/off. "
-        f"Need more than {holdout_size} validated rows (holdout={holdout_size})."
+        f"Need more than {holdout_size} validated rows (holdout={holdout_size}). "
+        f"Calibration GO requires ≥{CALIBRATION_LIFT_GATE_PCT:g}% MAE lift on two "
+        "stable runs; soft_blend / injection need shadow MAE better than live."
     )
 
     conn = get_connection(settings)
@@ -156,10 +168,42 @@ def render_offline_evaluation_panel(
     _render_evaluation_report(report, path)
 
 
+def _render_phase_f_status_banner(
+    decision: PhaseFDecision,
+    report: FeedbackEvaluationReport,
+    path: Path,
+) -> None:
+    """Compact Phase F decision strip under Learning active?."""
+    lift = decision.calibration_lift_pct
+    lift_label = f"{lift:.2f}%" if lift is not None else "n/a"
+    if decision.calibration_decision == "GO" and decision.injection_decision == "GO":
+        st.success(
+            f"Phase F **GO** — calibration lift {lift_label} "
+            f"(gate ≥{CALIBRATION_LIFT_GATE_PCT:g}%); shadow beats live. "
+            f"Latest: `{path.name}` (N={report.total_rows})."
+        )
+    elif decision.calibration_decision == "GO":
+        st.warning(
+            f"Phase F calibration **GO** ({lift_label} ≥ {CALIBRATION_LIFT_GATE_PCT:g}%), "
+            f"but soft_blend / injection stay **NO-GO** "
+            f"(shadow does not beat live). Latest: `{path.name}`."
+        )
+    else:
+        st.warning(
+            f"Phase F **NO-GO** — calibration lift {lift_label} "
+            f"(need ≥{CALIBRATION_LIFT_GATE_PCT:g}%); "
+            f"soft_blend / injection **NO-GO**. "
+            f"Keep shadow ON. Latest: `{path.name}` (N={report.total_rows})."
+        )
+
+
 def _render_evaluation_report(
     report: FeedbackEvaluationReport,
     path: Path,
 ) -> None:
+    decision = phase_f_decision(report)
+    _render_phase_f_gates(decision, report)
+
     summary = st.columns(4)
     summary[0].metric("Holdout", report.holdout_rows)
     summary[1].metric("Training", report.training_rows)
@@ -167,6 +211,9 @@ def _render_evaluation_report(
     summary[3].metric(
         "Calibration ready",
         "yes" if report.global_calibration_ready else "no",
+    )
+    st.caption(
+        "Global mean Δ is training bias (actual − predicted), **not** the MAE lift % gate."
     )
 
     arms_frame = pd.DataFrame(
@@ -215,3 +262,69 @@ def _render_evaluation_report(
     for note in report.notes:
         st.caption(note)
     st.caption(f"Report path: `{path}`")
+
+
+def _render_phase_f_gates(
+    decision: PhaseFDecision,
+    report: FeedbackEvaluationReport,
+) -> None:
+    """Show calibration lift and shadow vs live against Phase F ship gates."""
+    st.markdown("#### Phase F go / no-go")
+    lift = decision.calibration_lift_pct
+    lift_label = f"{lift:.2f}%" if lift is not None else "n/a"
+    delta = decision.shadow_mae_delta
+    delta_label = f"{delta:+.4f}" if delta is not None else "n/a"
+
+    gate_cols = st.columns(4)
+    gate_cols[0].metric(
+        "Cal MAE lift",
+        lift_label,
+        delta=f"gate ≥{CALIBRATION_LIFT_GATE_PCT:g}%",
+        help=(
+            "Improvement of calibrated_no_feedback vs raw_no_feedback on holdout. "
+            "Do not confuse with global mean Δ."
+        ),
+    )
+    gate_cols[1].metric(
+        "Calibration",
+        decision.calibration_decision,
+        help=f"GO only when lift ≥ {CALIBRATION_LIFT_GATE_PCT:g}% on two stable runs.",
+    )
+    gate_cols[2].metric(
+        "Shadow sample",
+        f"{decision.shadow_sample_count}/{report.holdout_rows}",
+        help="Holdout rows with shadow_percentile telemetry.",
+    )
+    gate_cols[3].metric(
+        "Soft blend / injection",
+        decision.soft_blend_decision,
+        delta=f"live−shadow {delta_label}",
+        help="GO only when shadow MAE clearly beats live (positive live−shadow delta).",
+    )
+
+    if decision.calibration_decision == "GO":
+        st.success(
+            f"Calibration gate met ({lift_label} ≥ {CALIBRATION_LIFT_GATE_PCT:g}%). "
+            "Confirm with a second identical run before flipping the flag."
+        )
+    else:
+        st.error(
+            f"Calibration **NO-GO**: lift {lift_label} < {CALIBRATION_LIFT_GATE_PCT:g}% gate. "
+            "Keep `VALIDATION_CALIBRATION_ENABLED=false`."
+        )
+
+    if decision.shadow_sample_count == 0:
+        st.info(
+            "No shadow telemetry in this holdout yet. Keep "
+            "`VALIDATION_SHADOW_MODE_ENABLED=true` and collect more predicts."
+        )
+    elif decision.shadow_beats_live:
+        st.success(
+            f"Shadow beats live (MAE delta {delta_label}). "
+            "Soft blend / injection candidates for a second look."
+        )
+    else:
+        st.warning(
+            f"Shadow does **not** beat live (MAE delta {delta_label}). "
+            "Keep `hard_lock` and injection OFF; continue collecting shadow."
+        )

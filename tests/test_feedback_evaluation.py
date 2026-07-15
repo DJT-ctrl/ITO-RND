@@ -4,7 +4,12 @@ from uuid import UUID
 
 import pytest
 
-from feedback.evaluation import ReplayRow, run_offline_replay
+from feedback.evaluation import (
+    ReplayRow,
+    calibration_mae_lift_pct,
+    phase_f_decision,
+    run_offline_replay,
+)
 
 
 def _rows(count: int = 40) -> list[ReplayRow]:
@@ -97,3 +102,36 @@ def test_shadow_telemetry_diverges_injection_arm_mae():
 def test_replay_requires_training_rows_beyond_holdout():
     with pytest.raises(ValueError, match="Need more than 30"):
         run_offline_replay(_rows(30), holdout_size=30)
+
+
+def test_phase_f_decision_calibration_go_when_lift_clears_gate():
+    report = run_offline_replay(
+        _rows(),
+        holdout_size=10,
+        global_n_min=20,
+        cluster_n_min=100,
+    )
+    # raw MAE 10 → calibrated MAE 0 ⇒ 100% lift
+    assert calibration_mae_lift_pct(report) == 100.0
+    decision = phase_f_decision(report)
+    assert decision.calibration_gate_met is True
+    assert decision.calibration_decision == "GO"
+    assert decision.injection_decision == "NO-GO"
+    assert decision.soft_blend_decision == "NO-GO"
+
+
+def test_phase_f_decision_injection_go_when_shadow_beats_live():
+    rows = _rows(40)
+    for row in rows:
+        row.live_percentile = row.raw_percentile
+        row.shadow_percentile = row.actual_percentile
+    report = run_offline_replay(
+        rows,
+        holdout_size=10,
+        global_n_min=20,
+        cluster_n_min=100,
+    )
+    decision = phase_f_decision(report)
+    assert decision.shadow_beats_live is True
+    assert decision.injection_decision == "GO"
+    assert decision.soft_blend_decision == "GO"

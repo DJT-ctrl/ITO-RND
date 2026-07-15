@@ -29,8 +29,10 @@ st.set_page_config(page_title="Feedback Loop", layout="wide")
 st.title("Validation Pipeline — Feedback Loop")
 st.caption(
     "Closed-loop learning: calibration offsets, cluster routing, structured "
-    "feedback lessons, and prompt injection. Use the **?** on each section "
-    "for a plain-English explanation."
+    "feedback lessons, and prompt injection. Phase F go/no-go from the latest "
+    "offline eval is shown under **Learning active?** and again in "
+    "**Offline evaluation**. Use the **?** on each section for a plain-English "
+    "explanation."
 )
 
 settings = load_settings()

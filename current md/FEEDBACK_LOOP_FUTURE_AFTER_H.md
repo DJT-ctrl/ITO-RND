@@ -1,6 +1,6 @@
 # Feedback Loop — Future Phases After H
 
-**Date:** 2026-07-15 (updated after Phase J outcome unlock / F re-run)  
+**Date:** 2026-07-15 (updated after Phase F afternoon re-run)  
 **Purpose:** Roadmap for work **after Phase H** (and dependencies on gaps in [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md)).  
 **Prerequisite:** Phases A–H + J code landed; prod baseline = feedback ON, calibration OFF, injection OFF, injectability `hard_lock`.
 
@@ -10,7 +10,7 @@
 - [x] Embedding backfill → centroids → routing MAE
 - [x] Phase J code (soft_blend / shadow_only / telemetry)
 - [x] Shadow mode ON; ~270+ rows with `shadow_percentile` (holdout still 16/30)
-- [x] Phase F re-runs through 2026-07-15 — still **NO-GO** (latest cal lift **2.97%** < 5%; shadow MAE ≉ better than live)
+- [x] Phase F re-runs through 2026-07-15 afternoon — still **NO-GO** (cal lift **2.97%** < 5%; shadow MAE ≉ better than live; afternoon = morning)
 
 **Still open before prod learning ON:**
 
@@ -41,7 +41,7 @@ flowchart LR
 
 0. **Staging ops** — DONE  
 1. **Phase J code** — DONE (live stays hard_lock; shadow ON OK)  
-2. **Re-run F** — DONE through 2026-07-15 (NO-GO); **repeat** when cal may clear 5% or shadow beats live  
+2. **Re-run F** — DONE through 2026-07-15 afternoon (NO-GO; identical to morning); **repeat** when N grows and cal may clear 5% or shadow beats live  
 3. **Advanced injection** — after a GO (or explicit reasoning-only metrics)  
 4. **Phase I** — when volume/cost hurts  
 5. **G+** — after ≥50 manual reviews and low reject rate  
@@ -158,7 +158,7 @@ Reports land under `data/telemetry/routing_mae_*.json`. Re-run after major corpu
 
 ## Phase F (re-run) — Prod learning ON/OFF
 
-**Status:** Re-run **2026-07-15 morning — NO-GO** (N=702, cal lift 2.97%). See [11_GO_NO_GO.md](11_GO_NO_GO.md).
+**Status:** Re-run **2026-07-15 afternoon — NO-GO** (N=702, cal lift 2.97%; confirmed morning). See [11_GO_NO_GO.md](11_GO_NO_GO.md).
 
 **Goal:** Data-driven flip of calibration and/or injection after J. Includes **re-opening go/no-go** and **prod flag flips** only when gates pass.
 
@@ -407,4 +407,4 @@ Consolidated map from [FEEDBACK_LOOP_GAPS_A_H.md](FEEDBACK_LOOP_GAPS_A_H.md) out
 | Deterministic percentile overwrite | [Phase J](#phase-j--injectability-unlock-highest-priority) |
 | Eval D-v2 vs D-v1 numeric lift | Phase J (scaffold exists; MAE unlock post-J) |
 
-**Next implementation chat:** Keep **shadow ON**, accumulate holdout shadow coverage, **re-run Phase F**. Advanced injection / I / G+ only after a GO (or volume/cost pain for I). Do not treat `global_mean_delta` ≈ 5 as the 5% MAE lift gate.
+**Next implementation chat:** Keep **shadow ON**, grow validated N + holdout shadow coverage, **re-run Phase F** when the corpus changes. Advanced injection / I / G+ only after a GO (or volume/cost pain for I). Do not treat `global_mean_delta` ≈ 5 as the 5% MAE lift gate.

@@ -9,11 +9,12 @@
 Keep collecting template feedback while calibration and injection are in
 monitor-only mode. Dashboard overrides take precedence over environment values.
 
-**Phase F decision (updated 2026-07-15 morning):** calibration and injection stay **OFF** —
-see [11_GO_NO_GO.md](11_GO_NO_GO.md). Latest eval (N=702, holdout=30): calibration
-MAE lift **2.97%** (<5% gate; regressed from 4.90%). Shadow in holdout **16/30**;
+**Phase F decision (updated 2026-07-15 afternoon):** calibration and injection stay **OFF** —
+see [11_GO_NO_GO.md](11_GO_NO_GO.md). Afternoon re-run (N=702, holdout=30) confirmed
+morning: calibration MAE lift **2.97%** (<5% gate). Shadow in holdout **16/30**;
 shadow MAE ≉ better than live (delta −0.0004). Keep `hard_lock`; shadow mode ON
 for more data is OK. Do not confuse `global_mean_delta` (~5) with MAE lift %.
+Feedback Loop UI shows Phase F gate metrics from the latest `eval_feedback_*.json`.
 
 ## Phase G / H staging
 
