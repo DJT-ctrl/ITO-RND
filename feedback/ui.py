@@ -895,6 +895,10 @@ an LLM narrative — useful for verifying the closed loop is writing what you ex
 
 def render_how_this_connects(settings: Settings) -> None:
     """Detailed end-to-end diagram + copy for the Feedback Loop tab."""
+    import json
+
+    import streamlit.components.v1 as components
+
     wait_label = (
         f"{settings.validation_dev_window_minutes}m"
         if settings.validation_dev_window_minutes is not None
@@ -910,9 +914,8 @@ The diagram below matches the code paths in validation + feedback today.
 """,
     )
 
-    st.markdown(
-        f"""
-```mermaid
+    # Streamlit markdown does not render ```mermaid fences — embed Mermaid.js.
+    mermaid_src = f"""
 flowchart TB
     subgraph step1["1 · Collect + predict"]
         A["Apify scrape"] --> B["Embed + neighbor baseline"]
@@ -920,7 +923,7 @@ flowchart TB
         C --> D[("Save prediction row + validation_due_at")]
     end
 
-    D -->|"~{wait_label} in queue<br/>dev/backtest: due now"| E
+    D -->|"~{wait_label} in queue / queue worker<br/>dev·backtest: due now"| E
 
     subgraph step2["2 · Validate"]
         E["Queue worker re-scrapes post URLs"]
@@ -930,9 +933,9 @@ flowchart TB
 
     G --> H
 
-    subgraph loop["3–5 · Learn & apply on next predict"]
-        H["3 · Store feedback<br/>v1 template lesson + cluster_id<br/>(metadata or centroid routing)"]
-        H --> I["4a · Calibration<br/>global / cluster mean_delta<br/>(N_min gated)"]
+    subgraph loop["3–5 · Learn and apply on next predict"]
+        H["3 · Store feedback<br/>v1 template lesson + cluster_id<br/>metadata or centroid routing"]
+        H --> I["4a · Calibration<br/>global / cluster mean_delta<br/>N_min gated"]
         H --> J["4b · Cluster rollups<br/>mean_delta, sample N"]
         I --> K["5 · Next prediction"]
         J --> K
@@ -944,8 +947,32 @@ flowchart TB
 
     H -.->|"optional v2 hybrid"| R["Human review queue<br/>approve → eligible for injection"]
     R -.-> M
-```
+""".strip()
+    diagram_json = json.dumps(mermaid_src)
+    components.html(
+        f"""
+<div id="feedback-loop-wrap" style="background:#ffffff;border:1px solid #d8dee6;border-radius:8px;padding:12px 8px;overflow:auto;">
+  <pre class="mermaid" id="feedback-loop-diagram"></pre>
+</div>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const node = document.getElementById("feedback-loop-diagram");
+  node.textContent = {diagram_json};
+  mermaid.initialize({{
+    startOnLoad: false,
+    theme: "neutral",
+    securityLevel: "loose",
+    flowchart: {{ htmlLabels: true, curve: "basis" }}
+  }});
+  await mermaid.run({{ nodes: [node] }});
+</script>
+""",
+        height=720,
+        scrolling=True,
+    )
 
+    st.markdown(
+        f"""
 **Prod defaults today:** feedback records **ON**; calibration and prompt injection **OFF**;
 injectability **hard_lock**; shadow telemetry **ON** in staging only.
 
