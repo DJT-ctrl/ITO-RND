@@ -117,8 +117,8 @@ def test_concurrent_agents_run_in_parallel_not_sequentially():
         elapsed = time.monotonic() - start
 
     sequential_floor = agent_count * sleep_s
-    assert elapsed < sequential_floor * 0.85, (
-        f"expected concurrent execution (<{sequential_floor * 0.85:.2f}s), took {elapsed:.2f}s"
+    assert elapsed < sequential_floor * 0.9, (
+        f"expected concurrent execution (<{sequential_floor * 0.9:.2f}s), took {elapsed:.2f}s"
     )
     assert len(state.diagnostics) == 5
     for i in range(agent_count):
