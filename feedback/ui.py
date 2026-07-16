@@ -893,12 +893,85 @@ an LLM narrative — useful for verifying the closed loop is writing what you ex
         st.json(payload.model_dump(mode="json"))
 
 
+def _feedback_loop_flowchart_html(*, wait_label: str, injection_limit: int) -> str:
+    """Self-contained HTML flowchart (no JS/CDN — Streamlit iframes block Mermaid)."""
+    return f"""
+<div style="font-family:'Source Sans Pro',-apple-system,sans-serif;font-size:0.88rem;color:#1a1d23;
+            background:#fff;border:1px solid #d8dee6;border-radius:8px;padding:1rem 1.25rem 1.25rem;">
+
+  <div style="border:1px solid #cbd5e1;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;background:#f8fafc;">
+    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.6rem;">1 · Collect + predict</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;">
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Apify scrape</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Embed + neighbor baseline</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Predictor agent (blind)</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Save prediction row + validation_due_at</span>
+    </div>
+  </div>
+
+  <div style="text-align:center;color:#64748b;font-size:0.8rem;margin:0.35rem 0 0.75rem;">
+    ↓ ~{wait_label} in queue (worker re-scrape) · dev/backtest: due now
+  </div>
+
+  <div style="border:1px solid #cbd5e1;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;background:#f8fafc;">
+    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.6rem;">2 · Validate</div>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;">
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Queue worker re-scrapes URLs</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Actual vs predicted deltas</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#dcfce7;border:1px solid #86efac;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Status → validated</span>
+    </div>
+  </div>
+
+  <div style="text-align:center;color:#64748b;font-size:0.8rem;margin:0.35rem 0 0.75rem;">↓</div>
+
+  <div style="border:2px dashed #94a3b8;border-radius:8px;padding:0.85rem;background:#fafbfc;">
+    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.75rem;">3–5 · Learn &amp; apply on next predict</div>
+
+    <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;margin-bottom:0.65rem;max-width:34rem;">
+      <strong>3 · Store feedback</strong><br/>
+      <span style="color:#475569;">v1 template lesson + cluster_id (metadata or centroid routing)</span>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;margin-bottom:0.65rem;">
+      <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;">
+        <strong>4a · Calibration</strong><br/>
+        <span style="color:#475569;">global / cluster mean_delta (N_min gated)</span>
+      </div>
+      <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;">
+        <strong>4b · Cluster rollups</strong><br/>
+        <span style="color:#475569;">mean_delta, sample N</span>
+      </div>
+    </div>
+
+    <div style="text-align:center;color:#64748b;margin:0.25rem 0 0.65rem;">↓ merge into next predict</div>
+
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.65rem;">
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">5 · Next prediction</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Route to cluster</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Inject ≤{injection_limit} approved lessons</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Apply calibration offset</span>
+      <span style="color:#64748b;">→</span>
+      <span style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Publish score (hard_lock · shadow logs alt)</span>
+    </div>
+
+    <div style="border-left:3px dotted #94a3b8;padding-left:0.75rem;margin-top:0.5rem;color:#475569;font-size:0.82rem;">
+      <em>optional v2 hybrid</em> → Human review queue → approve → eligible for injection
+    </div>
+  </div>
+</div>
+"""
+
+
 def render_how_this_connects(settings: Settings) -> None:
     """Detailed end-to-end diagram + copy for the Feedback Loop tab."""
-    import json
-
-    import streamlit.components.v1 as components
-
     wait_label = (
         f"{settings.validation_dev_window_minutes}m"
         if settings.validation_dev_window_minutes is not None
@@ -914,61 +987,9 @@ The diagram below matches the code paths in validation + feedback today.
 """,
     )
 
-    # Streamlit markdown does not render ```mermaid fences — embed Mermaid.js.
-    mermaid_src = f"""
-flowchart TB
-    subgraph step1["1 · Collect + predict"]
-        A["Apify scrape"] --> B["Embed + neighbor baseline"]
-        B --> C["Predictor agent (blind)"]
-        C --> D[("Save prediction row + validation_due_at")]
-    end
-
-    D -->|"~{wait_label} in queue / queue worker<br/>dev·backtest: due now"| E
-
-    subgraph step2["2 · Validate"]
-        E["Queue worker re-scrapes post URLs"]
-        E --> F["Compute actual vs predicted deltas"]
-        F --> G["Status → validated"]
-    end
-
-    G --> H
-
-    subgraph loop["3–5 · Learn and apply on next predict"]
-        H["3 · Store feedback<br/>v1 template lesson + cluster_id<br/>metadata or centroid routing"]
-        H --> I["4a · Calibration<br/>global / cluster mean_delta<br/>N_min gated"]
-        H --> J["4b · Cluster rollups<br/>mean_delta, sample N"]
-        I --> K["5 · Next prediction"]
-        J --> K
-        K --> L["Route to cluster"]
-        L --> M["Inject ≤{injection_limit} approved lessons"]
-        M --> N["Apply calibration offset"]
-        N --> O["Publish score<br/>injectability: hard_lock default<br/>shadow logs alt percentile"]
-    end
-
-    H -.->|"optional v2 hybrid"| R["Human review queue<br/>approve → eligible for injection"]
-    R -.-> M
-""".strip()
-    diagram_json = json.dumps(mermaid_src)
-    components.html(
-        f"""
-<div id="feedback-loop-wrap" style="background:#ffffff;border:1px solid #d8dee6;border-radius:8px;padding:12px 8px;overflow:auto;">
-  <pre class="mermaid" id="feedback-loop-diagram"></pre>
-</div>
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  const node = document.getElementById("feedback-loop-diagram");
-  node.textContent = {diagram_json};
-  mermaid.initialize({{
-    startOnLoad: false,
-    theme: "neutral",
-    securityLevel: "loose",
-    flowchart: {{ htmlLabels: true, curve: "basis" }}
-  }});
-  await mermaid.run({{ nodes: [node] }});
-</script>
-""",
-        height=720,
-        scrolling=True,
+    st.markdown(
+        _feedback_loop_flowchart_html(wait_label=wait_label, injection_limit=injection_limit),
+        unsafe_allow_html=True,
     )
 
     st.markdown(
