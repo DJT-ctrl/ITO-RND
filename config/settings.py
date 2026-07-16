@@ -137,6 +137,10 @@ class Settings:
     eval_cost_warning_usd: float = 0.10
     eval_latency_warning_ms: int = 60000
     eval_step_latency_warning_ms: int = 20000
+    # API hardening (issue #3): Bearer key auth + per-key rate limits.
+    api_auth_enabled: bool = False
+    api_keys_json: str = ""
+    api_rate_limit: str = ""
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -224,6 +228,9 @@ def load_settings() -> Settings:
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
         eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
+        api_auth_enabled=_env_bool("API_AUTH_ENABLED", default=False),
+        api_keys_json=os.getenv("API_KEYS_JSON", ""),
+        api_rate_limit=os.getenv("API_RATE_LIMIT", ""),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings
