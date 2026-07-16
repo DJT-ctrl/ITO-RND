@@ -68,7 +68,7 @@ This document is the **build and reproduction guide**. For production deployment
 
 | Requirement | Version / notes |
 | ----------- | --------------- |
-| **Python** | 3.12 recommended (matches `Dockerfile`; 3.11+ should work locally) |
+| **Python** | **3.12 required** for local installs (matches `Dockerfile` and the pinned `requirements.txt` lockfile) |
 | **Docker** | Engine + Compose v2 plugin (`docker compose`, not legacy `docker-compose`) |
 | **Git** | To clone the repo |
 | **Apify account** | For live LinkedIn scraping ([apify.com](https://apify.com)) |
@@ -89,8 +89,19 @@ cd intotheopen-backend
 
 python3.12 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # pinned lockfile (see requirements.in to change deps)
 ```
+
+**Dependency locking (issue #4):** `requirements.in` is the human-editable source;
+`requirements.txt` is the pinned lockfile generated with pip-tools on **Python 3.12**
+(matching Docker). After editing `requirements.in`, regenerate the lock:
+
+```bash
+./scripts/compile-requirements.sh
+```
+
+Local + CI + Docker should all install from the same `requirements.txt` for
+reproducible environments.
 
 ---
 
@@ -149,8 +160,8 @@ manually:
 docker compose build api
 ```
 
-The image uses `python:3.12-slim`, installs `requirements.txt`, and runs
-`uvicorn api.main:app` on port 8000. Data files and the Streamlit dashboard
+The image uses `python:3.12-slim`, installs the pinned `requirements.txt` lockfile,
+and runs `uvicorn api.main:app` on port 8000. Data files and the Streamlit dashboard
 are excluded via `.dockerignore` — host-side scripts read from `data/` directly.
 
 ---
