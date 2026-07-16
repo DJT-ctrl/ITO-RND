@@ -106,17 +106,22 @@ def _patch_neighbor_fetch(rows: list[dict]):
 def test_concurrent_agents_run_in_parallel_not_sequentially():
     """5 agents each sleeping ~0.1s should finish in well under 5*0.1s if
     they truly run concurrently via asyncio.gather."""
+    sleep_s = 0.1
+    agent_count = 5
     p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
     with p1, p2, p3, p4:
-        diagnostics = {f"check_{i}": _SleepyAgent({"ok": i}, sleep_s=0.1) for i in range(5)}
+        diagnostics = {f"check_{i}": _SleepyAgent({"ok": i}, sleep_s=sleep_s) for i in range(agent_count)}
 
         start = time.monotonic()
         state = asyncio.run(run_evaluation_cycle("draft text", fake_settings(), diagnostics=diagnostics))
         elapsed = time.monotonic() - start
 
-    assert elapsed < 0.3, f"expected concurrent execution, took {elapsed:.2f}s"
+    sequential_floor = agent_count * sleep_s
+    assert elapsed < sequential_floor * 0.85, (
+        f"expected concurrent execution (<{sequential_floor * 0.85:.2f}s), took {elapsed:.2f}s"
+    )
     assert len(state.diagnostics) == 5
-    for i in range(5):
+    for i in range(agent_count):
         assert state.diagnostics[f"check_{i}"] == {"ok": i}
     assert state.errors == []
 

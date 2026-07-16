@@ -23,6 +23,21 @@ from api.schemas import SimilarPost
 from config.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def _stub_discoverability_gather(monkeypatch):
+    """Avoid DB/cache access in orchestrator integration tests."""
+
+    async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
+        return None, []
+
+    monkeypatch.setattr("agents.orchestrator._gather_discoverability_context", _fake_gather)
+
+
+@pytest.fixture(autouse=True)
+def _stub_telemetry_persist(monkeypatch):
+    monkeypatch.setattr("agents.orchestrator.save_run_metadata", lambda metadata, settings: None)
+
+
 def fake_post(post_id: str = "1") -> SimilarPost:
     return SimilarPost(
         post_id=post_id,
