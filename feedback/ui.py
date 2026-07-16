@@ -895,59 +895,78 @@ an LLM narrative — useful for verifying the closed loop is writing what you ex
 
 def render_how_this_connects(settings: Settings) -> None:
     """Detailed end-to-end diagram + copy for the Feedback Loop tab."""
+    wait_label = (
+        f"{settings.validation_dev_window_minutes}m"
+        if settings.validation_dev_window_minutes is not None
+        else f"{settings.validation_window_hours}h"
+    )
+    injection_limit = settings.validation_feedback_injection_limit
+
     _section_header(
         "How this connects",
         """
 Full closed loop from scrape → wait → learn → next prediction.
-Read the diagram below; use the numbered steps for detail.
+The diagram below matches the code paths in validation + feedback today.
 """,
     )
 
     st.markdown(
         f"""
+```mermaid
+flowchart TB
+    subgraph step1["1 · Collect + predict"]
+        A["Apify scrape"] --> B["Embed + neighbor baseline"]
+        B --> C["Predictor agent (blind)"]
+        C --> D[("Save prediction row + validation_due_at")]
+    end
+
+    D -->|"~{wait_label} in queue<br/>dev/backtest: due now"| E
+
+    subgraph step2["2 · Validate"]
+        E["Queue worker re-scrapes post URLs"]
+        E --> F["Compute actual vs predicted deltas"]
+        F --> G["Status → validated"]
+    end
+
+    G --> H
+
+    subgraph loop["3–5 · Learn & apply on next predict"]
+        H["3 · Store feedback<br/>v1 template lesson + cluster_id<br/>(metadata or centroid routing)"]
+        H --> I["4a · Calibration<br/>global / cluster mean_delta<br/>(N_min gated)"]
+        H --> J["4b · Cluster rollups<br/>mean_delta, sample N"]
+        I --> K["5 · Next prediction"]
+        J --> K
+        K --> L["Route to cluster"]
+        L --> M["Inject ≤{injection_limit} approved lessons"]
+        M --> N["Apply calibration offset"]
+        N --> O["Publish score<br/>injectability: hard_lock default<br/>shadow logs alt percentile"]
+    end
+
+    H -.->|"optional v2 hybrid"| R["Human review queue<br/>approve → eligible for injection"]
+    R -.-> M
 ```
-  ┌─────────────┐     ~{settings.validation_window_hours}h wait      ┌──────────────────┐
-  │ 1. Collect  │ ───────────────────────────────▶ │ 2. Validate     │
-  │ + Predict   │   (Queue / worker re-scrape)     │ actual vs pred  │
-  └─────────────┘                                  └────────┬─────────┘
-                                                            │
-                         ┌──────────────────────────────────┼──────────────────────────┐
-                         │                                  ▼                          │
-                         │                    ┌─────────────────────────┐              │
-                         │                    │ 3. Store feedback       │              │
-                         │                    │ (template lesson +      │              │
-                         │                    │  assign cluster id)     │              │
-                         │                    └───────────┬─────────────┘              │
-                         │                                │                            │
-                         │              ┌─────────────────┴─────────────────┐          │
-                         │              ▼                                   ▼          │
-                         │   ┌────────────────────┐           ┌────────────────────┐   │
-                         │   │ 4a. Calibration    │           │ 4b. Cluster stats  │   │
-                         │   │ global / cluster   │           │ mean_delta, N      │   │
-                         │   │ offset for NEXT    │           │                    │   │
-                         │   │ predict            │           │                    │   │
-                         │   └─────────┬──────────┘           └─────────┬──────────┘   │
-                         │             │                                  │            │
-                         │             └────────────────┬─────────────────┘            │
-                         │                              ▼                              │
-                         │                 ┌─────────────────────────┐                 │
-                         │                 │ 5. Next prediction      │                 │
-                         │                 │ • route to cluster      │                 │
-                         │                 │ • inject ≤{settings.validation_feedback_injection_limit} lessons     │                 │
-                         │                 │ • apply calibration     │                 │
-                         │                 └─────────────────────────┘                 │
-                         └─────────────────────────────────────────────────────────────┘
-```
+
+**Prod defaults today:** feedback records **ON**; calibration and prompt injection **OFF**;
+injectability **hard_lock**; shadow telemetry **ON** in staging only.
 
 **Step by step**
 
-1. **Collect + Predict** — scrape a post, score it (neighbor percentile + Predictor agent).  
-2. **Validate (~{settings.validation_window_hours}h later)** — re-scrape engagement, compute deltas. *This* is where the “48h results” come from — not from Manual process.  
-3. **Store feedback** — if Feedback records is ON, write a compact lesson JSON and assign a cluster (`length_format_followers`).  
-4. **Learn silently** — update global / cluster `mean_delta` (Calibration). Refresh cluster sample counts.  
-5. **Next predict** — route the new post to a cluster → pull only the latest **{settings.validation_feedback_injection_limit}** lessons from that cluster into the prompt → optionally add the calibration offset to the numeric percentile.
+1. **Collect + Predict** — scrape a post, embed it, run the Predictor (blind to final engagement),
+   and save a row with `validation_due_at` (normally now + ~{settings.validation_window_hours}h).
+2. **Validate** — when due, the queue worker re-scrapes URLs and grades actual vs predicted.
+   Dev/backtest can set due immediately on already-aged posts.
+3. **Store feedback** — if Feedback records is ON, write a compact v1 lesson JSON and assign a
+   cluster (`length_format_followers`, or nearest centroid when embeddings exist). Optional v2 hybrid
+   lessons land in the review queue until approved.
+4. **Learn silently** — refresh global / cluster `mean_delta` (Calibration) and cluster sample
+   counts / rollups. Both respect **N_min** gates before affecting live scores.
+5. **Next predict** — route the new post to a cluster → pull only the latest **{injection_limit}**
+   **approved** lessons into the prompt → optionally add the calibration offset → publish via
+   injectability mode (default **hard_lock** keeps the live percentile safe; shadow records an
+   alternate score for offline evaluation).
 
-**Context window:** we never dump the whole feedback table. Clusters + Injection limit keep the prompt to a short comparative block.
+**Context window:** we never dump the whole feedback table. Clusters + the injection limit keep
+the prompt to a short comparative block.
 """
     )
 
