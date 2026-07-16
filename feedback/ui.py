@@ -893,179 +893,73 @@ an LLM narrative — useful for verifying the closed loop is writing what you ex
         st.json(payload.model_dump(mode="json"))
 
 
-def _feedback_loop_flowchart_html(
-    *,
-    wait_label: str,
-    injection_limit: int,
-    inj_mode: str,
-) -> str:
-    """Self-contained HTML flowchart (no JS/CDN — Streamlit iframes block Mermaid)."""
-    return f"""
-<div style="font-family:'Source Sans Pro',-apple-system,sans-serif;font-size:0.88rem;color:#1a1d23;
-            background:#fff;border:1px solid #d8dee6;border-radius:8px;padding:1rem 1.25rem 1.25rem;">
-
-  <div style="border:1px solid #cbd5e1;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;background:#f8fafc;">
-    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.6rem;">1 · Collect + predict</div>
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;">
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Apify scrape</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Embed + pgvector neighbors</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Predictor agent (blind)</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Save prediction + validation_due_at</span>
-    </div>
-  </div>
-
-  <div style="text-align:center;color:#64748b;font-size:0.8rem;margin:0.35rem 0 0.75rem;">
-    ↓ ~{wait_label} in queue (worker re-scrape) · dev/backtest: due now
-  </div>
-
-  <div style="border:1px solid #cbd5e1;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;background:#f8fafc;">
-    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.6rem;">2 · Validate</div>
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;">
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Queue worker re-scrapes URLs</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Actual vs predicted deltas</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#dcfce7;border:1px solid #86efac;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Status → validated</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:0.4rem 0.65rem;">Enqueue feedback_jobs (async)</span>
-    </div>
-  </div>
-
-  <div style="text-align:center;color:#64748b;font-size:0.8rem;margin:0.35rem 0 0.75rem;">↓</div>
-
-  <div style="border:2px dashed #94a3b8;border-radius:8px;padding:0.85rem;background:#fafbfc;">
-    <div style="font-weight:700;color:#1f5f8b;margin-bottom:0.75rem;">3–5 · Learn &amp; apply on next predict</div>
-
-    <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;margin-bottom:0.65rem;max-width:38rem;">
-      <strong>3 · Feedback worker (async, Phase I)</strong><br/>
-      <span style="color:#475569;">v1 template lesson · optional v2 hybrid (pending → approve) · cluster_id via metadata or embedding centroid · refresh_cluster_stats</span>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;margin-bottom:0.65rem;">
-      <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;">
-        <strong>4a · Calibration</strong><br/>
-        <span style="color:#475569;">global / cluster mean_delta (N_min gated)</span>
-      </div>
-      <div style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.55rem 0.75rem;">
-        <strong>4b · Cluster rollups</strong><br/>
-        <span style="color:#475569;">mean_delta, sample N, centroid refresh</span>
-      </div>
-    </div>
-
-    <div style="text-align:center;color:#64748b;margin:0.25rem 0 0.65rem;">↓ merge into next predict</div>
-
-    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.35rem;margin-bottom:0.65rem;">
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">5 · Next prediction</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Route to cluster</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Inject ≤{injection_limit} approved lessons</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#eef1f5;border:1px solid #cbd5e1;border-radius:6px;padding:0.4rem 0.65rem;">Apply calibration offset</span>
-      <span style="color:#64748b;">→</span>
-      <span style="background:#dbeafe;border:1px solid #93c5fd;border-radius:6px;padding:0.4rem 0.65rem;font-weight:600;">Publish via `{inj_mode}`</span>
-    </div>
-
-    <div style="border-left:3px dotted #94a3b8;padding-left:0.75rem;margin-top:0.5rem;color:#475569;font-size:0.82rem;line-height:1.45;">
-      <strong>hard_lock</strong> (prod default): live score stays neighbor-weighted — lessons shape reasoning only.<br/>
-      <strong>shadow ON</strong>: log <code>shadow_percentile</code> for offline eval without changing the live grade.
-    </div>
-  </div>
-</div>
-"""
-
-
 def render_how_this_connects(settings: Settings) -> None:
     """Detailed end-to-end diagram + copy for the Feedback Loop tab."""
-    inj_limit = settings.validation_feedback_injection_limit
-    wait_label = (
-        f"{settings.validation_dev_window_minutes}m"
-        if settings.validation_dev_window_minutes is not None
-        else f"{settings.validation_window_hours}h"
-    )
-
-    cal_on = "ON" if settings.validation_calibration_enabled else "OFF"
-    fb_on = "ON" if settings.validation_feedback_enabled else "OFF"
-    inj_on = "ON" if settings.validation_feedback_injection_enabled else "OFF"
-    shadow_on = "ON" if settings.validation_shadow_mode_enabled else "OFF"
-    inj_mode = settings.validation_injectability_mode
-
     _section_header(
         "How this connects",
         """
 Full closed loop from scrape → wait → learn → next prediction.
-The diagram below matches the code paths in validation + feedback today (Phases A–J).
+Read the diagram below; use the numbered steps for detail.
 """,
-    )
-
-    st.caption(
-        f"**Active flags (this environment):** feedback records {fb_on} · "
-        f"calibration {cal_on} · prompt injection {inj_on} · "
-        f"shadow {shadow_on} · injectability `{inj_mode}`"
-    )
-
-    st.markdown(
-        _feedback_loop_flowchart_html(
-            wait_label=wait_label,
-            injection_limit=inj_limit,
-            inj_mode=inj_mode,
-        ),
-        unsafe_allow_html=True,
     )
 
     st.markdown(
         f"""
+```
+  ┌─────────────┐     ~{settings.validation_window_hours}h wait      ┌──────────────────┐
+  │ 1. Collect  │ ───────────────────────────────▶ │ 2. Validate     │
+  │ + Predict   │   (Queue / worker re-scrape)     │ actual vs pred  │
+  └─────────────┘                                  └────────┬─────────┘
+                                                            │
+                         ┌──────────────────────────────────┼──────────────────────────┐
+                         │                                  ▼                          │
+                         │                    ┌─────────────────────────┐              │
+                         │                    │ 3. Store feedback       │              │
+                         │                    │ (template lesson +      │              │
+                         │                    │  assign cluster id)     │              │
+                         │                    └───────────┬─────────────┘              │
+                         │                                │                            │
+                         │              ┌─────────────────┴─────────────────┐          │
+                         │              ▼                                   ▼          │
+                         │   ┌────────────────────┐           ┌────────────────────┐   │
+                         │   │ 4a. Calibration    │           │ 4b. Cluster stats  │   │
+                         │   │ global / cluster   │           │ mean_delta, N      │   │
+                         │   │ offset for NEXT    │           │                    │   │
+                         │   │ predict            │           │                    │   │
+                         │   └─────────┬──────────┘           └─────────┬──────────┘   │
+                         │             │                                  │            │
+                         │             └────────────────┬─────────────────┘            │
+                         │                              ▼                              │
+                         │                 ┌─────────────────────────┐                 │
+                         │                 │ 5. Next prediction      │                 │
+                         │                 │ • route to cluster      │                 │
+                         │                 │ • inject ≤{settings.validation_feedback_injection_limit} lessons     │                 │
+                         │                 │ • apply calibration     │                 │
+                         │                 └─────────────────────────┘                 │
+                         └─────────────────────────────────────────────────────────────┘
+```
+
 **Step by step**
 
-1. **Collect + Predict** — Apify scrape → embed → nearest historical neighbors → Predictor agent.
-   Saves a `predictions` row with baseline engagement, neighbor context, and a `validation_due_at`
-   timestamp. In backtest mode you can zero engagement before predict and set `due_at = now`.
+1. **Collect + Predict** — scrape a post, score it (neighbor percentile + Predictor agent).  
+2. **Validate (~{settings.validation_window_hours}h later)** — re-scrape engagement, compute deltas. *This* is where the “48h results” come from — not from Manual process.  
+3. **Store feedback** — if Feedback records is ON, write a compact lesson JSON and assign a cluster (`length_format_followers`).  
+4. **Learn silently** — update global / cluster `mean_delta` (Calibration). Refresh cluster sample counts.  
+5. **Next predict** — route the new post to a cluster → pull only the latest **{settings.validation_feedback_injection_limit}** lessons from that cluster into the prompt → optionally add the calibration offset to the numeric percentile.
 
-2. **Validate ({wait_label} later, or immediately in dev/backtest)** — Validation Queue worker
-   re-scrapes the post URL, compares actual engagement to the corpus percentile, and records
-   `prediction_delta`. Failed re-scrapes mark the row failed (no profile fallback).
-
-3. **Store feedback (async)** — On success the worker only *enqueues* a `feedback_jobs` row.
-   A separate feedback worker generates:
-   - **v1 template** lessons (cheap, always-on when Feedback records is ON)
-   - **v2 hybrid** lessons (optional LLM; starts `pending` unless auto-approve rules pass)
-   Each row gets a `cluster_id` from metadata buckets (`length_format_followers`) or, when
-   embeddings exist, the nearest centroid. Cluster stats (`mean_delta`, `N`) refresh after batch writes.
-
-4. **Learn silently (4a + 4b)** — Calibration reads global or cluster `mean_delta` only when
-   `N ≥ N_min` (global default {settings.validation_calibration_n_min}, cluster
-   {settings.validation_cluster_n_min}). Cluster stats power routing and offline eval arms.
-
-5. **Next predict** — New post routes to a cluster → pulls the latest **≤{inj_limit}**
-   **approved** lessons (v2 preferred over v1; embedding-ranked when available) → optional
-   prompt injection → optional numeric calibration on the neighbor percentile.
-   **Important:** with injectability `hard_lock` (current safe default), the graded percentile
-   stays neighbor-weighted — lesson text shapes reasoning but does not overwrite the score.
-   Shadow mode logs what `soft_blend` *would* have produced for offline comparison.
-
-**Context window:** clusters + injection limit + approved-only v2 keep the prompt to a short
-comparative block — never the full feedback table.
-
-**Production posture (Phase F afternoon, N=702):** feedback collection **ON**; calibration,
-injection, and soft_blend **OFF** until offline MAE lift ≥5% on holdout≥30. Shadow telemetry
-**ON** for staging comparison. See the operations runbook / go-no-go doc before enabling learning.
+**Context window:** we never dump the whole feedback table. Clusters + Injection limit keep the prompt to a short comparative block.
 """
     )
 
     with st.expander("When would I turn a setting OFF?"):
         st.markdown(
             """
-- **Calibration OFF** — measure raw model accuracy; or stop a bad offset while N is still small/noisy.  
+- **Calibration OFF** — measure raw model accuracy; or temporarily stop a bad offset while N is still small/noisy.  
 - **Feedback records OFF** — stop writing new lessons (e.g. schema migration, debugging validation). Old rows remain.  
 - **Prompt injection OFF** — test whether lesson *text* helps beyond the numeric offset alone (A/B).  
-- **Shadow OFF** — stop logging `shadow_percentile` when you no longer need soft-blend comparisons.  
-- **Hybrid v2 OFF** — template-only lessons; cheaper and no human review queue.
 
 Day-to-day: keep feedback collection ON. Enable calibration or injection only
-after the evaluation gates in the operations runbook pass (≥5% MAE lift on holdout≥30).
+after the evaluation gates in the operations runbook pass.
 """
         )
 
