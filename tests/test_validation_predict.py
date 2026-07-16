@@ -3,7 +3,6 @@
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import numpy as np
 from pydantic_ai import UnexpectedModelBehavior
 
 from config.settings import Settings

@@ -7,6 +7,7 @@ from telemetry.apify_schemas import ApifyRunRecord
 from telemetry.schemas import RunMetadata, StepTelemetry, TelemetryWarning
 
 __all__ = [
+    "ApifyRunRecord",
     "GeminiCostSummary",
     "RunMetadata",
     "RunMetadataCollector",

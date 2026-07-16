@@ -525,12 +525,6 @@ def fetch_validated_prediction_ids_missing_feedback(
 
 
 # Re-export dashboard read helpers (implementation in dashboard_queries.py).
-from feedback.dashboard_queries import (  # noqa: E402
-    count_feedback_coverage,
-    hybrid_feedback_cost_stats,
-    list_clusters,
-    list_recent_feedback,
-)
 
 
 def _row_to_feedback_record(row: tuple) -> FeedbackRecord:

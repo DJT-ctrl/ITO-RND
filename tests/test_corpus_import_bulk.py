@@ -2,7 +2,6 @@
 
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-from uuid import UUID
 
 from validation_pipeline.corpus_import import (
     CorpusImportResult,

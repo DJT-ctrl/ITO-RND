@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from config.settings import Settings, load_settings
 from storage.vector_store import create_schema, get_connection

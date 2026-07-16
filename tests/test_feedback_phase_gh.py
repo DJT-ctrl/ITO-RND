@@ -15,7 +15,6 @@ from feedback.routing import (
     cosine_distance,
     nearest_centroid_cluster_id,
 )
-from feedback.schemas import DeltaSummary, FeedbackPayload
 from validation_pipeline.schemas import PredictionRecord
 
 

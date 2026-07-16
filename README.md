@@ -1,5 +1,7 @@
 # intotheopen-backend
 
+[![CI](https://github.com/intotheopen/intotheopen-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/intotheopen/intotheopen-backend/actions/workflows/ci.yml)
+
 LinkedIn post intelligence backend: scraping, enrichment, embeddings, multi-agent
 evaluation, validation pipeline, and feedback loop.
 
@@ -477,6 +479,9 @@ OpenAPI schema: http://localhost:8000/docs
 ```bash
 pytest -q
 ```
+
+CI runs lint, a Python 3.11/3.12 test matrix, and an optional Docker Compose smoke
+check on every PR — see [deploy/CI.md](deploy/CI.md).
 
 Tests mock external APIs (Apify, Gemini, Postgres where needed) — no API
 charges during CI or local test runs.

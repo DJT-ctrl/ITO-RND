@@ -343,7 +343,7 @@ async def bulk_import_vectorized_and_predict_async(
     When *backtest* is True, engagement metrics are zeroed out before
     prediction and ``due_immediately`` is forced to True.
     """
-    from validation_pipeline.corpus_import import CorpusImportResult, predict_on_posts_async
+    from validation_pipeline.corpus_import import predict_on_posts_async
     from validation_pipeline.schemas import strip_engagement_for_backtest
 
     posts, datasets = load_all_vectorized_collected_posts(

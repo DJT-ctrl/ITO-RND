@@ -1,0 +1,18 @@
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E", "F"]
+ignore = ["E501"]
+
+exclude = [
+    ".venv",
+    "data",
+    "First Ideas",
+    "current md",
+    "planning",
+    "dashboard",
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["F401"]

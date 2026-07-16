@@ -11,7 +11,6 @@ from typing import Any, Optional
 
 import psycopg
 
-from config.settings import Settings
 
 _PROFILE_COLUMNS = (
     "author_public_id",

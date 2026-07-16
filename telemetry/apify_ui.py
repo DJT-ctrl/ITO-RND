@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Optional
 
 import streamlit as st
 
 from config.settings import Settings
 from telemetry.apify import load_apify_runs, summarize_apify_runs
-from telemetry.apify_schemas import ApifyCostSummary, ApifyRunRecord
+from telemetry.apify_schemas import ApifyRunRecord
 
 
 def _format_cost(usd: float) -> str:

@@ -50,7 +50,6 @@ from config.paths import utc_artifact_stamp
 from config.settings import Settings, load_settings
 from processors.corpus_benchmarks import build_snapshot, save_snapshot
 from processors.dedup import dedupe_posts
-from processors.dedup import dedupe_posts
 from processors.finalize_records import analysed_dataset_label, finalize_analysed_records
 from processors.post_analyser import PostAnalyser
 from processors.profile_enricher import enrich_posts_with_follower_data

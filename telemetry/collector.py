@@ -8,7 +8,7 @@ from typing import Any, Callable, Optional
 from uuid import uuid4
 
 from config.settings import Settings
-from telemetry.pricing import cost_from_embedding_tokens, cost_from_llm_usage, cost_from_tokens
+from telemetry.pricing import cost_from_embedding_tokens, cost_from_llm_usage
 from telemetry.schemas import RunMetadata, StepStage, StepTelemetry, StepCallType, StepStatus
 from telemetry.thresholds import evaluate_thresholds
 
