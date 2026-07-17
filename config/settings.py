@@ -30,6 +30,8 @@ __all__ = [
 ]
 
 # Always load repo-root .env regardless of Streamlit/shell working directory.
+# Production (issue #13) injects via Secrets Manager → ephemeral env file
+# instead of a durable server-side .env; see deploy/SECRETS.md.
 _PROJECT_ROOT = PROJECT_ROOT
 load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -147,6 +149,11 @@ class Settings:
 
 def load_settings() -> Settings:
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
+    # Production: overlay AWS Secrets Manager values when ITO_AWS_SECRET_* is set.
+    from config.aws_secrets import load_aws_secrets_into_environ, resolve_secret_id
+
+    if resolve_secret_id():
+        load_aws_secrets_into_environ(override=True)
     sync_google_api_key()
     settings = Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),

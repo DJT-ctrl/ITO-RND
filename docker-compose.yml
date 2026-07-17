@@ -82,9 +82,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    # Secrets (GEMINI_API_KEY, APIFY_*, LINKEDIN_COOKIES) come from .env.
+    # Secrets come from ITO_ENV_FILE (default .env for local; on EC2 use
+    # /run/ito/runtime.env materialized from AWS Secrets Manager — issue #13).
     env_file:
-      - path: .env
+      - path: ${ITO_ENV_FILE:-.env}
         required: false
     environment:
       # Override the .env DATABASE_URL (which points at localhost for
