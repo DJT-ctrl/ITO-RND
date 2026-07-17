@@ -48,6 +48,17 @@ data/feedback_loop_overrides.json
 *.log
 *.tmp
 
+# OpenAPI / local tooling
+node_modules/
+
+# Terraform — CloudWatch observability (issue #16)
+infra/observability/.terraform/
+infra/observability/*.tfstate
+infra/observability/*.tfstate.*
+infra/observability/tfplan
+infra/observability/terraform.tfvars
+!infra/observability/terraform.tfvars.example
+
 # Local planning notes (kept on disk, excluded from repo)
 planning/
 First Ideas/

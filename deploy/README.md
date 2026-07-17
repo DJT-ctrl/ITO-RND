@@ -89,6 +89,19 @@ docker compose down             # stop the stack (keeps volumes/data)
 docker compose down -v          # stop AND wipe telemetry volumes
 ```
 
+## CloudWatch (AWS on-call path — issue #16)
+
+Local Prometheus/Grafana stay on-box. For AWS-native paging, apply
+[`infra/observability/`](../infra/observability/), then on the EC2 host:
+
+```bash
+sudo bash deploy/cloudwatch/install-agent.sh dev
+python scripts/publish_cw_api_metrics.py --environment dev --loop
+python scripts/test_cloudwatch_alarms.py --simulate
+```
+
+Runbook: [`docs/ops/CLOUDWATCH.md`](../docs/ops/CLOUDWATCH.md).
+
 ## Notes
 
 - **Data persistence:** Postgres data lives in `DB_DATA_PATH` (default
