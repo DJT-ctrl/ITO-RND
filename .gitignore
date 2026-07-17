@@ -42,6 +42,8 @@ htmlcov/
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
 data/pgdata/
+data/db_backups/*.dump
+data/telemetry/backup_status.json
 data/feedback_loop_overrides.json
 
 # Logs
@@ -59,3 +61,5 @@ T1.4_DATABASE_PLAN.md
 T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
+
+node_modules/

@@ -185,6 +185,9 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
 
+**Backup / DR (issue #15):** [docs/ops/BACKUP_DR.md](docs/ops/BACKUP_DR.md) —
+RPO ≤ 24h, RTO ≤ 4h, daily dumps + EBS snapshots, restore drill.
+
 ---
 
 ## Reproduce the corpus pipeline

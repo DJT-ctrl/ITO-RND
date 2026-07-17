@@ -107,6 +107,7 @@ services:
       - api
     volumes:
       - ./deploy/telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/telemetry/alerts:/etc/prometheus/alerts:ro
       - prometheus_data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -149,17 +150,19 @@ services:
       - "127.0.0.1:8080:8080"
 
   node-exporter:
-    # Host-level metrics (CPU/mem/disk/filesystem).
+    # Host-level metrics (CPU/mem/disk/filesystem) + backup textfile (issue #15).
     image: prom/node-exporter:v1.8.2
     restart: unless-stopped
     command:
       - --path.rootfs=/host
+      - --collector.textfile.directory=/textfile
     volumes:
       # `:ro` (not `:ro,rslave`) — rslave mount propagation is a Linux-host
       # optimization that Docker Desktop's VM rejects. Plain read-only is
       # portable and sufficient here; on a bare-metal EC2 host you may switch
       # this back to `:ro,rslave` to also see later-mounted filesystems.
       - /:/host:ro
+      - ./data/telemetry/node-exporter-textfile:/textfile:ro
     ports:
       - "127.0.0.1:9100:9100"
 
