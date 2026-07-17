@@ -1,0 +1,86 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for optional AWS OIDC plan
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: fmt + validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+      - name: Terraform init (no backend)
+        run: terraform init -backend=false
+      - name: Terraform validate
+        run: terraform validate
+
+  plan:
+    name: plan (drift detection)
+    needs: validate
+    runs-on: ubuntu-latest
+    # Runs when repository variables/secrets for AWS OIDC (or keys) are present.
+    # Without credentials the job is skipped — validate still gates PRs.
+    if: ${{ vars.ITO_TF_ENABLE_PLAN == 'true' }}
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      - name: Terraform init
+        run: |
+          if [[ -f backend.hcl.example ]]; then
+            echo "Using local init; configure backend.hcl in the runner for remote state."
+          fi
+          terraform init -backend=false
+      - name: Terraform plan (fail on drift / changes)
+        env:
+          TF_VAR_FILE: ${{ vars.ITO_TF_VAR_FILE || '../envs/dev.tfvars.example' }}
+        run: |
+          set +e
+          terraform plan -var-file="$TF_VAR_FILE" -detailed-exitcode -out=tfplan
+          code=$?
+          set -e
+          # 0 = no changes, 1 = error, 2 = changes/drift
+          if [[ $code -eq 1 ]]; then
+            exit 1
+          fi
+          if [[ $code -eq 2 ]]; then
+            echo "::error::Terraform plan reports changes (drift or pending apply). Review the plan output."
+            terraform show -no-color tfplan || true
+            exit 1
+          fi
+          echo "No drift detected for $TF_VAR_FILE"

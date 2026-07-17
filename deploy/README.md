@@ -46,6 +46,9 @@ CPU & memory).
 > even `:8000`/`:3000` via the security group and/or front them with the Nginx
 > config in `deploy/nginx.conf.example`.
 
+**AWS provisioning (issue #12):** Terraform under [`infra/`](../infra/) —
+bootstrap/teardown and CI drift checks in [`infra/README.md`](../infra/README.md).
+
 ### Port conflicts
 
 If a host port is already in use, override it in `.env` (or inline) — the
