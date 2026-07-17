@@ -15,17 +15,25 @@ AWS Secrets Manager (JSON secret, e.g. ito/prod/runtime)
         ▼
 scripts/fetch_aws_secrets.py  →  /run/ito/runtime.env  (tmpfs, mode 0600)
         │
-        │  ITO_ENV_FILE=/run/ito/runtime.env
-        ▼
-docker compose  →  container env  →  config.settings.load_settings()
+        ├─ docker compose --env-file …   (YAML ${POSTGRES_PASSWORD} interpolation)
+        └─ service env_file: ITO_ENV_FILE (injected into api container)
+                │
+                ▼
+        config.settings.load_settings()
 ```
+
+Compose has two separate env mechanisms:
+
+1. **Interpolation** — `${POSTGRES_PASSWORD}` in `docker-compose.yml` for `db` /
+   `migrate` / Grafana. Requires `docker compose --env-file /run/ito/runtime.env`
+   (see [`compose-with-runtime-env.sh`](compose-with-runtime-env.sh)).
+2. **Service `env_file`** — vars inside the `api` container via `ITO_ENV_FILE`.
 
 Optional in-process path: set `ITO_AWS_SECRET_ID` (or `ITO_AWS_SECRET_ARN`) in
 the process environment; `load_settings()` calls
 `config.aws_secrets.load_aws_secrets_into_environ()` before reading knobs.
-Prefer the **fetch script + Compose env_file** path on EC2 so Postgres /
-Grafana also receive passwords without embedding them in the unit file.
-
+Prefer the **fetch script + Compose** path on EC2 so Postgres / Grafana also
+receive passwords without embedding them in the unit file.
 Images already exclude `.env` (see `.dockerignore`). Do not `COPY` secrets.
 
 ## Secret payload

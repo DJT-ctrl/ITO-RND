@@ -146,6 +146,10 @@ def test_compose_and_gitignore_mention_runtime_env():
     assert "ITO_ENV_FILE" in compose
     gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "runtime.env" in gitignore
+    unit = (REPO_ROOT / "deploy" / "ito-stack.service").read_text(encoding="utf-8")
+    assert "compose-with-runtime-env.sh" in unit
+    wrapper = (REPO_ROOT / "deploy" / "compose-with-runtime-env.sh").read_text(encoding="utf-8")
+    assert "--env-file" in wrapper
 
 
 def test_secret_dict_to_env_lines_stable_order():
