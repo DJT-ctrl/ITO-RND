@@ -129,6 +129,13 @@ cp .env.example .env
 
 Full list and defaults: `.env.example`.
 
+### Data & secrets
+
+Scraped LinkedIn content and credentials are retained and handled according to
+the internal ops policy in **[deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md)**
+(indefinite retention by default; no PII masking in this milestone). Treat
+`LINKEDIN_COOKIES` and API keys like passwords — never commit real values.
+
 ---
 
 ## Build
@@ -552,4 +559,6 @@ docker compose up -d --build
 ## Further reading
 
 - [deploy/README.md](deploy/README.md) — production stack, Grafana, systemd, Nginx
+- [deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md) — data retention and secrets handling
 - [.env.example](.env.example) — full environment variable reference
+- [REMINDERS.md](REMINDERS.md) — issue-first workflow and backlog

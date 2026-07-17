@@ -94,6 +94,10 @@ docker compose down -v          # stop AND wipe telemetry volumes
 - **Data persistence:** Postgres data lives in `DB_DATA_PATH` (default
   `./data/pgdata`; point at the mounted EBS volume on EC2). Prometheus and
   Grafana use named volumes (`prometheus_data`, `grafana_data`).
+- **Data retention & secrets:** see [DATA_GOVERNANCE.md](DATA_GOVERNANCE.md).
+  Business data is kept indefinitely by default. Prometheus retention defaults
+  to unlimited (`PROMETHEUS_RETENTION_TIME=0`); set e.g. `90d` in `.env` on
+  small disks.
 - **cAdvisor / node-exporter** rely on Linux host mounts (`/sys`, `/proc`,
   `/var/lib/docker`). They are intended for the Linux EC2 host; on macOS/
   colima their host-level metrics may be partial, but the stack still starts.
