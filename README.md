@@ -185,6 +185,9 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
 
+**AWS runtime (issue #11):** [docs/ops/ADR-001-aws-runtime.md](docs/ops/ADR-001-aws-runtime.md) —
+MVP = single EC2 + Docker Compose (ECS deferred).
+
 ---
 
 ## Reproduce the corpus pipeline
