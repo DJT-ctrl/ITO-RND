@@ -15,7 +15,7 @@ legitimate future optimization but is scope creep for now (see
 PhaseT2plan.md Decision #3).
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pgvector.psycopg import register_vector
 
 from agents.diagnostics import build_diagnostic_agents
@@ -23,11 +23,13 @@ from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.variant_engine import build_variant_engine
+from api.errors import register_error_handlers
 from api.openapi_examples import (
     API_ERROR_EXAMPLE,
     EVALUATE_REQUEST_EXAMPLE,
     EVALUATE_RESPONSE_EXAMPLE,
     HEALTH_OK_EXAMPLE,
+    SERVICE_UNAVAILABLE_ERROR_EXAMPLE,
     SIMILAR_POSTS_REQUEST_EXAMPLE,
     SIMILAR_POSTS_RESPONSE_EXAMPLE,
     VALIDATION_ERROR_EXAMPLE,
@@ -63,10 +65,9 @@ All stable integration endpoints live under **`/api/v1/`**. See
 
 ## Errors
 
-Documented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are
-stable for client generation. Runtime mapping to these envelopes is implemented
-in issue #7; until then, validation failures return HTTP 422 as documented and
-other failures may return a plain `detail` string.
+All non-validation failures return `ApiErrorResponse` (`code`, `message`,
+`retryable`, `details`). Request validation failures return HTTP 422 as
+`ValidationErrorResponse`. See `docs/api/API_CONTRACT.md` for frontend handling.
 """.strip()
 
 _COMMON_ERROR_RESPONSES = {
@@ -75,9 +76,14 @@ _COMMON_ERROR_RESPONSES = {
         "description": "Request validation failed.",
         "content": {"application/json": {"example": VALIDATION_ERROR_EXAMPLE}},
     },
+    503: {
+        "model": ApiErrorResponse,
+        "description": "Dependency unavailable (database, provider, or configuration).",
+        "content": {"application/json": {"example": SERVICE_UNAVAILABLE_ERROR_EXAMPLE}},
+    },
     500: {
         "model": ApiErrorResponse,
-        "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+        "description": "Unhandled server error.",
         "content": {"application/json": {"example": API_ERROR_EXAMPLE}},
     },
 }
@@ -91,6 +97,8 @@ app = FastAPI(
         {"name": "v1", "description": "Stable v1 contract for frontend integration."},
     ],
 )
+
+register_error_handlers(app)
 
 # Telemetry: expose Prometheus metrics at /metrics for the local Prometheus
 # scraper (see docker-compose.yml's `prometheus` service + deploy/telemetry/).
@@ -133,10 +141,7 @@ def health() -> HealthResponse:
     },
 )
 def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
-    try:
-        query_vector, _prompt_tokens = embed_query(request.content, settings)
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    query_vector, _prompt_tokens = embed_query(request.content, settings)
 
     conn = get_connection(settings)
     try:
@@ -188,23 +193,20 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
         settings=settings,
         collector=collector,
     )
-    try:
-        state: PostEvaluationState = await run_evaluation_cycle(
-            request.content,
-            settings,
-            predictor=predictor_agent,
-            diagnostics=diagnostic_agents,
-            finalize=variant_hook,
-            user_id=request.user_id,
-            use_voice_profile=request.use_voice_profile,
-            seo_mode=request.seo_mode,
-            use_google_trends=request.use_google_trends,
-            collector=collector,
-            variant_strategy=request.variant_strategy,
-            reembed_variant_neighbors=request.reembed_variant_neighbors,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    state: PostEvaluationState = await run_evaluation_cycle(
+        request.content,
+        settings,
+        predictor=predictor_agent,
+        diagnostics=diagnostic_agents,
+        finalize=variant_hook,
+        user_id=request.user_id,
+        use_voice_profile=request.use_voice_profile,
+        seo_mode=request.seo_mode,
+        use_google_trends=request.use_google_trends,
+        collector=collector,
+        variant_strategy=request.variant_strategy,
+        reembed_variant_neighbors=request.reembed_variant_neighbors,
+    )
 
     return EvaluateResponse.model_validate(state.model_dump())
 

@@ -76,6 +76,7 @@ def test_error_models_documented_on_post_routes(openapi_spec: dict):
         responses = openapi_spec["paths"][path]["post"]["responses"]
         assert "422" in responses
         assert "500" in responses
+        assert "503" in responses
         error_schema = _resolve_ref(
             openapi_spec,
             responses["500"]["content"]["application/json"]["schema"],

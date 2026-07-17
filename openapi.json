@@ -2,7 +2,7 @@
   "components": {
     "schemas": {
       "ApiErrorResponse": {
-        "description": "Documented error envelope for frontend handling (runtime wiring in #7).",
+        "description": "Documented error envelope for frontend handling.",
         "properties": {
           "code": {
             "description": "Machine-readable error code (e.g. EMBED_FAILED, AGENT_UNAVAILABLE).",
@@ -948,7 +948,7 @@
     }
   },
   "info": {
-    "description": "Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.\n\n## Versioning\n\nAll stable integration endpoints live under **`/api/v1/`**. See\n`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.\n\n## Errors\n\nDocumented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are\nstable for client generation. Runtime mapping to these envelopes is implemented\nin issue #7; until then, validation failures return HTTP 422 as documented and\nother failures may return a plain `detail` string.",
+    "description": "Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.\n\n## Versioning\n\nAll stable integration endpoints live under **`/api/v1/`**. See\n`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.\n\n## Errors\n\nAll non-validation failures return `ApiErrorResponse` (`code`, `message`,\n`retryable`, `details`). Request validation failures return HTTP 422 as\n`ValidationErrorResponse`. See `docs/api/API_CONTRACT.md` for frontend handling.",
     "title": "IntoTheOpen API",
     "version": "1.0.0"
   },
@@ -1111,7 +1111,25 @@
                 }
               }
             },
-            "description": "Unhandled server error (documented contract; runtime envelope in #7)."
+            "description": "Unhandled server error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "code": "DATABASE_UNAVAILABLE",
+                  "details": {
+                    "error_type": "OperationalError"
+                  },
+                  "message": "Database is temporarily unavailable.",
+                  "retryable": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Dependency unavailable (database, provider, or configuration)."
           }
         },
         "summary": "Run the full multi-agent evaluation cycle",
@@ -1209,7 +1227,25 @@
                 }
               }
             },
-            "description": "Unhandled server error (documented contract; runtime envelope in #7)."
+            "description": "Unhandled server error."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "code": "DATABASE_UNAVAILABLE",
+                  "details": {
+                    "error_type": "OperationalError"
+                  },
+                  "message": "Database is temporarily unavailable.",
+                  "retryable": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Dependency unavailable (database, provider, or configuration)."
           }
         },
         "summary": "Find similar historical posts",

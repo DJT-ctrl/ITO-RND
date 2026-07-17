@@ -112,3 +112,17 @@ API_ERROR_EXAMPLE = {
     "retryable": True,
     "details": {"provider": "google"},
 }
+
+SERVICE_UNAVAILABLE_ERROR_EXAMPLE = {
+    "code": "DATABASE_UNAVAILABLE",
+    "message": "Database is temporarily unavailable.",
+    "retryable": True,
+    "details": {"error_type": "OperationalError"},
+}
+
+CONFIG_MISSING_ERROR_EXAMPLE = {
+    "code": "CONFIG_MISSING",
+    "message": "Required AI provider configuration is missing.",
+    "retryable": False,
+    "details": {"config_key": "GEMINI_API_KEY"},
+}

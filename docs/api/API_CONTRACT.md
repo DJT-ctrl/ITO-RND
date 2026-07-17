@@ -61,8 +61,10 @@ of `SimilarPost` objects (engagement stats + optional enrichment fields).
 
 | Status | Body | When |
 | ------ | ---- | ---- |
-| 422 | `ValidationErrorResponse` | Empty `content`, `limit` out of range |
-| 500 | `ApiErrorResponse` (documented) | Embed/DB failure (plain `detail` until #7) |
+| 422 | `ValidationErrorResponse` | Request validation failed |
+| 502 | `ApiErrorResponse` | AI provider error |
+| 503 | `ApiErrorResponse` | Database or configuration unavailable |
+| 500 | `ApiErrorResponse` | Unexpected server error |
 
 ---
 
@@ -138,9 +140,9 @@ FastAPI returns `ValidationErrorResponse`:
 
 **UI guidance:** map `loc` + `msg` to form field errors.
 
-### Server errors (500) — documented; runtime in #7
+### Server / dependency errors — `ApiErrorResponse`
 
-Target envelope (`ApiErrorResponse`):
+All non-validation failures return:
 
 ```json
 {
@@ -151,8 +153,16 @@ Target envelope (`ApiErrorResponse`):
 }
 ```
 
-Until #7 merges, some 500 responses may still be `{"detail": "..."}`. Frontend
-should handle both temporarily.
+| HTTP | When |
+| ---- | ---- |
+| 400 | Invalid request surfaced by the backend (`BAD_REQUEST`) |
+| 502 | AI provider bad gateway (`PROVIDER_ERROR`) |
+| 503 | Database outage or missing configuration (`DATABASE_UNAVAILABLE`, `CONFIG_MISSING`) |
+| 500 | Unexpected failure (`INTERNAL_ERROR`, `EMBED_FAILED`) |
+
+**UI guidance:** branch on `code`; offer retry when `retryable` is `true`.
+
+Full code list: [`ERROR_CODES.md`](ERROR_CODES.md)
 
 ---
 

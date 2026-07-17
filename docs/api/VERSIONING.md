@@ -50,12 +50,13 @@ OpenAPI documents two error shapes:
 
 | HTTP | Model | Purpose |
 | ---- | ----- | ------- |
-| 422 | `ValidationErrorResponse` | Pydantic request validation (active today) |
-| 500 | `ApiErrorResponse` | Stable envelope for server failures |
+| 422 | `ValidationErrorResponse` | Pydantic request validation |
+| 502/503 | `ApiErrorResponse` | Provider or dependency outage |
+| 500 | `ApiErrorResponse` | Unexpected server failure |
 
-Runtime mapping of all failures to `ApiErrorResponse` is tracked in issue **#7**.
-The OpenAPI spec is published now so frontend client generation can proceed; #7
-wires the handlers without changing the documented schema.
+Runtime mapping of all failures to `ApiErrorResponse` is implemented in
+`api/errors.py` (issue **#7**). Validation failures remain HTTP 422 with
+`ValidationErrorResponse`.
 
 ## Client generation
 

@@ -176,7 +176,7 @@ class EvaluateResponse(BaseModel):
 
 
 class ApiErrorResponse(BaseModel):
-    """Documented error envelope for frontend handling (runtime wiring in #7)."""
+    """Documented error envelope for frontend handling."""
 
     code: str = Field(..., description="Machine-readable error code (e.g. EMBED_FAILED, AGENT_UNAVAILABLE).")
     message: str = Field(..., description="Human-readable summary safe to show in the UI.")
