@@ -48,6 +48,17 @@ data/feedback_loop_overrides.json
 *.log
 *.tmp
 
+# OpenAPI / local tooling
+node_modules/
+
+# Terraform — AWS WAF (issue #17)
+infra/waf/.terraform/
+infra/waf/*.tfstate
+infra/waf/*.tfstate.*
+infra/waf/tfplan
+infra/waf/terraform.tfvars
+!infra/waf/terraform.tfvars.example
+
 # Local planning notes (kept on disk, excluded from repo)
 planning/
 First Ideas/

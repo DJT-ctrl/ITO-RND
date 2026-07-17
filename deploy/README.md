@@ -80,6 +80,17 @@ sudo systemctl enable --now ito-stack.service
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
+## AWS WAF (issue #17 — post-launch)
+
+Edge WAF attaches to an **ALB** (not bare Nginx/EC2). Terraform:
+[`infra/waf/`](../infra/waf/). Runbook: [`docs/ops/WAF.md`](../docs/ops/WAF.md).
+
+```bash
+cd infra/waf && cp terraform.tfvars.example terraform.tfvars
+terraform apply -var="enable_blocking=false"   # COUNT mode first
+python scripts/test_waf_edge.py --simulate
+```
+
 ## Common operations
 
 ```bash
