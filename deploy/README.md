@@ -80,6 +80,19 @@ sudo systemctl enable --now ito-stack.service
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
+## HTTPS ingress (issue #14)
+
+Terminate TLS on the host with Nginx (not ALB by default). Runbook:
+[`docs/ops/INGRESS_HTTPS.md`](../docs/ops/INGRESS_HTTPS.md).
+
+```bash
+sudo cp deploy/nginx/ito-api.conf /etc/nginx/conf.d/ito-api.conf
+sudo bash deploy/nginx/install-tls.sh api.example.com you@example.com
+python scripts/test_ingress_hardening.py --simulate
+```
+
+WAF is deferred to issue **#17**.
+
 ## Common operations
 
 ```bash
