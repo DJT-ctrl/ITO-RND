@@ -80,6 +80,20 @@ sudo systemctl enable --now ito-stack.service
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
+## AWS deploy & rollback (issue #20)
+
+Single-instance **controlled rolling restart** (not a second blue/green host).
+Full runbook: [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md).
+
+```bash
+python scripts/deploy_release.py --ref <sha-or-tag> --dry-run
+python scripts/deploy_release.py --ref <sha-or-tag>
+python scripts/rollback_release.py          # uses data/deploy/LAST_GOOD.json
+python scripts/run_deploy_drill.py --simulate
+```
+
+Downtime expectation: **≤ 10 minutes** for API recreate on one node.
+
 ## Common operations
 
 ```bash
