@@ -1,0 +1,1257 @@
+{
+  "components": {
+    "schemas": {
+      "ApiErrorResponse": {
+        "description": "Documented error envelope for frontend handling (runtime wiring in #7).",
+        "properties": {
+          "code": {
+            "description": "Machine-readable error code (e.g. EMBED_FAILED, AGENT_UNAVAILABLE).",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional structured context (field names, provider hint, etc.).",
+            "title": "Details"
+          },
+          "message": {
+            "description": "Human-readable summary safe to show in the UI.",
+            "title": "Message",
+            "type": "string"
+          },
+          "retryable": {
+            "description": "Whether the client should offer a retry action.",
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "ApiErrorResponse",
+        "type": "object"
+      },
+      "DiagnosticResult": {
+        "description": "Single diagnostic worker output (T3.3 contract).",
+        "properties": {
+          "advantages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Advantages",
+            "type": "array"
+          },
+          "flaws": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Flaws",
+            "type": "array"
+          },
+          "improvements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Improvements",
+            "type": "array"
+          },
+          "score": {
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "score"
+        ],
+        "title": "DiagnosticResult",
+        "type": "object"
+      },
+      "EvaluateRequest": {
+        "properties": {
+          "content": {
+            "description": "Draft post text to evaluate",
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "reembed_variant_neighbors": {
+            "default": false,
+            "description": "If true, each of the 3 variants re-embeds its own text and fetches its own nearest historical neighbors before being scored (more accurate when a variant shifts topic/angle, at the cost of up to 3 extra Gemini embed calls + DB queries). If false (default), all variants are scored against the original draft's shared neighbors (cheaper, and keeps all 3 compared against one consistent baseline).",
+            "title": "Reembed Variant Neighbors",
+            "type": "boolean"
+          },
+          "seo_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "corpus",
+                  "gemini_only"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SEO/discoverability diagnostic mode. 'corpus' (default) grounds the SEO worker in your scraped dataset; 'gemini_only' uses the legacy static prompt for A/B testing.",
+            "title": "Seo Mode"
+          },
+          "use_google_trends": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only.",
+            "title": "Use Google Trends"
+          },
+          "use_voice_profile": {
+            "default": true,
+            "description": "Whether to derive and apply the subscriber's voice profile when user_id is given. Has no effect if user_id is not set. Set to false to scope retrieval to the subscriber without personalizing the agent prompts.",
+            "title": "Use Voice Profile",
+            "type": "boolean"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional subscriber id (personalization). When given: (1) similar-post retrieval is scoped to that subscriber's own posts, falling back to the global corpus if they don't have enough yet, and (2) a derived voice profile from their top posts is injected into every agent's prompt, when enough of their own posts exist.",
+            "title": "User Id"
+          },
+          "variant_strategy": {
+            "default": "dimension",
+            "description": "Which distinctness axis the T3.4 Variant Optimisation Engine should use: 'dimension' (one variant per SEO/clarity/tone diagnostic), 'narrative' (different hook/story angles), or 'tiered' (safe/moderate/bold rewrite).",
+            "enum": [
+              "dimension",
+              "narrative",
+              "tiered"
+            ],
+            "title": "Variant Strategy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "EvaluateRequest",
+        "type": "object"
+      },
+      "EvaluateResponse": {
+        "description": "Stable v1 response contract for POST /api/v1/evaluate.",
+        "properties": {
+          "diagnostics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DiagnosticResult"
+            },
+            "description": "Diagnostic worker outputs keyed by check name (e.g. seo, clarity, tone).",
+            "title": "Diagnostics",
+            "type": "object"
+          },
+          "draft_content": {
+            "title": "Draft Content",
+            "type": "string"
+          },
+          "embedding_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Version"
+          },
+          "errors": {
+            "description": "Non-fatal agent failures collected during the evaluation cycle.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "predictor_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictorResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "query_embedding": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Embedding"
+          },
+          "run_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "similar_posts": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarPost"
+            },
+            "title": "Similar Posts",
+            "type": "array"
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/VariantResult"
+            },
+            "title": "Variants",
+            "type": "array"
+          },
+          "voice_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VoiceProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "draft_content"
+        ],
+        "title": "EvaluateResponse",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "api_version": {
+            "default": "v1",
+            "description": "Stable path version for frontend integration (`/api/v1/...`).",
+            "title": "Api Version",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "description": "Liveness indicator.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "PredictorResult": {
+        "description": "Engagement prediction for the draft (T3.2 contract).",
+        "properties": {
+          "predicted_comments": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Comments"
+          },
+          "predicted_engagement_percentile": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Predicted Engagement Percentile",
+            "type": "number"
+          },
+          "predicted_likes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Likes"
+          },
+          "predicted_shares": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Shares"
+          },
+          "predicted_total_engagement": {
+            "minimum": 0.0,
+            "title": "Predicted Total Engagement",
+            "type": "integer"
+          },
+          "reasoning": {
+            "minLength": 1,
+            "title": "Reasoning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "predicted_engagement_percentile",
+          "predicted_total_engagement",
+          "reasoning"
+        ],
+        "title": "PredictorResult",
+        "type": "object"
+      },
+      "RunMetadata": {
+        "properties": {
+          "agent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Model"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "reembed_variant_neighbors": {
+            "default": false,
+            "title": "Reembed Variant Neighbors",
+            "type": "boolean"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": "1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "seo_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seo Mode"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepTelemetry"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "total_input_tokens": {
+            "default": 0,
+            "title": "Total Input Tokens",
+            "type": "integer"
+          },
+          "total_latency_ms": {
+            "default": 0.0,
+            "title": "Total Latency Ms",
+            "type": "number"
+          },
+          "total_output_tokens": {
+            "default": 0,
+            "title": "Total Output Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "variant_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant Strategy"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "started_at"
+        ],
+        "title": "RunMetadata",
+        "type": "object"
+      },
+      "SimilarPost": {
+        "properties": {
+          "audience_adjusted_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience Adjusted Percentile"
+          },
+          "comments": {
+            "title": "Comments",
+            "type": "integer"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "cosine_distance": {
+            "title": "Cosine Distance",
+            "type": "number"
+          },
+          "engagement_percentile": {
+            "title": "Engagement Percentile",
+            "type": "number"
+          },
+          "engagement_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Rate"
+          },
+          "engagement_zscore": {
+            "title": "Engagement Zscore",
+            "type": "number"
+          },
+          "follower_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follower Count"
+          },
+          "hashtag_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag Count"
+          },
+          "hook_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hook Type"
+          },
+          "likes": {
+            "title": "Likes",
+            "type": "integer"
+          },
+          "post_id": {
+            "title": "Post Id",
+            "type": "string"
+          },
+          "shares": {
+            "title": "Shares",
+            "type": "integer"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "total_engagement": {
+            "title": "Total Engagement",
+            "type": "integer"
+          },
+          "word_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word Count"
+          }
+        },
+        "required": [
+          "post_id",
+          "content",
+          "likes",
+          "comments",
+          "shares",
+          "total_engagement",
+          "engagement_percentile",
+          "engagement_zscore",
+          "cosine_distance"
+        ],
+        "title": "SimilarPost",
+        "type": "object"
+      },
+      "SimilarPostsRequest": {
+        "properties": {
+          "content": {
+            "description": "Draft post text to find similar posts for",
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional subscriber id. When given, retrieval is scoped to that subscriber's own posts first, falling back to the global corpus automatically if they don't have enough of their own yet (cold start).",
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "SimilarPostsRequest",
+        "type": "object"
+      },
+      "SimilarPostsResponse": {
+        "properties": {
+          "query_content": {
+            "title": "Query Content",
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarPost"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "query_content",
+          "results"
+        ],
+        "title": "SimilarPostsResponse",
+        "type": "object"
+      },
+      "StepTelemetry": {
+        "properties": {
+          "call_type": {
+            "enum": [
+              "llm",
+              "embedding",
+              "db",
+              "compute",
+              "external"
+            ],
+            "title": "Call Type",
+            "type": "string"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "number"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "stage": {
+            "enum": [
+              "retrieval",
+              "setup",
+              "agent",
+              "variant"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "label",
+          "stage",
+          "call_type",
+          "status",
+          "latency_ms",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "StepTelemetry",
+        "type": "object"
+      },
+      "TelemetryWarning": {
+        "properties": {
+          "actual": {
+            "title": "Actual",
+            "type": "number"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "threshold",
+          "actual"
+        ],
+        "title": "TelemetryWarning",
+        "type": "object"
+      },
+      "ValidationErrorItem": {
+        "properties": {
+          "loc": {
+            "description": "JSON path to the invalid field.",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Loc",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Msg",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationErrorItem",
+        "type": "object"
+      },
+      "ValidationErrorResponse": {
+        "description": "FastAPI/Pydantic request validation failure (HTTP 422).",
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorItem"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ValidationErrorResponse",
+        "type": "object"
+      },
+      "VariantResult": {
+        "properties": {
+          "predicted_engagement_percentile": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Predicted Engagement Percentile",
+            "type": "number"
+          },
+          "predicted_total_engagement": {
+            "minimum": 0.0,
+            "title": "Predicted Total Engagement",
+            "type": "integer"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "strategy_label": {
+            "title": "Strategy Label",
+            "type": "string"
+          },
+          "variant_text": {
+            "title": "Variant Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variant_text",
+          "rationale",
+          "strategy_label",
+          "predicted_engagement_percentile",
+          "predicted_total_engagement"
+        ],
+        "title": "VariantResult",
+        "type": "object"
+      },
+      "VoiceProfile": {
+        "description": "Derived writing-style summary for a subscriber (cold-start safe).",
+        "properties": {
+          "avg_hashtag_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hashtag Count"
+          },
+          "avg_word_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Word Count"
+          },
+          "cta_usage_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cta Usage Ratio"
+          },
+          "dominant_hook_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Hook Type"
+          },
+          "dominant_tone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Tone"
+          },
+          "dominant_writing_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Writing Style"
+          },
+          "sample_size": {
+            "description": "Number of posts used to build the profile.",
+            "minimum": 1.0,
+            "title": "Sample Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sample_size"
+        ],
+        "title": "VoiceProfile",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.\n\n## Versioning\n\nAll stable integration endpoints live under **`/api/v1/`**. See\n`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.\n\n## Errors\n\nDocumented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are\nstable for client generation. Runtime mapping to these envelopes is implemented\nin issue #7; until then, validation failures return HTTP 422 as documented and\nother failures may return a plain `detail` string.",
+    "title": "IntoTheOpen API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/evaluate": {
+      "post": {
+        "description": "Run the async evaluation cycle end-to-end over HTTP.",
+        "operationId": "evaluate_api_v1_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "content": "Excited to announce our new backend engineering hire!",
+                "reembed_variant_neighbors": false,
+                "use_voice_profile": true,
+                "user_id": "user-42",
+                "variant_strategy": "dimension"
+              },
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "diagnostics": {
+                    "clarity": {
+                      "advantages": [
+                        "Single clear announcement"
+                      ],
+                      "flaws": [],
+                      "improvements": [
+                        "Optional one-line benefit for the reader"
+                      ],
+                      "score": 8.0
+                    },
+                    "seo": {
+                      "advantages": [
+                        "Clear role signal"
+                      ],
+                      "flaws": [
+                        "Missing industry keywords in the first line"
+                      ],
+                      "improvements": [
+                        "Add stack or team context in the hook"
+                      ],
+                      "score": 7.5
+                    },
+                    "tone": {
+                      "advantages": [
+                        "Professional and approachable"
+                      ],
+                      "flaws": [
+                        "Slightly generic enthusiasm"
+                      ],
+                      "improvements": [
+                        "Name the team or mission tie-in"
+                      ],
+                      "score": 7.0
+                    }
+                  },
+                  "draft_content": "Excited to announce our new backend engineering hire!",
+                  "embedding_model_version": "text-embedding-004",
+                  "errors": [],
+                  "predictor_result": {
+                    "predicted_comments": 8,
+                    "predicted_engagement_percentile": 81.0,
+                    "predicted_likes": 30,
+                    "predicted_shares": 4,
+                    "predicted_total_engagement": 42,
+                    "reasoning": "Neighbors with similar hiring announcements scored in the 75\u201385 percentile band."
+                  },
+                  "similar_posts": [
+                    {
+                      "audience_adjusted_percentile": 79.0,
+                      "comments": 18,
+                      "content": "Three lessons from our AI launch week\u2026",
+                      "cosine_distance": 0.08,
+                      "engagement_percentile": 82.5,
+                      "engagement_rate": 0.034,
+                      "engagement_zscore": 1.1,
+                      "follower_count": 4200,
+                      "hashtag_count": 2,
+                      "hook_type": "story",
+                      "likes": 120,
+                      "post_id": "post-101",
+                      "shares": 4,
+                      "topic": "product launch",
+                      "total_engagement": 142,
+                      "word_count": 186
+                    }
+                  ],
+                  "variants": [
+                    {
+                      "predicted_engagement_percentile": 84.0,
+                      "predicted_total_engagement": 48,
+                      "rationale": "Leads with outcome and team context.",
+                      "strategy_label": "seo-focused",
+                      "variant_text": "We just welcomed a backend engineer to help scale our API platform."
+                    }
+                  ],
+                  "voice_profile": {
+                    "avg_hashtag_count": 1.5,
+                    "avg_word_count": 142.0,
+                    "cta_usage_ratio": 0.4,
+                    "dominant_hook_type": "announcement",
+                    "dominant_tone": "professional",
+                    "dominant_writing_style": "concise",
+                    "sample_size": 8
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateResponse"
+                }
+              }
+            },
+            "description": "Evaluation cycle result."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "details": {
+                    "provider": "google"
+                  },
+                  "message": "Failed to embed query text.",
+                  "retryable": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unhandled server error (documented contract; runtime envelope in #7)."
+          }
+        },
+        "summary": "Run the full multi-agent evaluation cycle",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/similar-posts": {
+      "post": {
+        "operationId": "similar_posts_api_v1_similar_posts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "content": "Excited to share what we learned shipping our first AI feature.",
+                "limit": 5
+              },
+              "schema": {
+                "$ref": "#/components/schemas/SimilarPostsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "query_content": "Excited to share what we learned shipping our first AI feature.",
+                  "results": [
+                    {
+                      "audience_adjusted_percentile": 79.0,
+                      "comments": 18,
+                      "content": "Three lessons from our AI launch week\u2026",
+                      "cosine_distance": 0.08,
+                      "engagement_percentile": 82.5,
+                      "engagement_rate": 0.034,
+                      "engagement_zscore": 1.1,
+                      "follower_count": 4200,
+                      "hashtag_count": 2,
+                      "hook_type": "story",
+                      "likes": 120,
+                      "post_id": "post-101",
+                      "shares": 4,
+                      "topic": "product launch",
+                      "total_engagement": 142,
+                      "word_count": 186
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarPostsResponse"
+                }
+              }
+            },
+            "description": "Nearest-neighbor posts for the draft."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "details": {
+                    "provider": "google"
+                  },
+                  "message": "Failed to embed query text.",
+                  "retryable": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            },
+            "description": "Unhandled server error (documented contract; runtime envelope in #7)."
+          }
+        },
+        "summary": "Find similar historical posts",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "api_version": "v1",
+                  "status": "ok"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness check",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "description": "Liveness and API version probe.",
+      "name": "health"
+    },
+    {
+      "description": "Stable v1 contract for frontend integration.",
+      "name": "v1"
+    }
+  ]
+}

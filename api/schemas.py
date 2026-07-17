@@ -1,13 +1,26 @@
-"""Pydantic request/response models for the T2.2 similarity-search endpoint.
+"""Pydantic request/response models for the public HTTP API (v1 contract).
 
-This module *is* T2.3 ("API Contract Definition") — FastAPI generates the
-full OpenAPI spec (served at /docs and /openapi.json) directly from these
-models, so no separate contract document is needed.
+FastAPI generates the OpenAPI spec from these models (`/docs`, `/openapi.json`).
+Human-readable policy and examples live in `docs/api/`. A committed
+`openapi.json` snapshot is checked in for contract review and CI (#24).
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from telemetry.schemas import RunMetadata
+
+API_VERSION = "1.0.0"
+API_PATH_VERSION = "v1"
+
+
+class HealthResponse(BaseModel):
+    status: Literal["ok"] = Field(..., description="Liveness indicator.")
+    api_version: str = Field(
+        default=API_PATH_VERSION,
+        description="Stable path version for frontend integration (`/api/v1/...`).",
+    )
 
 
 class SimilarPostsRequest(BaseModel):
@@ -33,15 +46,9 @@ class SimilarPost(BaseModel):
     engagement_percentile: float
     engagement_zscore: float
     cosine_distance: float
-    # Optional follower-normalization (T6 Point 1). Populated only for posts
-    # that went through processors/run_pipeline.py's
-    # --with-profile-enrichment path AND had a resolvable follower count —
-    # None otherwise, so this is a pure additive field: existing callers
-    # that never used profile enrichment see no behavior change.
     follower_count: Optional[int] = None
     engagement_rate: Optional[float] = None
     audience_adjusted_percentile: Optional[float] = None
-    # Optional discoverability metadata for Tier 1 SEO neighbor summaries.
     hashtag_count: Optional[int] = None
     word_count: Optional[int] = None
     topic: Optional[str] = None
@@ -51,6 +58,46 @@ class SimilarPost(BaseModel):
 class SimilarPostsResponse(BaseModel):
     query_content: str
     results: list[SimilarPost]
+
+
+class VoiceProfile(BaseModel):
+    """Derived writing-style summary for a subscriber (cold-start safe)."""
+
+    dominant_hook_type: Optional[str] = None
+    dominant_tone: Optional[str] = None
+    dominant_writing_style: Optional[str] = None
+    avg_word_count: Optional[float] = None
+    avg_hashtag_count: Optional[float] = None
+    cta_usage_ratio: Optional[float] = None
+    sample_size: int = Field(..., ge=1, description="Number of posts used to build the profile.")
+
+
+class PredictorResult(BaseModel):
+    """Engagement prediction for the draft (T3.2 contract)."""
+
+    predicted_engagement_percentile: float = Field(..., ge=0, le=100)
+    predicted_total_engagement: int = Field(..., ge=0)
+    predicted_likes: Optional[int] = Field(default=None, ge=0)
+    predicted_comments: Optional[int] = Field(default=None, ge=0)
+    predicted_shares: Optional[int] = Field(default=None, ge=0)
+    reasoning: str = Field(..., min_length=1)
+
+
+class DiagnosticResult(BaseModel):
+    """Single diagnostic worker output (T3.3 contract)."""
+
+    score: float = Field(..., ge=0, le=10)
+    flaws: list[str] = Field(default_factory=list)
+    advantages: list[str] = Field(default_factory=list)
+    improvements: list[str] = Field(default_factory=list)
+
+
+class VariantResult(BaseModel):
+    variant_text: str
+    rationale: str
+    strategy_label: str
+    predicted_engagement_percentile: float = Field(..., ge=0, le=100)
+    predicted_total_engagement: int = Field(..., ge=0)
 
 
 class EvaluateRequest(BaseModel):
@@ -105,3 +152,48 @@ class EvaluateRequest(BaseModel):
             "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
         ),
     )
+
+
+class EvaluateResponse(BaseModel):
+    """Stable v1 response contract for POST /api/v1/evaluate."""
+
+    draft_content: str
+    similar_posts: list[SimilarPost] = Field(default_factory=list)
+    voice_profile: Optional[VoiceProfile] = None
+    predictor_result: Optional[PredictorResult] = None
+    diagnostics: dict[str, DiagnosticResult] = Field(
+        default_factory=dict,
+        description="Diagnostic worker outputs keyed by check name (e.g. seo, clarity, tone).",
+    )
+    variants: list[VariantResult] = Field(default_factory=list)
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal agent failures collected during the evaluation cycle.",
+    )
+    run_metadata: Optional[RunMetadata] = None
+    query_embedding: Optional[list[float]] = None
+    embedding_model_version: Optional[str] = None
+
+
+class ApiErrorResponse(BaseModel):
+    """Documented error envelope for frontend handling (runtime wiring in #7)."""
+
+    code: str = Field(..., description="Machine-readable error code (e.g. EMBED_FAILED, AGENT_UNAVAILABLE).")
+    message: str = Field(..., description="Human-readable summary safe to show in the UI.")
+    retryable: bool = Field(..., description="Whether the client should offer a retry action.")
+    details: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Optional structured context (field names, provider hint, etc.).",
+    )
+
+
+class ValidationErrorItem(BaseModel):
+    loc: list[str | int] = Field(..., description="JSON path to the invalid field.")
+    msg: str
+    type: str
+
+
+class ValidationErrorResponse(BaseModel):
+    """FastAPI/Pydantic request validation failure (HTTP 422)."""
+
+    detail: list[ValidationErrorItem]

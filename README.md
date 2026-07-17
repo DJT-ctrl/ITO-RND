@@ -470,6 +470,9 @@ curl -s localhost:8000/api/v1/evaluate \
 
 OpenAPI schema: http://localhost:8000/docs
 
+**API contract (v1):** [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md) ·
+[`docs/api/VERSIONING.md`](docs/api/VERSIONING.md) · committed snapshot [`openapi.json`](openapi.json)
+
 ---
 
 ## Tests
