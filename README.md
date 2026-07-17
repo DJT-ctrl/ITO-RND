@@ -185,6 +185,9 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
 
+**Orchestrator latency (issue #22):** [docs/ops/ORCHESTRATOR_LATENCY.md](docs/ops/ORCHESTRATOR_LATENCY.md)
+— agent/finalize timeouts and partial-result policy for `/api/v1/evaluate`.
+
 ---
 
 ## Reproduce the corpus pipeline

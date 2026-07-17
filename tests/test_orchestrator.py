@@ -130,7 +130,9 @@ def test_one_failing_agent_does_not_drop_other_results():
         }
         state = asyncio.run(run_evaluation_cycle("draft text", fake_settings(), diagnostics=diagnostics))
 
-    assert state.diagnostics == {"good": {"status": "fine"}}
+    assert state.diagnostics["good"] == {"status": "fine"}
+    assert state.diagnostics["bad"]["partial"] is True
+    assert state.diagnostics["bad"]["status"] == "error"
     assert len(state.errors) == 1
     assert "bad" in state.errors[0]
     assert "boom" in state.errors[0]
@@ -361,3 +363,87 @@ def test_use_voice_profile_false_skips_profile_even_with_user_id():
 
     mock_voice.assert_not_called()
     assert state.voice_profile is None
+
+
+def test_slow_agent_times_out_and_returns_partial_diagnostic():
+    from dataclasses import replace
+
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    settings = replace(fake_settings(), agent_step_timeout_s=0.05, agent_step_timeouts_enabled=True)
+    with p1, p2, p3, p4:
+        diagnostics = {
+            "fast": _SleepyAgent({"ok": True}, sleep_s=0.01),
+            "slow": _SleepyAgent({"ok": False}, sleep_s=0.3),
+        }
+        start = time.monotonic()
+        state = asyncio.run(
+            run_evaluation_cycle("draft text", settings, diagnostics=diagnostics)
+        )
+        elapsed = time.monotonic() - start
+
+    assert elapsed < 0.25, f"timeout should bound wall time, took {elapsed:.2f}s"
+    assert state.diagnostics["fast"] == {"ok": True}
+    assert state.diagnostics["slow"]["partial"] is True
+    assert state.diagnostics["slow"]["status"] == "timeout"
+    assert any("slow" in err and "timeout" in err for err in state.errors)
+    timeout_steps = [s for s in state.run_metadata.steps if s.status == "timeout"]
+    assert any(s.step_id == "agent.slow" for s in timeout_steps)
+
+
+def test_predictor_timeout_uses_deterministic_neighbor_fallback():
+    from dataclasses import replace
+
+    row = fake_row("1")
+    row["engagement_percentile"] = 80.0
+    p1, p2, p3, p4 = _patch_neighbor_fetch([row])
+    settings = replace(fake_settings(), agent_step_timeout_s=0.05, agent_step_timeouts_enabled=True)
+    with p1, p2, p3, p4:
+        predictor = _SleepyAgent({"engagement_score": 1}, sleep_s=0.3)
+        state = asyncio.run(run_evaluation_cycle("draft text", settings, predictor=predictor))
+
+    assert state.predictor_result is not None
+    assert state.predictor_result.get("partial") is True
+    assert state.predictor_result.get("status") == "timeout"
+    assert "predicted_engagement_percentile" in state.predictor_result
+    assert any("timeout" in err for err in state.errors)
+
+
+def test_finalize_timeout_keeps_agent_results():
+    from dataclasses import replace
+
+    async def _slow_finalize(state):
+        await asyncio.sleep(0.3)
+
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    settings = replace(fake_settings(), finalize_timeout_s=0.05, agent_step_timeouts_enabled=True)
+    with p1, p2, p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                settings,
+                diagnostics={"seo": _SleepyAgent({"seo_score": 5}, sleep_s=0.01)},
+                finalize=_slow_finalize,
+            )
+        )
+
+    assert state.diagnostics == {"seo": {"seo_score": 5}}
+    assert any("finalize" in err and "timeout" in err for err in state.errors)
+
+
+def test_finalize_exception_keeps_agent_results():
+    async def _boom_finalize(state):
+        raise RuntimeError("variant boom")
+
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"seo": _SleepyAgent({"seo_score": 5}, sleep_s=0.01)},
+                finalize=_boom_finalize,
+            )
+        )
+
+    assert state.diagnostics == {"seo": {"seo_score": 5}}
+    assert any("finalize" in err and "variant boom" in err for err in state.errors)
