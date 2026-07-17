@@ -1,9 +1,16 @@
 """API authentication, tenant authorization, and rate-limit key helpers.
 
+Issue #3 (API hardening). Also covers Issue #9 tenant-safe ``user_id``
+boundaries: ``assert_user_id_authorized()`` blocks cross-tenant impersonation,
+security tests live in ``tests/test_api_security.py``, and auth events are
+audit-logged with ``tenant_id`` / ``user_id`` context (no payload bodies).
+
 Protected routes require a Bearer API key when ``settings.api_auth_enabled``
 is true. Each key maps to a tenant and an optional allow-list of ``user_id``
 values so callers cannot impersonate another subscriber by passing an
-arbitrary ``user_id`` in the request body.
+arbitrary ``user_id`` in the request body. Auth defaults off for local dev
+(``API_AUTH_ENABLED=false``); no signup/login account system yet — API keys
+are the future-facing tenant principal until real accounts land.
 """
 
 from __future__ import annotations
