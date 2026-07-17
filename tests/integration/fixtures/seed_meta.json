@@ -1,0 +1,9 @@
+{
+  "query_text": "CI integration query: hiring backend engineers in 2026 with clear CTAs.",
+  "expected_top_post_id": "ci-seed-1",
+  "post_ids": [
+    "ci-seed-1",
+    "ci-seed-2",
+    "ci-seed-3"
+  ]
+}

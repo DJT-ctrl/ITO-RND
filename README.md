@@ -477,14 +477,16 @@ OpenAPI schema: http://localhost:8000/docs
 ## Tests
 
 ```bash
-pytest -q
+# Unit tests (skips docker-compose integration suite)
+pytest -q -m "not integration"
 ```
 
-CI runs lint, a Python 3.11/3.12 test matrix, and an optional Docker Compose smoke
-check on every PR — see [deploy/CI.md](deploy/CI.md).
+CI runs lint, a Python 3.11/3.12 unit-test matrix, and a Docker Compose
+integration suite on every PR — see [deploy/CI.md](deploy/CI.md).
 
 Tests mock external APIs (Apify, Gemini, Postgres where needed) — no API
-charges during CI or local test runs.
+charges during unit runs. Integration tests boot real Compose services and
+stub only Gemini (`./scripts/ci-integration.sh`).
 
 Run a specific module:
 

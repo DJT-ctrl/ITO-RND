@@ -71,19 +71,30 @@ jobs:
           timeout_minutes: 15
           max_attempts: 2
           retry_wait_seconds: 5
-          command: pytest -q
+          command: pytest -q -m "not integration"
         env:
           GEMINI_API_KEY: ci-fake-gemini-key
           GOOGLE_API_KEY: ci-fake-gemini-key
           API_AUTH_ENABLED: "false"
 
-  smoke:
-    name: Docker Compose smoke
+  integration:
+    name: Docker Compose integration
     runs-on: ubuntu-latest
     needs: [lint, test]
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python deps (host-side seed + pytest)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Create CI .env
         run: |
@@ -93,30 +104,78 @@ jobs:
           POSTGRES_DB=ito_posts
           GRAFANA_ADMIN_PASSWORD=ci_grafana_password
           GEMINI_API_KEY=ci-fake-gemini-key
-          DATABASE_URL=postgresql://ito:ci_test_password@localhost:5432/ito_posts
+          GOOGLE_API_KEY=ci-fake-gemini-key
+          DATABASE_URL=postgresql://ito:ci_test_password@localhost:15432/ito_posts
           API_AUTH_ENABLED=false
+          CI_INTEGRATION_STUBS=true
+          CI_EVALUATE_STUB=true
+          DB_HOST_PORT=15432
+          API_HOST_PORT=18000
+          PROMETHEUS_HOST_PORT=19090
           EOF
 
-      - name: Build and start API stack
+      - name: Build and start integration stack
+        env:
+          COMPOSE_PROJECT_NAME: ito-ci-integration
+          POSTGRES_PASSWORD: ci_test_password
+          DB_HOST_PORT: "15432"
+          API_HOST_PORT: "18000"
+          PROMETHEUS_HOST_PORT: "19090"
         run: |
-          docker compose up -d --build db migrate api
-          docker compose ps
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml \
+            up -d --build db migrate api prometheus
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps
 
       - name: Wait for API health
         run: |
-          for i in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/health; then
+          for i in $(seq 1 36); do
+            if curl -fsS http://localhost:18000/health; then
+              echo
               exit 0
             fi
             sleep 5
           done
           echo "API did not become healthy in time"
-          docker compose logs api
+          COMPOSE_PROJECT_NAME=ito-ci-integration \
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml logs api migrate db
           exit 1
 
-      - name: Smoke check OpenAPI schema
-        run: curl -fsS http://localhost:8000/openapi.json | python -c "import sys,json; json.load(sys.stdin)"
+      - name: Seed integration fixtures
+        run: python scripts/integration-seed.py
+        env:
+          DATABASE_URL: postgresql://ito:ci_test_password@localhost:15432/ito_posts
+
+      - name: Run integration tests
+        run: >-
+          pytest tests/integration -m integration -v
+          --junitxml=integration-results.xml
+        env:
+          DATABASE_URL: postgresql://ito:ci_test_password@localhost:15432/ito_posts
+          API_BASE_URL: http://localhost:18000
+          PROMETHEUS_BASE_URL: http://localhost:19090
+          GEMINI_API_KEY: ci-fake-gemini-key
+          API_AUTH_ENABLED: "false"
+
+      - name: Capture compose logs on failure
+        if: failure()
+        env:
+          COMPOSE_PROJECT_NAME: ito-ci-integration
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs > compose-logs.txt
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml ps >> compose-logs.txt
+
+      - name: Upload integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-artifacts
+          path: |
+            integration-results.xml
+            compose-logs.txt
+          if-no-files-found: ignore
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        env:
+          COMPOSE_PROJECT_NAME: ito-ci-integration
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v

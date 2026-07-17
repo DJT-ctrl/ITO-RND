@@ -1,2 +1,5 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: docker-compose end-to-end tests (issue #10)",
+]

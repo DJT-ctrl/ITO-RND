@@ -13,26 +13,43 @@ point in this repo uses). A fresh DB connection is opened per request —
 simplest correct option for this phase's scale; a connection pool is a
 legitimate future optimization but is scope creep for now (see
 PhaseT2plan.md Decision #3).
+
+CI integration (issue #10): when ``CI_EVALUATE_STUB=true``, ``/evaluate``
+skips LLM agents and returns a canned ``PostEvaluationState`` after a real
+DB neighbor fetch. Agent construction is also skipped so the API can boot
+without a live Gemini key.
 """
+
+import os
 
 from fastapi import FastAPI, HTTPException
 from pgvector.psycopg import register_vector
 
-from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
-from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.variant_engine import build_variant_engine
 from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
-from config.settings import load_settings, pydantic_ai_gemini_model
-from processors.embedder import embed_query
+from config.settings import load_settings
+from processors.embedder import EMBEDDING_MODEL_VERSION, embed_query
 from storage.vector_store import find_similar, get_connection
 from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()
-_eval_model = pydantic_ai_gemini_model()
-predictor_agent = build_predictor_agent(_eval_model)
-diagnostic_agents = build_diagnostic_agents(_eval_model)
+
+_ci_evaluate_stub = os.getenv("CI_EVALUATE_STUB", "").lower() in ("1", "true", "yes")
+
+if _ci_evaluate_stub:
+    _eval_model = "ci-stub"
+    predictor_agent = None
+    diagnostic_agents = None
+else:
+    from agents.diagnostics import build_diagnostic_agents
+    from agents.predictor import build_predictor_agent
+    from config.settings import pydantic_ai_gemini_model
+
+    _eval_model = pydantic_ai_gemini_model()
+    predictor_agent = build_predictor_agent(_eval_model)
+    diagnostic_agents = build_diagnostic_agents(_eval_model)
 
 app = FastAPI(title="ITO Post Similarity API")
 
@@ -86,6 +103,9 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
 @app.post("/api/v1/evaluate", response_model=PostEvaluationState)
 async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
     """Run the async evaluation cycle end-to-end over HTTP."""
+    if _ci_evaluate_stub:
+        return _evaluate_ci_stub(request)
+
     resolved_seo_mode = request.seo_mode or settings.seo_discoverability_mode
     collector = RunMetadataCollector(
         settings=settings,
@@ -119,3 +139,37 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _evaluate_ci_stub(request: EvaluateRequest) -> PostEvaluationState:
+    """CI-only evaluate path: real embed + DB neighbors, canned LLM fields."""
+    try:
+        query_vector, _prompt_tokens = embed_query(request.content, settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    conn = get_connection(settings)
+    try:
+        register_vector(conn)
+        rows = find_similar(conn, query_vector, limit=10, user_id=request.user_id)
+    finally:
+        conn.close()
+
+    similar = [SimilarPost(**row) for row in rows]
+    return PostEvaluationState(
+        draft_content=request.content,
+        similar_posts=similar,
+        predictor_result={
+            "engagement_percentile": 72.0,
+            "rationale": "ci-evaluate-stub",
+        },
+        diagnostics={
+            "seo": {"score": 0.8, "notes": "ci-evaluate-stub"},
+            "clarity": {"score": 0.75, "notes": "ci-evaluate-stub"},
+            "tone": {"score": 0.7, "notes": "ci-evaluate-stub"},
+        },
+        variants=[],
+        errors=[],
+        query_embedding=query_vector.tolist(),
+        embedding_model_version=EMBEDDING_MODEL_VERSION,
+    )

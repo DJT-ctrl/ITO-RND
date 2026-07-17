@@ -25,6 +25,8 @@ time for T2's similarity-search endpoint (see below for why it needs its
 own task_type rather than reusing embed_batch()).
 """
 
+import hashlib
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,6 +43,31 @@ _OUTPUT_DIMENSIONALITY = 3072
 EMBEDDING_MODEL_VERSION = _MODEL
 _BATCH_SIZE = 100
 _MIN_WORD_COUNT = 10
+
+# Canonical query text for CI integration seed ↔ similar-posts assertions.
+CI_INTEGRATION_QUERY_TEXT = (
+    "CI integration query: hiring backend engineers in 2026 with clear CTAs."
+)
+
+
+def _ci_integration_stubs_enabled() -> bool:
+    return os.getenv("CI_INTEGRATION_STUBS", "").lower() in ("1", "true", "yes")
+
+
+def ci_stub_embedding(text: str) -> np.ndarray:
+    """Deterministic L2-normalized 3072-d vector from text (CI integration only).
+
+    Same input always yields the same vector so seeded posts and ``embed_query``
+    agree without calling Gemini.
+    """
+    digest = hashlib.sha256(text.encode("utf-8")).digest()
+    seed = int.from_bytes(digest[:8], "big")
+    rng = np.random.default_rng(seed)
+    vec = rng.standard_normal(_OUTPUT_DIMENSIONALITY).astype(np.float32)
+    norm = float(np.linalg.norm(vec))
+    if norm > 0:
+        vec /= norm
+    return vec
 
 
 def embed_batch(records: list[dict[str, Any]], settings: Settings) -> tuple[np.ndarray, int]:
@@ -104,13 +131,19 @@ def embed_query(text: str, settings: Settings) -> tuple[np.ndarray, int]:
     task types for best retrieval accuracy. Reuses the same retry logic
     (_embed_with_retry) as embed_batch(), just with a single-element batch.
 
+    When ``CI_INTEGRATION_STUBS=true``, returns ``ci_stub_embedding(text)``
+    instead of calling Gemini (deterministic CI / docker-compose integration).
+
     Returns:
         A 1-D array of shape (3072,).
 
     Raises:
-        ValueError: if settings.gemini_api_key is not set.
+        ValueError: if settings.gemini_api_key is not set (non-stub mode).
         google.genai.errors.APIError: if the request still fails after retries.
     """
+    if _ci_integration_stubs_enabled():
+        return ci_stub_embedding(text), max(1, len(text) // 4)
+
     if not settings.gemini_api_key:
         raise ValueError("GEMINI_API_KEY is not set (check your .env file).")
 

@@ -1,0 +1,45 @@
+# Lean Compose overlay for CI integration tests (issue #10).
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build \
+#     db migrate api prometheus
+#
+# Boots only the services needed to prove API ↔ Postgres ↔ schema ↔ Prometheus
+# wiring. Skips Grafana / cAdvisor / node-exporter to save CI time and RAM.
+# Default host ports (15432 / 18000 / 19090) avoid colliding with a local
+# developer stack on 5432 / 8000 / 9090.
+#
+# `!override` replaces base-file port lists (Compose merges lists by default).
+
+services:
+  db:
+    # Ephemeral volume — no host bind mount (avoids permission/port clashes on runners).
+    volumes: !override
+      - ci_pgdata:/var/lib/postgresql/data
+    ports: !override
+      - "127.0.0.1:${DB_HOST_PORT:-15432}:5432"
+
+  api:
+    environment:
+      CI_INTEGRATION_STUBS: "true"
+      CI_EVALUATE_STUB: "true"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-ci-fake-gemini-key}
+      API_AUTH_ENABLED: "false"
+      # Skip real LLM / Google Trends during evaluate stub path.
+      GOOGLE_API_KEY: ${GEMINI_API_KEY:-ci-fake-gemini-key}
+    ports: !override
+      - "${API_HOST_PORT:-18000}:8000"
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-19090}:9090"
+
+  # Do not start heavyweight telemetry sidecars in CI.
+  grafana:
+    profiles: ["full-telemetry"]
+  cadvisor:
+    profiles: ["full-telemetry"]
+  node-exporter:
+    profiles: ["full-telemetry"]
+
+volumes:
+  ci_pgdata:
