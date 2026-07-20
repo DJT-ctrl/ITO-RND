@@ -46,6 +46,10 @@ data/feedback_loop_overrides.json
 *.log
 *.tmp
 
+# Edge TLS material — origin certs/keys are secrets, never commit them.
+# The certs dir is created at deploy time by gen-selfsigned.sh / issue-cert.sh.
+deploy/edge/certs/
+cloudflare.ini
 # Local planning notes (kept on disk, excluded from repo)
 planning/
 First Ideas/
