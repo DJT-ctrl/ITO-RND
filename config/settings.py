@@ -27,6 +27,7 @@ __all__ = [
     "resolve_data_path",
     "sync_google_api_key",
     "utc_artifact_stamp",
+    "validate_agent_model",
 ]
 
 # Always load repo-root .env regardless of Streamlit/shell working directory.
@@ -41,19 +42,51 @@ AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
 
 
 def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:
-    """Format a Gemini model id for pydantic-ai's Google provider (google or google-gla)."""
-    raw = model_id or AGENT_GEMINI_MODEL
-    if raw.startswith("google-gla:") or raw.startswith("google:"):
-        raw = raw.split(":", 1)[1]
-    
+    """Normalize a Gemini model id for pydantic-ai's Google provider.
+
+    Always returns a ``google:`` prefixed string (required by
+    ``pydantic-ai-slim[google]>=2.5``). Legacy ``google-gla:`` prefixes are
+    rewritten so older env values / telemetry strings keep working.
+
+    This function is pure string normalization — it must not call
+    ``infer_model`` or touch the network, so importing ``config.settings``
+    (and therefore the API module) cannot crash on a provider mismatch.
+    """
+    raw = (model_id or AGENT_GEMINI_MODEL).strip()
+    for prefix in ("google-gla:", "google:"):
+        if raw.lower().startswith(prefix):
+            raw = raw.split(":", 1)[1].strip()
+            break
+    if not raw:
+        raise ValueError(
+            "Agent model id is empty. Set AGENT_GEMINI_MODEL "
+            "(e.g. gemini-2.5-flash-lite) in .env."
+        )
+    return f"google:{raw}"
+
+
+def validate_agent_model(model_id: Optional[str] = None) -> str:
+    """Resolve the agent model and verify pydantic-ai recognizes the provider.
+
+    Call this at request/startup time when you need a hard failure with a
+    clear message — not at import time.
+    """
+    resolved = pydantic_ai_gemini_model(model_id)
     try:
         from pydantic_ai import models
-        models.infer_model(f"google:{raw}")
-        return f"google:{raw}"
-    except Exception:
-        return f"google-gla:{raw}"
+
+        models.infer_model(resolved)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid pydantic-ai agent model {resolved!r}: {exc}. "
+            "Install pydantic-ai-slim[google]>=2.5,<3, set GEMINI_API_KEY, "
+            "and use AGENT_GEMINI_MODEL like 'gemini-2.5-flash-lite' "
+            "(do not use the legacy google-gla: prefix)."
+        ) from exc
+    return resolved
 
 
+# Safe to compute at import: string formatting only, no provider probe.
 PYDANTIC_AI_GEMINI_MODEL = pydantic_ai_gemini_model()
 
 
