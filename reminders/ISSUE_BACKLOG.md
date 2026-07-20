@@ -6,6 +6,18 @@
 
 Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes #N`).
 
+### Merge conflicts — stay wary
+
+Open issues often share files (`api/main.py`, tests, `.gitignore`, CI). Resolving
+one PR against `main` (or updating a stacked base branch) can leave **other** open
+PRs conflicting — or GitHub can report a conflict even when the branch is clean
+vs `main` because the PR base is another feature branch.
+
+**Before and after any conflict fix:** check *all* open PRs’ mergeable status
+(without merging to `main`), keep both sides’ intent when resolving, and recheck
+siblings so fixing one does not silently break another. Full checklist:
+[GIT_ISSUE_WORKFLOW.md — Merge conflicts](GIT_ISSUE_WORKFLOW.md#merge-conflicts--check-before-and-after).
+
 ---
 
 ## P0 — Critical

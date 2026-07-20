@@ -33,6 +33,7 @@ This folder is the source of truth for how we fix bugs and ship PRs on
 | 6 | **Small focused PRs** — one concern; use org PR template checklist | Org + [`08_BUILD_PRACTICES`](../planning/validation-feedback-loop/08_BUILD_PRACTICES.md) |
 | 7 | **No Cursor watermark in PRs** — never append `Made with Cursor` (or similar) to PR bodies or issue comments | Team request |
 | 8 | **Don't create more issues by accident** — before implementing, check whether the planned fix would create new bugs, deficits, or follow-on work; if yes, stop and ask the user | Team request |
+| 9 | **Be wary of merge conflicts** — before/after resolving a conflict, recheck *all* open PRs (do not merge to `main`); stacked bases and shared files can break siblings; never drop either side’s intent | Team request + [`GIT_ISSUE_WORKFLOW`](GIT_ISSUE_WORKFLOW.md#merge-conflicts--check-before-and-after) |
 
 ---
 
