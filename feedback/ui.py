@@ -36,14 +36,7 @@ from storage.vector_store import create_schema, get_connection
 from validation_pipeline.store import list_predictions
 
 
-def _section_header(title: str, help_markdown: str) -> None:
-    """Subheader with a ? popover explaining the section."""
-    left, right = st.columns([0.93, 0.07])
-    with left:
-        st.subheader(title)
-    with right:
-        with st.popover("?"):
-            st.markdown(help_markdown)
+from dashboard.chrome import render_phase_badges, section_header as _section_header
 
 
 def _metric(col, label: str, value, *, help_text: str, **kwargs) -> None:
@@ -53,52 +46,55 @@ def _metric(col, label: str, value, *, help_text: str, **kwargs) -> None:
 def render_feedback_settings_panel(settings: Settings) -> Settings:
     """Editable feature flags — persisted so worker/predict honor them too."""
     _section_header(
-        "Feedback loop settings",
+        "Learning switches",
         """
 These switches control the three learning mechanisms. **They matter.**
 
-| Flag | When ON | When OFF (why turn off?) |
-|------|---------|--------------------------|
-| **Calibration** | Next predictions get a numeric percentile offset from past errors | A/B test: compare raw vs calibrated accuracy |
-| **Feedback records** | After each validation, store a template lesson in the DB | Pause writing lessons while debugging validation |
-| **Prompt injection** | Predictor sees up to N recent lessons from the same cluster | A/B test: does lesson text help, or only calibration? |
+| Switch (plain English) | Phase | When ON | When OFF |
+|------|---------|---------|----------|
+| **Adjust scores from past mistakes** | A | Next predictions get a numeric offset from past errors | Measure baseline without the nudge |
+| **Save lessons after grading** | B | After each validation, store a template lesson | Pause writing new lessons |
+| **Show lessons to the AI** | D | Predictor sees recent same-bucket lessons | A/B without lesson text |
 
-Safe production default: **feedback records ON**, **calibration and prompt
-injection OFF** until held-out evaluation shows a lift.
-Overrides are saved to `data/feedback_loop_overrides.json` and apply on the
-next `load_settings()` call (Streamlit page reload, worker, CLI).
+Safe production default: **lessons ON**, **calibration and injection OFF**
+until Phase F (offline eval) shows a clear lift.
+Overrides save to `data/feedback_loop_overrides.json` and apply on the next
+`load_settings()` call (Streamlit reload, worker, CLI).
 """,
     )
+    render_phase_badges(["A", "B", "D"])
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         cal_on = st.toggle(
-            "Calibration",
+            "Adjust scores from past mistakes",
             value=settings.validation_calibration_enabled,
             help=(
-                "Adds mean prediction error (actual − predicted) to new "
-                "percentile scores once enough validated rows exist. "
-                "Turn OFF to measure baseline accuracy without the offset."
+                "Phase A · Calibration. Adds mean prediction error "
+                "(actual − predicted) to new percentile scores once enough "
+                "graded rows exist. Turn OFF to measure baseline accuracy."
             ),
             key="fb_toggle_calibration",
         )
     with c2:
         fb_on = st.toggle(
-            "Feedback records",
+            "Save lessons after grading",
             value=settings.validation_feedback_enabled,
             help=(
-                "After a prediction is validated (~48h later), write a structured "
-                "lesson row. Turn OFF to stop creating new lessons (existing ones stay)."
+                "Phase B · Feedback records. After a prediction is graded "
+                "(~48h later, or force-validate), write a structured lesson. "
+                "Turn OFF to stop creating new lessons (existing ones stay)."
             ),
             key="fb_toggle_feedback",
         )
     with c3:
         inj_on = st.toggle(
-            "Prompt injection",
+            "Show lessons to the AI",
             value=settings.validation_feedback_injection_enabled,
             help=(
-                "At predict time, inject a short block of recent same-cluster lessons "
-                "into the Predictor prompt. Turn OFF for an A/B without lesson text."
+                "Phase D · Prompt injection. At predict time, inject a short "
+                "block of recent same-bucket lessons into the Predictor prompt. "
+                "Turn OFF for an A/B without lesson text."
             ),
             key="fb_toggle_injection",
         )
