@@ -1,15 +1,4 @@
-"""Throwaway visual test harness for Phase B — the pattern-analysis step.
-
-Loads one or more finalized pipeline bundles (Stage 1 + 2 analysed JSONL)
-and shows three views, from simplest to most involved:
-  - Engagement by tag   — group_engagement_by_tag()
-  - Numeric correlation — correlate_numeric_features()
-  - Feature importance  — feature_importance() (only if enough rows)
-
-Not the product UI — exists purely to eyeball whether the pipeline's
-output actually shows real, sane patterns before building anything on top
-of it. Mirrors the structure of dashboard/pages/2_Post_Analyser.py.
-"""
+"""Corpus step 3 — pattern and correlation views on analysed bundles."""
 
 import sys
 from pathlib import Path
@@ -18,6 +7,7 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from dashboard.pipeline_ui import load_records_from_bundles, render_bundle_multiselect  # noqa: E402
 from processors.pattern_analysis import (  # noqa: E402
     correlate_numeric_features,
@@ -25,17 +15,23 @@ from processors.pattern_analysis import (  # noqa: E402
     group_engagement_by_tag,
 )
 
-# ── Page setup ────────────────────────────────────────────────────────────────
-
-st.set_page_config(page_title="Pattern Analysis Test Harness", layout="wide")
-st.title("Phase B: Pattern & Correlation Analysis")
-st.caption(
-    "Throwaway visual tool for the T1.2 follow-on pattern-finding step. "
-    "Plain statistics only — no Gemini/LLM involved here on purpose. "
-    "Select one or more analysed pipeline bundles from Step 2."
+st.set_page_config(page_title="Find patterns", layout="wide")
+page_header(
+    "Find patterns",
+    "Plain statistics on analysed posts — engagement by tag, correlations, "
+    "and optional feature importance. **No Gemini calls on this page.**",
+    step_hint="Corpus step 3 of 5 · Previous: Analyse posts · Next: Make embeddings",
 )
+pipeline_flow_strip("corpus", "patterns")
 
-# ── Sidebar: pick pipeline bundle(s) ──────────────────────────────────────────
+section_header(
+    "What you need first",
+    """
+Load one or more **analysed** pipeline bundles from **Analyse posts** that
+completed Stage 2 (Gemini tags). Without those tags, the “engagement by tag”
+view will be empty.
+""",
+)
 
 with st.sidebar:
     st.header("1. Load analysed bundle(s)")
@@ -57,36 +53,43 @@ if selected_bundles:
     except ValueError as exc:
         st.error(str(exc))
 
-# ── Analyses ──────────────────────────────────────────────────────────────────
-
 if records:
     gemini_populated = sum(1 for r in records if r.get("hook_type") is not None)
     if gemini_populated == 0:
         st.warning(
             "No Gemini qualitative tags in this dataset — tag-based views will be empty. "
-            "Re-run Step 2 with Stage 1 + 2."
+            "Re-run **Analyse posts** with Stage 1 + 2."
         )
 
-    st.subheader("Engagement by Tag")
-    st.caption("Mean/median engagement_zscore grouped by each available categorical tag.")
+    section_header(
+        "Engagement by tag",
+        "Mean/median engagement score grouped by each categorical tag "
+        "(hook type, etc.). Good sanity check that Stage 2 tags look real.",
+    )
     tag_groups = group_engagement_by_tag(records)
     if tag_groups:
         for tag, table in tag_groups.items():
             st.markdown(f"**{tag}**")
             st.dataframe(table, use_container_width=True)
     else:
-        st.info("No categorical tags present — re-run Step 2 with Stage 1 + 2 (Gemini).")
+        st.info("No categorical tags present — re-run Analyse posts with Stage 1 + 2.")
 
-    st.subheader("Numeric Feature Correlation")
-    st.caption("Pearson correlation of each numeric feature against engagement_zscore.")
+    section_header(
+        "Numeric feature correlation",
+        "Pearson correlation of each numeric feature against engagement_zscore. "
+        "Closer to ±1 means a stronger linear relationship.",
+    )
     try:
         correlations = correlate_numeric_features(records)
         st.dataframe(correlations.rename("correlation"), use_container_width=True)
     except ValueError as exc:
         st.info(str(exc))
 
-    st.subheader("Feature Importance (optional ML)")
-    st.caption("Gradient-boosted regressor predicting engagement_zscore. Needs enough rows to be meaningful.")
+    section_header(
+        "Feature importance (optional ML)",
+        "Gradient-boosted model predicting engagement_zscore. Needs enough "
+        "rows to be meaningful — treat as exploratory, not production truth.",
+    )
     try:
         importances = feature_importance(records)
         st.dataframe(importances.rename("importance"), use_container_width=True)

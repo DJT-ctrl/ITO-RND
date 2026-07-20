@@ -1,9 +1,4 @@
-"""Throwaway visual test harness for unified sample collection (Scraper Stage).
-
-Runs post search and author profile enrichment back-to-back on every new
-collection. Not the product UI — exists to validate both scrapers and
-saved artifacts before downstream analysis (Step 2).
-"""
+"""Corpus step 1 — collect LinkedIn samples and author profiles."""
 
 import json
 import re
@@ -17,14 +12,32 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from processors.profile_sources import find_paired_profile_file  # noqa: E402
 from processors.run_sample_collection import run_sample_collection  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 
 _FOLLOWER_RE = re.compile(r"^[\d,]+\s+followers?$", re.IGNORECASE)
 
-st.title("Scraper Stage — Get Samples & Author Profiles")
-st.caption("Throwaway visual tool for testing collection. Not the product UI.")
+page_header(
+    "Collect samples",
+    "Pull LinkedIn posts (and matching author profiles) so the rest of the "
+    "corpus pipeline has raw data to work with. Uses Apify — expect cost.",
+    step_hint="Corpus step 1 of 5 · Next: Analyse posts",
+)
+pipeline_flow_strip("corpus", "collect")
+
+section_header(
+    "What this page does",
+    """
+**Input:** search keywords / filters (or load a previous JSON collection).
+
+**Output:** saved `linkedin_*.json` files under the raw data folder, ready for
+**Analyse posts**.
+
+Use the sidebar to reload an earlier collection without re-scraping.
+""",
+)
 
 settings = load_settings()
 
