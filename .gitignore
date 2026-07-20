@@ -36,8 +36,10 @@ compose-logs.txt
 # Jupyter
 .ipynb_checkpoints/
 
-# Streamlit
-.streamlit/
+# Streamlit (track shared config; ignore secrets)
+.streamlit/*
+!.streamlit/config.toml
+.vercel
 
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/

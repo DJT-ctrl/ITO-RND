@@ -25,7 +25,7 @@ from config.settings import Settings
 
 @pytest.fixture(autouse=True)
 def _stub_discoverability_gather(monkeypatch):
-    """Avoid DB/cache access in orchestrator integration tests."""
+    """Avoid DB/cache access in orchestrator integration tests unless explicitly overridden."""
 
     async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
         return None, []

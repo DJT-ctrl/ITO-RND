@@ -14,22 +14,29 @@ simplest correct option for this phase's scale; a connection pool is a
 legitimate future optimization but is scope creep for now (see
 PhaseT2plan.md Decision #3).
 
+Issue #1: predictor/diagnostic agents are built lazily on first /evaluate
+request so a provider mismatch cannot crash the process at import time
+(GET /health and similar-posts stay up).
+
 CI integration (issue #10): when ``CI_EVALUATE_STUB=true``, ``/evaluate``
 skips LLM agents and returns a canned ``PostEvaluationState`` after a real
-DB neighbor fetch. Agent construction is also skipped so the API can boot
-without a live Gemini key.
+DB neighbor fetch. Agents are never constructed so the API can boot without
+a live Gemini key.
 """
 
 import os
+from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
 from pgvector.psycopg import register_vector
 
+from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
+from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.variant_engine import build_variant_engine
 from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
-from config.settings import load_settings
+from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import EMBEDDING_MODEL_VERSION, embed_query
 from storage.vector_store import find_similar, get_connection
 from telemetry.collector import RunMetadataCollector
@@ -38,18 +45,12 @@ settings = load_settings()
 
 _ci_evaluate_stub = os.getenv("CI_EVALUATE_STUB", "").lower() in ("1", "true", "yes")
 
-if _ci_evaluate_stub:
-    _eval_model = "ci-stub"
-    predictor_agent = None
-    diagnostic_agents = None
-else:
-    from agents.diagnostics import build_diagnostic_agents
-    from agents.predictor import build_predictor_agent
-    from config.settings import pydantic_ai_gemini_model
-
-    _eval_model = pydantic_ai_gemini_model()
-    predictor_agent = build_predictor_agent(_eval_model)
-    diagnostic_agents = build_diagnostic_agents(_eval_model)
+# Lazy agent state — populated by _ensure_eval_agents() on first /evaluate.
+# Tests may patch these module attributes directly (see tests/test_api.py).
+# When CI_EVALUATE_STUB is set, agents stay unset and /evaluate uses the stub.
+_eval_model: Optional[str] = None
+predictor_agent: Any = None
+diagnostic_agents: Any = None
 
 app = FastAPI(title="ITO Post Similarity API")
 
@@ -67,6 +68,54 @@ try:
     Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 except ImportError:
     pass
+
+
+def _ensure_eval_agents() -> tuple[str, Any, Any]:
+    """Build predictor/diagnostic agents on first use (not at import).
+
+    Raises HTTPException(503) with actionable config guidance if the provider
+    or model cannot be constructed.
+    """
+    global _eval_model, predictor_agent, diagnostic_agents
+
+    if _eval_model is None:
+        try:
+            _eval_model = pydantic_ai_gemini_model()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Agent model configuration invalid: {exc}. "
+                    "Set AGENT_GEMINI_MODEL (e.g. gemini-2.5-flash-lite) in .env."
+                ),
+            ) from exc
+
+    if predictor_agent is None:
+        try:
+            predictor_agent = build_predictor_agent(_eval_model)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Failed to initialize predictor agent ({_eval_model!r}): {exc}. "
+                    "Install pydantic-ai-slim[google]>=2.5,<3 and set GEMINI_API_KEY. "
+                    "Use the google: provider prefix (legacy google-gla: is not supported)."
+                ),
+            ) from exc
+
+    if diagnostic_agents is None:
+        try:
+            diagnostic_agents = build_diagnostic_agents(_eval_model)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Failed to initialize diagnostic agents ({_eval_model!r}): {exc}. "
+                    "Install pydantic-ai-slim[google]>=2.5,<3 and set GEMINI_API_KEY."
+                ),
+            ) from exc
+
+    return _eval_model, predictor_agent, diagnostic_agents
 
 
 @app.get("/health")
@@ -106,17 +155,18 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
     if _ci_evaluate_stub:
         return _evaluate_ci_stub(request)
 
+    eval_model, predictor, diagnostics = _ensure_eval_agents()
     resolved_seo_mode = request.seo_mode or settings.seo_discoverability_mode
     collector = RunMetadataCollector(
         settings=settings,
         user_id=request.user_id,
-        agent_model=_eval_model,
+        agent_model=eval_model,
         variant_strategy=request.variant_strategy,
         reembed_variant_neighbors=request.reembed_variant_neighbors,
         seo_mode=resolved_seo_mode,
     )
     variant_hook = build_variant_engine(
-        predictor_agent,
+        predictor,
         strategy=request.variant_strategy,
         reembed_neighbors=request.reembed_variant_neighbors,
         settings=settings,
@@ -126,8 +176,8 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
         return await run_evaluation_cycle(
             request.content,
             settings,
-            predictor=predictor_agent,
-            diagnostics=diagnostic_agents,
+            predictor=predictor,
+            diagnostics=diagnostics,
             finalize=variant_hook,
             user_id=request.user_id,
             use_voice_profile=request.use_voice_profile,
