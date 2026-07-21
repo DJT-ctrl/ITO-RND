@@ -152,7 +152,13 @@ CREATE TABLE IF NOT EXISTS predictions (
 
     -- Phase H: query embedding used at predict time (nullable for legacy rows).
     embedding               vector(3072),
-    embedding_model_version TEXT
+    embedding_model_version TEXT,
+
+    -- Age-aware validation metadata (optional learning filter).
+    is_backtest             BOOLEAN NOT NULL DEFAULT FALSE,
+    prediction_horizon_hours DOUBLE PRECISION,
+    validation_age_hours    DOUBLE PRECISION,
+    validation_mode         TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS predictions_linkedin_post_id_idx
@@ -238,6 +244,13 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_total_engagement INTEG
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_telemetry JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding vector(3072);
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding_model_version TEXT;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS is_backtest BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_horizon_hours DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS validation_age_hours DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS validation_mode TEXT;
+CREATE INDEX IF NOT EXISTS predictions_validation_mode_idx
+    ON predictions (validation_mode)
+    WHERE status = 'validated';
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS centroid_embedding vector(3072);
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_summary TEXT;
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_updated_at TIMESTAMPTZ;

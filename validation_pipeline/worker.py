@@ -11,6 +11,7 @@ from pgvector.psycopg import register_vector
 from config.settings import Settings, load_settings
 from feedback.batch import try_enqueue_feedback_after_validation
 from storage.vector_store import create_schema, get_connection
+from validation_pipeline.age_aware import classify_validation_mode
 from validation_pipeline.rescrape import fetch_engagement_by_urls
 from validation_pipeline.schemas import ValidationBatchResult, ValidationResult
 from validation_pipeline.scoring import (
@@ -59,14 +60,43 @@ def _validate_predictions(
                     f"The post is treated as deleted, private, or no longer public."
                 )
             scores = compute_validation_scores(actuals, prediction, corpus_totals)
+            validated_at = datetime.now(timezone.utc)
+            horizon_hours = (
+                prediction.prediction_horizon_hours
+                if prediction.prediction_horizon_hours is not None
+                else settings.validation_window().total_seconds() / 3600.0
+            )
+            age_hours, mode = classify_validation_mode(
+                posted_at=prediction.posted_at,
+                validated_at=validated_at,
+                horizon_hours=float(horizon_hours),
+                is_backtest=bool(prediction.is_backtest),
+                tolerance_hours=settings.validation_age_window_tolerance_hours,
+                mature_min_hours=float(settings.validation_backtest_mature_min_hours),
+            )
+            enriched = prediction.model_copy(
+                update={
+                    "validated_at": validated_at,
+                    "validation_age_hours": age_hours,
+                    "validation_mode": mode,
+                }
+            )
             conn = get_connection(settings)
             try:
-                mark_validated(conn, prediction.prediction_id, actuals, scores)
+                mark_validated(
+                    conn,
+                    prediction.prediction_id,
+                    actuals,
+                    scores,
+                    validation_age_hours=age_hours,
+                    validation_mode=mode,
+                    validated_at=validated_at,
+                )
                 insert_snapshot(conn, prediction.prediction_id, actuals)
             finally:
                 conn.close()
             # Thin enqueue: async feedback job after successful validate (fail open).
-            try_enqueue_feedback_after_validation(prediction, settings)
+            try_enqueue_feedback_after_validation(enriched, settings)
             batch.validated += 1
             batch.results.append(
                 ValidationResult(

@@ -33,22 +33,34 @@ _FEEDBACK_SELECT = """
 """
 
 
-def fetch_calibration_stats(conn: psycopg.Connection) -> CalibrationStats:
+def fetch_calibration_stats(
+    conn: psycopg.Connection,
+    *,
+    age_aware_enabled: bool = False,
+) -> CalibrationStats:
     """Return global signed mean prediction_delta and validated count.
 
     prediction_delta = actual_percentile − predicted_percentile.
     Empty validated set → n_validated=0, mean_delta=0.0.
+    When age_aware_enabled, excludes forced_early rows from the average.
     """
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="predictions"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS n_validated,
                 AVG(prediction_delta) AS mean_delta
             FROM predictions
             WHERE status = 'validated'
               AND prediction_delta IS NOT NULL
-            """
+              {age_clause}
+            """,
+            tuple(age_params),
         )
         row = cur.fetchone()
 
@@ -97,6 +109,7 @@ def resolve_calibration_stats(
     *,
     cluster_id: Optional[str] = None,
     cluster_n_min: int = 50,
+    age_aware_enabled: bool = False,
 ) -> CalibrationStats:
     """Prefer cluster mean_delta when sample_count >= cluster_n_min; else global.
 
@@ -116,7 +129,9 @@ def resolve_calibration_stats(
                 source="cluster",
             )
 
-    global_stats = fetch_calibration_stats(conn)
+    global_stats = fetch_calibration_stats(
+        conn, age_aware_enabled=age_aware_enabled
+    )
     if cluster_id:
         return CalibrationStats(
             n_validated=global_stats.n_validated,
@@ -127,15 +142,24 @@ def resolve_calibration_stats(
     return global_stats
 
 
-def refresh_cluster_stats(conn: psycopg.Connection) -> int:
+def refresh_cluster_stats(
+    conn: psycopg.Connection,
+    *,
+    age_aware_enabled: bool = False,
+) -> int:
     """Recompute prediction_clusters sample stats from validated feedback rows.
 
     Preserves existing centroid_embedding when present.
     Returns number of clusters upserted.
     """
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="p"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 f.cluster_id,
                 COUNT(*)::INTEGER AS sample_count,
@@ -146,8 +170,10 @@ def refresh_cluster_stats(conn: psycopg.Connection) -> int:
             WHERE f.cluster_id IS NOT NULL
               AND p.status = 'validated'
               AND p.prediction_delta IS NOT NULL
+              {age_clause}
             GROUP BY f.cluster_id
-            """
+            """,
+            tuple(age_params),
         )
         rows = cur.fetchall()
 
@@ -501,11 +527,17 @@ def fetch_validated_prediction_ids_missing_feedback(
     *,
     limit: int = 100,
     feedback_version: str = FEEDBACK_VERSION,
+    age_aware_enabled: bool = False,
 ) -> list[UUID]:
     """Validated predictions that do not yet have feedback for this version."""
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="p"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT p.prediction_id
             FROM predictions p
             LEFT JOIN prediction_feedback f
@@ -515,10 +547,11 @@ def fetch_validated_prediction_ids_missing_feedback(
               AND p.prediction_delta IS NOT NULL
               AND p.actual_engagement_percentile IS NOT NULL
               AND f.feedback_id IS NULL
+              {age_clause}
             ORDER BY p.validated_at ASC NULLS LAST
             LIMIT %s
             """,
-            (feedback_version, limit),
+            (feedback_version, *age_params, limit),
         )
         rows = cur.fetchall()
     return [row[0] for row in rows]

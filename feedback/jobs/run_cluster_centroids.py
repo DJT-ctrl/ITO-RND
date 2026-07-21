@@ -43,7 +43,10 @@ def refresh_cluster_centroids() -> int:
     conn = get_connection(settings)
     try:
         create_schema(conn)
-        refresh_cluster_stats(conn)
+        refresh_cluster_stats(
+            conn,
+            age_aware_enabled=settings.validation_age_aware_enabled,
+        )
         grouped = fetch_validated_embeddings_by_metadata_cluster(conn)
         written = 0
         for cluster_id, vectors in grouped.items():

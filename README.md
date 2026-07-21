@@ -378,7 +378,13 @@ feedback for future predictions.
 VALIDATION_FEEDBACK_ENABLED=true
 VALIDATION_CALIBRATION_ENABLED=false
 VALIDATION_FEEDBACK_INJECTION_ENABLED=false
+VALIDATION_AGE_AWARE_ENABLED=false
 ```
+
+Age/mode (`validation_age_hours`, `validation_mode`) are recorded on every
+validation. When `VALIDATION_AGE_AWARE_ENABLED=true`, `forced_early` rows
+(graded too soon after publish) are excluded from calibration averages and
+lesson learning. Toggle also available on **Feedback Loop**.
 
 Dashboard overrides in **Validation Pipeline → Feedback Loop** take precedence
 over `.env` values.

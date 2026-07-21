@@ -87,6 +87,7 @@ def _apply_calibration_to_neighbor_prediction(
                 conn,
                 cluster_id=cluster_id,
                 cluster_n_min=settings.validation_cluster_n_min,
+                age_aware_enabled=settings.validation_age_aware_enabled,
             )
         finally:
             conn.close()
@@ -176,6 +177,7 @@ def _load_feedback_context(
                 exclude_prediction_id=exclude_prediction_id,
                 approved_only=True,
                 query_embedding=embedding,
+                age_aware_enabled=settings.validation_age_aware_enabled,
             )
             rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(
                 conn, cluster_id
@@ -360,9 +362,11 @@ def save_prediction(
     settings: Settings,
     *,
     validation_due_at: Optional[datetime] = None,
+    is_backtest: bool = False,
 ) -> PredictionRecord:
     """Persist a new prediction row with scheduled validation time."""
     due_at = validation_due_at or (post.posted_at + settings.validation_window())
+    horizon_hours = settings.validation_window().total_seconds() / 3600.0
     new_prediction = NewPrediction(
         linkedin_post_id=post.linkedin_post_id,
         linkedin_url=post.linkedin_url,
@@ -384,6 +388,8 @@ def save_prediction(
         embedding=prediction.embedding,
         embedding_model_version=prediction.embedding_model_version,
         validation_due_at=due_at,
+        is_backtest=is_backtest,
+        prediction_horizon_hours=round(horizon_hours, 4),
     )
     conn = get_connection(settings)
     try:

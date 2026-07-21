@@ -22,6 +22,7 @@ async def _predict_posts(
     settings: Settings,
     *,
     due_immediately: bool = False,
+    is_backtest: bool = False,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     result = CollectPredictResult()
@@ -46,6 +47,7 @@ async def _predict_posts(
                 prediction,
                 settings,
                 validation_due_at=due_at,
+                is_backtest=is_backtest,
             )
             result.predicted += 1
             result.predictions.append(saved)
@@ -81,6 +83,7 @@ async def run_predict_on_posts(
     *,
     settings: Settings | None = None,
     due_immediately: bool = False,
+    is_backtest: bool = False,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     """Predict and schedule validation for already-loaded posts (no Apify scrape)."""
@@ -89,6 +92,7 @@ async def run_predict_on_posts(
         posts,
         settings,
         due_immediately=due_immediately,
+        is_backtest=is_backtest,
         on_progress=on_progress,
     )
 

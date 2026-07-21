@@ -165,6 +165,7 @@ async def predict_on_posts_async(
     due_immediately: bool = False,
     skip_existing: bool = True,
     inter_post_delay_s: float = 1.0,
+    is_backtest: bool = False,
 ) -> CorpusImportResult:
     """Run the predictor on pre-loaded posts and schedule validation."""
     result = CorpusImportResult(loaded=len(posts))
@@ -188,6 +189,7 @@ async def predict_on_posts_async(
                 prediction,
                 settings,
                 validation_due_at=due_at,
+                is_backtest=is_backtest,
             )
             result.imported += 1
             result.predictions.append(saved)

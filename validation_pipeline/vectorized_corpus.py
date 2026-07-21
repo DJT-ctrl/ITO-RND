@@ -358,6 +358,7 @@ async def bulk_import_vectorized_and_predict_async(
         settings,
         due_immediately=due_immediately,
         skip_existing=skip_existing,
+        is_backtest=backtest,
     )
     result.source_files = [dataset.label for dataset in datasets]
     return result

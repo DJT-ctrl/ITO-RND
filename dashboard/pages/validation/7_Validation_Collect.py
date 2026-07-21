@@ -284,6 +284,7 @@ if run_clicked:
                         posts,
                         settings=settings,
                         due_immediately=True,
+                        is_backtest=True,
                         on_progress=on_progress,
                     )
                 )
@@ -315,6 +316,7 @@ if run_clicked:
                     posts,
                     settings=settings,
                     due_immediately=due_immediately,
+                    is_backtest=backtest_mode,
                     on_progress=on_progress,
                 )
             )

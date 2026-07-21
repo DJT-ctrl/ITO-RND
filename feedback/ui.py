@@ -111,6 +111,18 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
             key="fb_injection_limit",
         )
 
+    age_on = st.toggle(
+        "Age-aware learning filter",
+        value=settings.validation_age_aware_enabled,
+        help=(
+            "When ON, exclude forced_early validations (posts graded too soon "
+            "after publish) from calibration averages and lesson learning / "
+            "injection. Age and mode are still recorded on every validation. "
+            "Default OFF — no change to current behavior."
+        ),
+        key="fb_toggle_age_aware",
+    )
+
     g1, g2, g3, g4 = st.columns(4)
     with g1:
         n_min = st.number_input(
@@ -284,6 +296,7 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
                 "validation_feedback_auto_approve_enabled": bool(auto_on),
                 "validation_feedback_auto_approve_max_per_day": int(auto_max),
                 "validation_feedback_auto_approve_delta_max": float(auto_delta),
+                "validation_age_aware_enabled": bool(age_on),
             }
         )
         st.success("Saved — applies on this page reload and to new worker/predict runs.")
@@ -324,6 +337,7 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
         validation_feedback_auto_approve_enabled=bool(auto_on),
         validation_feedback_auto_approve_max_per_day=int(auto_max),
         validation_feedback_auto_approve_delta_max=float(auto_delta),
+        validation_age_aware_enabled=bool(age_on),
     )
 
 
@@ -350,7 +364,10 @@ This does **not** re-scrape LinkedIn. It only adjusts scores when predicting
     conn = get_connection(settings)
     try:
         create_schema(conn)
-        stats = fetch_calibration_stats(conn)
+        stats = fetch_calibration_stats(
+            conn,
+            age_aware_enabled=settings.validation_age_aware_enabled,
+        )
     finally:
         conn.close()
 
@@ -740,7 +757,10 @@ recompute cluster stats without waiting for the next validation.
                 conn = get_connection(settings)
                 try:
                     create_schema(conn)
-                    n = refresh_cluster_stats(conn)
+                    n = refresh_cluster_stats(
+                        conn,
+                        age_aware_enabled=settings.validation_age_aware_enabled,
+                    )
                 finally:
                     conn.close()
             st.session_state["feedback_clusters_refreshed"] = n
@@ -804,7 +824,10 @@ recompute cluster stats without waiting for the next validation.
                         conn = get_connection(settings)
                         try:
                             create_schema(conn)
-                            refresh_cluster_stats(conn)
+                            refresh_cluster_stats(
+                                conn,
+                                age_aware_enabled=settings.validation_age_aware_enabled,
+                            )
                         finally:
                             conn.close()
                     st.session_state["feedback_last_regen"] = str(record.prediction_id)

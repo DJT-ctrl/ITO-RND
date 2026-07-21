@@ -1,6 +1,6 @@
 """Tests for validation_pipeline.worker with mocked dependencies."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
@@ -16,9 +16,10 @@ def _due_prediction() -> PredictionRecord:
         linkedin_url="https://linkedin.com/posts/p1",
         author_public_id="author",
         content="test post",
-        posted_at=now,
+        posted_at=now - timedelta(hours=48),
         predicted_engagement_percentile=60.0,
         validation_due_at=now,
+        prediction_horizon_hours=48.0,
     )
 
 
@@ -50,6 +51,9 @@ def test_run_due_validations_success(
 ):
     settings = MagicMock()
     settings.database_url = "postgresql://test"
+    settings.validation_age_window_tolerance_hours = 6.0
+    settings.validation_backtest_mature_min_hours = 72
+    settings.validation_window.return_value = timedelta(hours=48)
     prediction = _due_prediction()
     mock_get_connection.return_value = MagicMock()
     mock_fetch_due.return_value = [prediction]
@@ -76,7 +80,12 @@ def test_run_due_validations_success(
     mock_mark_validated.assert_called_once()
     mock_insert_snapshot.assert_called_once()
     mock_mark_failed.assert_not_called()
-    mock_feedback.assert_called_once_with(prediction, settings)
+    mock_feedback.assert_called_once()
+    enqueued = mock_feedback.call_args[0][0]
+    assert enqueued.prediction_id == prediction.prediction_id
+    assert enqueued.validation_mode == "live_48h"
+    assert enqueued.validation_age_hours == 48.0
+    assert mock_feedback.call_args[0][1] is settings
 
 @patch("validation_pipeline.worker.mark_failed")
 @patch("validation_pipeline.worker.mark_validated")

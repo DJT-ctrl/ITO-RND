@@ -33,19 +33,26 @@ def fetch_cluster_feedback(
     feedback_version: Optional[str] = None,
     approved_only: bool = True,
     query_embedding: Optional[Sequence[float]] = None,
+    age_aware_enabled: bool = False,
 ) -> list[FeedbackRecord]:
     """Return feedback rows for a cluster.
 
     Prefer v2 over v1 when ``feedback_version`` is None.
     When ``query_embedding`` is set, rank by cosine distance to the lesson
     prediction embedding, then recency. Otherwise newest-first.
+    When ``age_aware_enabled``, skip lessons from forced_early validations.
     """
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
     if not cluster_id or limit <= 0:
         return []
 
     version_clause = ""
     exclude_clause = ""
     approved_clause = "AND f.feedback_review_status = 'approved'" if approved_only else ""
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="p"
+    )
 
     where_params: list = [cluster_id]
     if feedback_version:
@@ -54,6 +61,7 @@ def fetch_cluster_feedback(
     if exclude_prediction_id is not None:
         exclude_clause = "AND f.prediction_id <> %s"
         where_params.append(exclude_prediction_id)
+    where_params.extend(age_params)
 
     if query_embedding:
         select_distance = (
@@ -81,6 +89,7 @@ def fetch_cluster_feedback(
               {version_clause}
               {exclude_clause}
               {approved_clause}
+              {age_clause}
             {order_clause}
             LIMIT %s
             """,
