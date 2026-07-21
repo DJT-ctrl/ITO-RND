@@ -82,6 +82,8 @@ Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
 ## Common operations
 
+See [CI.md](CI.md) for pipeline jobs, merge gates, and flaky-test policy.
+
 ```bash
 docker compose logs -f api      # tail the API logs
 docker compose up -d --build    # rebuild + restart after a code change
