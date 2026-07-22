@@ -31,12 +31,15 @@ htmlcov/
 # Data & generated artifacts (the API reads from Postgres, not these files)
 data/
 
-# Not needed inside the API image
+# Heavy / irrelevant for container images
+node_modules/
 tests/
-dashboard/
 deploy/
 First Ideas/
+docs/
+infra/
 *.md
+!demo/README.md
 docker-compose.yml
 Dockerfile
 .dockerignore

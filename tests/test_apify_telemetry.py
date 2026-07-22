@@ -8,6 +8,7 @@ import pytest
 
 from config.settings import Settings
 from telemetry.apify import (
+    apify_run_as_dict,
     apify_run_record_from_response,
     load_apify_runs,
     save_apify_run,
@@ -50,6 +51,38 @@ def test_apify_run_record_from_response_extracts_cost():
     assert record.cost_usd == pytest.approx(0.87)
     assert record.compute_units == pytest.approx(2.1)
     assert record.item_count == 25
+
+
+def test_apify_run_as_dict_accepts_pydantic_run_model():
+    """apify-client 3.x returns a Pydantic Run; scrapers must not subscript it raw."""
+
+    class FakeStats:
+        def model_dump(self, *, by_alias=True, mode="python"):
+            return {"computeUnits": 1.5}
+
+    class FakeRun:
+        def model_dump(self, *, by_alias=True, mode="python"):
+            return {
+                "id": "run-pydantic",
+                "status": "SUCCEEDED",
+                "defaultDatasetId": "ds-1",
+                "usageTotalUsd": 0.42,
+                "stats": {"computeUnits": 1.5},
+                "startedAt": "2026-07-12T12:00:00.000Z",
+                "finishedAt": "2026-07-12T12:01:00.000Z",
+            }
+
+    as_dict = apify_run_as_dict(FakeRun())
+    assert as_dict["defaultDatasetId"] == "ds-1"
+    record = apify_run_record_from_response(
+        FakeRun(),
+        actor_id="actor",
+        scraper="linkedin_posts",
+        item_count=3,
+    )
+    assert record.run_id == "run-pydantic"
+    assert record.cost_usd == pytest.approx(0.42)
+    assert record.compute_units == pytest.approx(1.5)
 
 
 def test_save_and_load_apify_runs_jsonl(tmp_path):

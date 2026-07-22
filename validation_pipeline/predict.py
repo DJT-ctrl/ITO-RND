@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
@@ -363,10 +363,22 @@ def save_prediction(
     *,
     validation_due_at: Optional[datetime] = None,
     is_backtest: bool = False,
+    validation_window_hours: float | None = None,
 ) -> PredictionRecord:
-    """Persist a new prediction row with scheduled validation time."""
-    due_at = validation_due_at or (post.posted_at + settings.validation_window())
-    horizon_hours = settings.validation_window().total_seconds() / 3600.0
+    """Persist a new prediction row with scheduled validation time.
+
+    When ``validation_window_hours`` is set, it overrides the env default for
+    both ``validation_due_at`` (if not already provided) and
+    ``prediction_horizon_hours``. Dev-minutes override still wins via
+    ``settings.validation_window()`` when no per-run hours are passed.
+    """
+    if validation_window_hours is not None:
+        window = timedelta(hours=float(validation_window_hours))
+        horizon_hours = float(validation_window_hours)
+    else:
+        window = settings.validation_window()
+        horizon_hours = window.total_seconds() / 3600.0
+    due_at = validation_due_at or (post.posted_at + window)
     new_prediction = NewPrediction(
         linkedin_post_id=post.linkedin_post_id,
         linkedin_url=post.linkedin_url,

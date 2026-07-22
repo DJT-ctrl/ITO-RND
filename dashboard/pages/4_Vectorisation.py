@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_corpus_readiness  # noqa: E402
 from dashboard.pipeline_ui import (  # noqa: E402
     analysed_filenames_for_bundles,
     render_bundle_multiselect,
@@ -32,6 +33,8 @@ _MIN_WORD_COUNT = 10
 # ── Page setup ────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Make embeddings", layout="wide")
+settings = load_settings()
+_corpus_ready = compute_corpus_readiness("embed", settings=settings)
 page_header(
     "Make embeddings",
     "Turn analysed post text into vectors (Gemini embeddings) so we can find "
@@ -39,7 +42,12 @@ page_header(
     "size to stay in control.",
     step_hint="Corpus step 4 of 5 · Previous: Find patterns · Next: Search similar",
 )
-pipeline_flow_strip("corpus", "embed")
+pipeline_flow_strip("corpus", "embed", readiness=_corpus_ready)
+_search_cue = _corpus_ready.steps.get("search")
+if _search_cue and _search_cue.state == "ready":
+    st.caption(f"→ {_search_cue.hint}")
+elif _corpus_ready.steps.get("embed") and _corpus_ready.steps["embed"].state == "ready":
+    st.caption(f"→ {_corpus_ready.steps['embed'].hint}")
 
 section_header(
     "What this page does",
@@ -49,8 +57,6 @@ bundles' scraper files, embed a **manual batch**, and save `.npy` + registry
 metadata for ingest / similarity search.
 """,
 )
-
-settings = load_settings()
 
 if "embed_result" not in st.session_state:
     st.session_state.embed_result = None

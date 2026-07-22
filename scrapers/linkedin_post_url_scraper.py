@@ -13,7 +13,7 @@ from apify_client import ApifyClient
 from config.settings import Settings
 from scrapers.base_scraper import BaseScraper
 from scrapers.result import ScrapeResult
-from telemetry.apify import apify_run_record_from_response, save_apify_run
+from telemetry.apify import apify_run_as_dict, apify_run_record_from_response, save_apify_run
 
 
 class LinkedInPostUrlScraper(BaseScraper):
@@ -62,7 +62,9 @@ class LinkedInPostUrlScraper(BaseScraper):
             "includeQuotePosts": False,
             "includeReposts": False,
         }
-        run = self._client.actor(self._settings.apify_post_url_actor_id).call(run_input=params)
+        run = apify_run_as_dict(
+            self._client.actor(self._settings.apify_post_url_actor_id).call(run_input=params)
+        )
         dataset_id = run["defaultDatasetId"]
         items = self._client.dataset(dataset_id).list_items().items
         record = apify_run_record_from_response(

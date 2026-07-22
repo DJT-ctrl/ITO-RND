@@ -166,6 +166,7 @@ async def predict_on_posts_async(
     skip_existing: bool = True,
     inter_post_delay_s: float = 1.0,
     is_backtest: bool = False,
+    validation_window_hours: float | None = None,
 ) -> CorpusImportResult:
     """Run the predictor on pre-loaded posts and schedule validation."""
     result = CorpusImportResult(loaded=len(posts))
@@ -190,6 +191,7 @@ async def predict_on_posts_async(
                 settings,
                 validation_due_at=due_at,
                 is_backtest=is_backtest,
+                validation_window_hours=validation_window_hours,
             )
             result.imported += 1
             result.predictions.append(saved)
@@ -219,6 +221,7 @@ async def bulk_import_and_predict_async(
     extra_paths: list[Path | str] | None = None,
     due_immediately: bool = False,
     skip_existing: bool = True,
+    validation_window_hours: float | None = None,
 ) -> CorpusImportResult:
     """Discover saved scrapes, dedupe, predict, and schedule validation."""
     posts, source_files = load_all_collected_posts(
@@ -232,6 +235,7 @@ async def bulk_import_and_predict_async(
         settings,
         due_immediately=due_immediately,
         skip_existing=skip_existing,
+        validation_window_hours=validation_window_hours,
     )
     result.source_files = source_files
     return result

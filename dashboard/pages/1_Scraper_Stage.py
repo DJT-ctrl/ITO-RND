@@ -13,11 +13,15 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_corpus_readiness  # noqa: E402
 from processors.profile_sources import find_paired_profile_file  # noqa: E402
 from processors.run_sample_collection import run_sample_collection  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 
 _FOLLOWER_RE = re.compile(r"^[\d,]+\s+followers?$", re.IGNORECASE)
+
+settings = load_settings()
+_corpus_ready = compute_corpus_readiness("collect", settings=settings)
 
 page_header(
     "Collect samples",
@@ -25,7 +29,12 @@ page_header(
     "corpus pipeline has raw data to work with. Uses Apify — expect cost.",
     step_hint="Corpus step 1 of 5 · Next: Analyse posts",
 )
-pipeline_flow_strip("corpus", "collect")
+pipeline_flow_strip("corpus", "collect", readiness=_corpus_ready)
+_analyse = _corpus_ready.steps.get("analyse")
+if _analyse and _analyse.state == "ready":
+    st.caption(f"→ {_analyse.hint}")
+elif _analyse and _analyse.state == "done":
+    st.caption(f"✓ {_analyse.hint} · ready for Patterns / Embed")
 
 section_header(
     "What this page does",
@@ -38,8 +47,6 @@ section_header(
 Use the sidebar to reload an earlier collection without re-scraping.
 """,
 )
-
-settings = load_settings()
 
 if "samples" not in st.session_state:
     st.session_state.samples = []

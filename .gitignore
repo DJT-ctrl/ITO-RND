@@ -48,6 +48,9 @@ data/feedback_loop_overrides.json
 *.log
 *.tmp
 
+# Local JS installs (demo / OpenAPI clients)
+node_modules/
+
 # Local planning notes (kept on disk, excluded from repo)
 planning/
 First Ideas/
@@ -59,3 +62,4 @@ T1.4_DATABASE_PLAN.md
 T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
+.env*

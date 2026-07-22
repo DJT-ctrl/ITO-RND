@@ -213,10 +213,20 @@ def list_recent_feedback(
     *,
     limit: int = 50,
     cluster_id: Optional[str] = None,
-    feedback_version: str = FEEDBACK_VERSION,
+    feedback_version: Optional[str] = FEEDBACK_VERSION,
 ) -> list[FeedbackRecord]:
-    """Recent feedback rows for dashboard tables."""
-    params: list = [feedback_version]
+    """Recent feedback rows for dashboard tables.
+
+    Pass ``feedback_version=None`` to include every version (v1 template + v2 hybrid).
+    """
+    params: list = []
+    version_clause = ""
+    if feedback_version:
+        version_clause = "WHERE f.feedback_version = %s"
+        params.append(feedback_version)
+    else:
+        version_clause = "WHERE TRUE"
+
     cluster_clause = ""
     if cluster_id:
         cluster_clause = "AND f.cluster_id = %s"
@@ -231,7 +241,7 @@ def list_recent_feedback(
                    f.generation_latency_ms, f.input_tokens, f.output_tokens, f.cost_usd,
                    f.feedback_review_status, f.reviewed_at, f.reviewed_by
             FROM prediction_feedback f
-            WHERE f.feedback_version = %s
+            {version_clause}
               {cluster_clause}
             ORDER BY f.generated_at DESC
             LIMIT %s
@@ -240,6 +250,138 @@ def list_recent_feedback(
         )
         rows = cur.fetchall()
     return [_row_to_feedback_record(row) for row in rows]
+
+
+def lesson_phase_stats(
+    conn: psycopg.Connection,
+    *,
+    cluster_id: Optional[str] = None,
+) -> dict[str, int]:
+    """Phase B (v1 template) vs Phase G (v2 hybrid) counts, optional bucket filter."""
+    params: list = []
+    cluster_clause = ""
+    if cluster_id:
+        cluster_clause = "AND cluster_id = %s"
+        params.append(cluster_id)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE feedback_version = 'v1'
+                       OR generation_method = 'template'
+                ) AS template_v1,
+                COUNT(*) FILTER (
+                    WHERE feedback_version = 'v2'
+                       OR generation_method IN ('hybrid', 'llm')
+                ) AS hybrid_v2,
+                COUNT(*) FILTER (
+                    WHERE feedback_version = 'v2'
+                      AND feedback_review_status = 'pending'
+                ) AS v2_pending,
+                COUNT(*) FILTER (
+                    WHERE feedback_version = 'v2'
+                      AND feedback_review_status = 'approved'
+                ) AS v2_approved,
+                COUNT(*) FILTER (
+                    WHERE feedback_version = 'v2'
+                      AND feedback_review_status = 'rejected'
+                ) AS v2_rejected,
+                COUNT(DISTINCT prediction_id) FILTER (
+                    WHERE feedback_version = 'v2'
+                ) AS predictions_with_v2
+            FROM prediction_feedback
+            WHERE TRUE
+              {cluster_clause}
+            """,
+            params,
+        )
+        row = cur.fetchone()
+    if not row:
+        return {
+            "template_v1": 0,
+            "hybrid_v2": 0,
+            "v2_pending": 0,
+            "v2_approved": 0,
+            "v2_rejected": 0,
+            "predictions_with_v2": 0,
+            "paired": 0,
+        }
+
+    paired = 0
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT COUNT(*)
+            FROM prediction_feedback v1
+            JOIN prediction_feedback v2
+              ON v2.prediction_id = v1.prediction_id
+             AND v2.feedback_version = 'v2'
+            WHERE v1.feedback_version = 'v1'
+              {"AND v1.cluster_id = %s" if cluster_id else ""}
+            """,
+            ([cluster_id] if cluster_id else []),
+        )
+        paired_row = cur.fetchone()
+        paired = int(paired_row[0] or 0) if paired_row else 0
+
+    return {
+        "template_v1": int(row[0] or 0),
+        "hybrid_v2": int(row[1] or 0),
+        "v2_pending": int(row[2] or 0),
+        "v2_approved": int(row[3] or 0),
+        "v2_rejected": int(row[4] or 0),
+        "predictions_with_v2": int(row[5] or 0),
+        "paired": paired,
+    }
+
+
+def list_template_hybrid_pairs(
+    conn: psycopg.Connection,
+    *,
+    cluster_id: Optional[str] = None,
+    limit: int = 30,
+) -> list[tuple[FeedbackRecord, FeedbackRecord]]:
+    """Predictions that have both a Phase B (v1) and Phase G (v2) lesson row."""
+    params: list = []
+    cluster_clause = ""
+    if cluster_id:
+        cluster_clause = "AND v1.cluster_id = %s"
+        params.append(cluster_id)
+    params.append(limit)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT
+                v1.feedback_id, v1.prediction_id, v1.cluster_id, v1.feedback_json,
+                v1.feedback_version, v1.generated_at, v1.generation_method,
+                v1.generation_latency_ms, v1.input_tokens, v1.output_tokens, v1.cost_usd,
+                v1.feedback_review_status, v1.reviewed_at, v1.reviewed_by,
+                v2.feedback_id, v2.prediction_id, v2.cluster_id, v2.feedback_json,
+                v2.feedback_version, v2.generated_at, v2.generation_method,
+                v2.generation_latency_ms, v2.input_tokens, v2.output_tokens, v2.cost_usd,
+                v2.feedback_review_status, v2.reviewed_at, v2.reviewed_by
+            FROM prediction_feedback v1
+            JOIN prediction_feedback v2
+              ON v2.prediction_id = v1.prediction_id
+             AND v2.feedback_version = 'v2'
+            WHERE v1.feedback_version = 'v1'
+              {cluster_clause}
+            ORDER BY COALESCE(v2.generated_at, v1.generated_at) DESC
+            LIMIT %s
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    pairs: list[tuple[FeedbackRecord, FeedbackRecord]] = []
+    for row in rows:
+        template = _row_to_feedback_record(row[:14])
+        hybrid = _row_to_feedback_record(row[14:28])
+        pairs.append((template, hybrid))
+    return pairs
 
 
 def _row_to_feedback_record(row: tuple) -> FeedbackRecord:

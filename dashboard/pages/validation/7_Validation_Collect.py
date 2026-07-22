@@ -19,6 +19,7 @@ from dashboard.chrome import (  # noqa: E402
     render_phase_badges,
     section_header,
 )
+from dashboard.pipeline_readiness import compute_validation_readiness  # noqa: E402
 from telemetry.apify import load_apify_runs  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.corpus_import import (  # noqa: E402
@@ -36,6 +37,8 @@ from validation_pipeline.vectorized_corpus import (  # noqa: E402
 )
 
 st.set_page_config(page_title="Collect and predict", layout="wide")
+settings = load_settings()
+_val_ready = compute_validation_readiness("predict", settings=settings)
 page_header(
     "Collect and predict",
     "Create predictions to grade later: import an already-vectorized corpus, "
@@ -43,10 +46,8 @@ page_header(
     "engagement and schedules a validation check.",
     step_hint="Validation step 1 of 4 · Next: Validation queue",
 )
-pipeline_flow_strip("validation", "predict")
+pipeline_flow_strip("validation", "predict", readiness=_val_ready)
 render_phase_badges(["0"])
-
-settings = load_settings()
 
 # ── Step 1: reset + vectorized corpus import ─────────────────────────────────
 
@@ -58,7 +59,9 @@ embeddings** from **Make embeddings** (not raw scraper JSON). Posts are merged
 and deduped by `post_id`, then predicted with the flash-lite model.
 
 **Backtest tip:** aged posts can be predicted “blind” and graded immediately
-in the queue (no 48h wait).
+in the queue (no wall-clock wait). Set **Horizon** to match the age you care
+about (e.g. 3h / 48h / 72h) — that controls re-scrape & grade timing, not when
+AI predicts.
 """,
 )
 st.caption(f"Predictor model: `{pydantic_ai_gemini_model()}`")
@@ -80,7 +83,7 @@ posts_ready, _ = (
 )
 st.metric("Unique vectorized posts ready", len(posts_ready))
 
-col_reset, col_max, col_due, col_bt = st.columns(4)
+col_reset, col_max = st.columns(2)
 with col_reset:
     if st.button(
         "Reset validation data",
@@ -97,26 +100,75 @@ with col_max:
         value=min(len(posts_ready) or 1, 500),
         key="vectorized_import_max",
     )
+
+st.markdown("**Grade timing**")
+st.caption(
+    "AI predicts now. Horizon is when we re-scrape & grade — not when prediction runs."
+)
+col_h, col_due, col_bt = st.columns(3)
 with col_due:
     bulk_due_now = st.checkbox(
-        "Due immediately",
+        "Grade as soon as Queue runs",
         value=False,
         key="vectorized_due_immediately",
-        help="Otherwise validation is scheduled for posted_at + 48h (old posts are already due).",
+        help="Sets validation due time to now so Queue can re-scrape & grade immediately.",
     )
 with col_bt:
     bulk_backtest = st.checkbox(
-        "⚡ Backtest mode",
+        "⚡ Blind backtest",
         value=False,
         key="vectorized_backtest",
         help=(
-            "Strip likes/comments/shares so the predictor runs blind, "
-            "then validate immediately against real actuals. "
-            "Use with already-aged posts to skip the 48h wait."
+            "Hide likes/comments/shares from the predictor. Forces grade-now. "
+            "Queue recovers real engagement on validate. Use with already-aged posts."
         ),
     )
     if bulk_backtest:
         bulk_due_now = True
+with col_h:
+    _bulk_horizon_disabled = bulk_due_now or bulk_backtest
+    _bulk_preset_labels = ["3", "24", "48", "72", "Custom"]
+    _bulk_default_h = str(int(settings.validation_window_hours))
+    _bulk_default_idx = (
+        _bulk_preset_labels.index(_bulk_default_h)
+        if _bulk_default_h in _bulk_preset_labels[:-1]
+        else 4
+    )
+    _bulk_preset = st.radio(
+        "Horizon presets",
+        _bulk_preset_labels,
+        index=_bulk_default_idx,
+        horizontal=True,
+        key="vectorized_horizon_preset",
+        disabled=_bulk_horizon_disabled,
+        label_visibility="collapsed",
+    )
+    if _bulk_preset == "Custom":
+        bulk_horizon_hours = st.number_input(
+            "Horizon (hours after publish)",
+            min_value=1,
+            max_value=720,
+            value=int(settings.validation_window_hours),
+            key="vectorized_horizon_hours",
+            disabled=_bulk_horizon_disabled,
+        )
+    else:
+        bulk_horizon_hours = int(_bulk_preset)
+        st.caption(f"Horizon: **{bulk_horizon_hours}h** after publish")
+
+if settings.validation_dev_window_minutes is not None:
+    st.info(
+        f"Dev override: re-scrape & grade after "
+        f"{settings.validation_dev_window_minutes} minutes (env)."
+    )
+elif bulk_backtest:
+    st.info("AI predicts blind (no engagement). Grade immediately against real counts.")
+elif bulk_due_now:
+    st.info("AI predicts now. Ready to grade in Queue immediately.")
+else:
+    st.info(
+        f"AI predicts now. Re-scrape & grade **{int(bulk_horizon_hours)}h** after publish."
+    )
 
 if "validation_reset_counts" in st.session_state:
     reset = st.session_state["validation_reset_counts"]
@@ -146,6 +198,11 @@ if st.button(
             max_posts=int(bulk_max),
             due_immediately=bulk_due_now,
             backtest=bulk_backtest,
+            validation_window_hours=(
+                None
+                if settings.validation_dev_window_minutes is not None
+                else float(bulk_horizon_hours)
+            ),
         )
     st.session_state["vectorized_import_result"] = result
     st.rerun()
@@ -180,29 +237,64 @@ with st.sidebar:
         max_value=100,
         value=settings.validation_max_posts_per_run,
     )
+
+    st.markdown("**Grade timing**")
     due_immediately = st.checkbox(
-        "Due immediately (for testing)",
+        "Grade as soon as Queue runs",
         value=False,
-        help="Skip the 48h wait — use with saved collections to test validation in Queue.",
+        help="Sets validation due time to now so Queue can re-scrape & grade immediately.",
     )
     backtest_mode = st.checkbox(
-        "⚡ Backtest mode",
+        "⚡ Blind backtest",
         value=False,
         help=(
-            "Strip engagement metrics so the predictor runs blind on "
-            "already-aged posts. Forces 'Due immediately' ON."
+            "Hide likes/comments/shares from the predictor. Forces grade-now. "
+            "Queue recovers real engagement on validate."
         ),
     )
     if backtest_mode:
         due_immediately = True
 
-    window_hours = settings.validation_window_hours
-    if settings.validation_dev_window_minutes is not None:
-        st.info(f"Dev validation window: {settings.validation_dev_window_minutes} minutes")
-    elif due_immediately:
-        st.info("Predictions will be due for validation immediately.")
+    _horizon_disabled = due_immediately or backtest_mode
+    _preset_labels = ["3", "24", "48", "72", "Custom"]
+    _default_h = str(int(settings.validation_window_hours))
+    _default_idx = (
+        _preset_labels.index(_default_h) if _default_h in _preset_labels[:-1] else 4
+    )
+    _horizon_preset = st.radio(
+        "Horizon presets",
+        _preset_labels,
+        index=_default_idx,
+        horizontal=True,
+        key="sidebar_horizon_preset",
+        disabled=_horizon_disabled,
+        help="Hours after publish before re-scrape & grade. AI still predicts immediately.",
+    )
+    if _horizon_preset == "Custom":
+        horizon_hours = st.number_input(
+            "Horizon (hours after publish)",
+            min_value=1,
+            max_value=720,
+            value=int(settings.validation_window_hours),
+            key="sidebar_horizon_hours",
+            disabled=_horizon_disabled,
+        )
     else:
-        st.info(f"Validation window: {window_hours} hours after publish")
+        horizon_hours = int(_horizon_preset)
+
+    if settings.validation_dev_window_minutes is not None:
+        st.info(
+            f"Dev override: re-scrape & grade after "
+            f"{settings.validation_dev_window_minutes} minutes (env)."
+        )
+    elif backtest_mode:
+        st.info("AI predicts blind (no engagement). Grade immediately against real counts.")
+    elif due_immediately:
+        st.info("AI predicts now. Ready to grade in Queue immediately.")
+    else:
+        st.info(
+            f"AI predicts now. Re-scrape & grade **{int(horizon_hours)}h** after publish."
+        )
 
     can_predict = bool(settings.gemini_api_key and settings.database_url)
 
@@ -268,6 +360,11 @@ if run_clicked:
                 "maxPosts": int(max_posts),
                 "sortBy": "relevance",
             }
+            _window_hours = (
+                None
+                if settings.validation_dev_window_minutes is not None
+                else float(horizon_hours)
+            )
             if backtest_mode:
                 # Collect first, strip engagement, then predict separately.
                 posts = _collect_posts(
@@ -285,6 +382,7 @@ if run_clicked:
                         settings=settings,
                         due_immediately=True,
                         is_backtest=True,
+                        validation_window_hours=_window_hours,
                         on_progress=on_progress,
                     )
                 )
@@ -293,6 +391,8 @@ if run_clicked:
                     run_collect_and_predict(
                         search_params,
                         settings=settings,
+                        due_immediately=due_immediately,
+                        validation_window_hours=_window_hours,
                         on_progress=on_progress,
                     )
                 )
@@ -311,12 +411,18 @@ if run_clicked:
                 )
             else:
                 on_progress(f"Loaded {len(posts)} post(s) from `{selected_scan}`.")
+            _window_hours = (
+                None
+                if settings.validation_dev_window_minutes is not None
+                else float(horizon_hours)
+            )
             result = asyncio.run(
                 run_predict_on_posts(
                     posts,
                     settings=settings,
                     due_immediately=due_immediately,
                     is_backtest=backtest_mode,
+                    validation_window_hours=_window_hours,
                     on_progress=on_progress,
                 )
             )

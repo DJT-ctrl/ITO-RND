@@ -101,6 +101,161 @@ Each row below has a short “what”, extra detail, and a concrete example.
 shadow ON. Do not flip calibration or injection on until Phase **F** is GO.
 """,
     ),
+    DashboardDocument(
+        id="feedback-loop-qna",
+        title="Feedback loop Q&A (operator notes)",
+        plain_summary=(
+            "Plain-English answers: which step writes lessons, holdout vs graded, "
+            "switches, buckets, and when to turn on Show lessons to the AI."
+        ),
+        tags=("feedback", "qna", "operate"),
+        body_markdown="""
+## Feedback loop Q&A
+
+Notes from operating the Check and learn pages. Safe default reminder:
+**Save lessons ON**, **Adjust scores OFF**, **Show lessons to the AI OFF**
+until Phase F (offline evaluation) says GO.
+
+---
+
+### Which of the four validation pages writes feedback?
+
+**Feedback loop** — specifically **Write / refresh lessons**
+(**Process feedback queue** / **Generate missing feedback**).
+
+**Validation queue** only grades a post and *enqueues* a job when
+**Save lessons after grading** is ON. It does not write the lesson itself.
+
+Order: Collect and predict → Validation queue (grade) → Accuracy over time
+(charts) → Feedback loop (lessons / learning).
+
+---
+
+### What does “Write / refresh lessons” do?
+
+Stores lessons in Postgres (`prediction_feedback`) and updates learning
+buckets (`prediction_clusters`). It does **not** change Collect and predict
+by itself.
+
+- **Process feedback queue** — drain pending `feedback_jobs` and write lessons.
+- **Generate missing feedback** — backfill graded rows that still lack a v1 lesson.
+- Refresh buttons — recompute bucket stats / roll-ups / centroids.
+
+If the queue worker reports `claimed=0`, the queue is empty (lessons already
+written or nothing pending).
+
+---
+
+### What does “Rebuild lesson for one post” do?
+
+Overwrites that **one** graded post’s stored lesson JSON and refreshes bucket
+stats. It does **not** re-scrape LinkedIn or re-grade actuals. Use after a
+template change or to recover a bad/missing lesson.
+
+---
+
+### Holdout vs graded posts?
+
+- **Graded posts** — all validated predictions (the real pile; e.g. ~700).
+- **Holdout** — a small fixed sample (e.g. 30) used only by **offline
+  evaluation** to replay and compare. It is *not* “how much feedback you have.”
+
+The recent-feedback table on Feedback loop often shows only the last ~30 rows;
+that is a display limit, not total stored lessons.
+
+---
+
+### What does Offline evaluation (Phase F) do?
+
+A dry-run report only. It does **not** write lessons and does **not** flip
+switches for you.
+
+It replays held-out graded posts with learning ON vs OFF and checks whether
+average error drops enough. Reports land as `data/telemetry/eval_feedback_*.json`.
+
+**Read the gates as:**
+- Calibration GO → you *may* turn on **Adjust scores from past mistakes**
+- Injection GO → you *may* turn on **Show lessons to the AI**
+- Otherwise → leave both OFF (safe default)
+
+---
+
+### Is “Show lessons to the AI” correctly OFF?
+
+**Yes — recommended OFF** until Phase F injection is GO. You may already have
+many graded posts and stored lessons; that is not the same as *proven lift*.
+
+On **Feedback loop → Operate**, section **2 · Should we turn learning on?**
+runs **Phase F · Offline evaluation**. Until that report says GO for
+injection, keep **Show lessons to the AI** OFF. Same for **Adjust scores**
+until calibration is GO.
+
+---
+
+### If Save lessons is ON, does Collect and predict get the feedback?
+
+**No.** That switch only **creates** lessons after grading.
+
+Collect and predict only uses them when:
+
+- **Show lessons to the AI** is ON (prompt injection), and/or
+- **Adjust scores from past mistakes** is ON (numeric calibration nudge).
+
+---
+
+### Where do lessons “go”? Folders?
+
+Not folders. Postgres:
+
+| Store | Role |
+|-------|------|
+| `feedback_jobs` | Queue after validate |
+| `prediction_feedback` | Lesson rows |
+| `prediction_clusters` | Learning buckets + stats |
+
+Browse buckets on **Feedback loop → Understand learning**. Human-readable
+export: `data/feedback_readable.md`.
+
+---
+
+### How are learning buckets sorted / named?
+
+Buckets are `length × format × follower band`
+(e.g. `medium_prose_unknown`). The table is usually ordered by **samples**
+(most → least). `ready` means enough samples for cluster calibration;
+`need 50` means the bucket is still thin.
+
+---
+
+### Can more learning bucket types be made?
+
+**Not freely in the UI.** New combinations appear automatically when posts
+match a new length/format/follower band. New axes (topic, industry, etc.)
+need a code change to the routing rules.
+
+---
+
+### Do learning switches rewrite the three earlier steps?
+
+Mostly **no** on past runs. They affect:
+
+- **Save lessons** — whether validate enqueues / writes new lessons.
+- **Calibration / Show lessons** — the **next** Collect and predict run.
+
+Validation queue and Accuracy over time stay grading + charts; switches do
+not rewrite that history.
+
+---
+
+### Quick operator checklist
+
+1. Collect and predict → queue posts.
+2. Validation queue → grade (enqueues lesson jobs if Save lessons is ON).
+3. Feedback loop → **Process feedback queue** (or Generate missing).
+4. Phase F offline evaluation → prove lift before flipping injection / calibration.
+5. Only then consider **Show lessons to the AI** / **Adjust scores**.
+""",
+    ),
 )
 
 

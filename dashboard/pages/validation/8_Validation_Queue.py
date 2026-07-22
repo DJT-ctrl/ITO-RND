@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, render_phase_badges, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_validation_readiness  # noqa: E402
 from validation_pipeline.ui import (  # noqa: E402
     load_predictions,
     render_validation_comparison_table,
@@ -17,6 +18,8 @@ from validation_pipeline.ui import (  # noqa: E402
 from validation_pipeline.worker import run_due_validations, run_validations_for_ids  # noqa: E402
 
 st.set_page_config(page_title="Validation queue", layout="wide")
+settings = load_settings()
+_val_ready = compute_validation_readiness("queue", settings=settings)
 page_header(
     "Validation queue",
     "Compare what we predicted against what actually happened (likes, comments, "
@@ -25,7 +28,7 @@ page_header(
     "**Feedback loop**.",
     step_hint="Validation step 2 of 4 · Previous: Collect and predict · Next: Accuracy over time",
 )
-pipeline_flow_strip("validation", "queue")
+pipeline_flow_strip("validation", "queue", readiness=_val_ready)
 render_phase_badges(["0", "B"])
 
 section_header(
@@ -38,8 +41,6 @@ section_header(
 Use the sidebar to run due validations or force-validate selected rows.
 """,
 )
-
-settings = load_settings()
 
 if not settings.database_url:
     st.warning("DATABASE_URL is not set.")

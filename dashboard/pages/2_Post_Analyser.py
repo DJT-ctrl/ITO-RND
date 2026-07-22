@@ -23,6 +23,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 from config.paths import resolve_data_path, utc_artifact_stamp  # noqa: E402
 from config.settings import GEMINI_MODEL, load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_corpus_readiness  # noqa: E402
 from processors.corpus_benchmarks import build_snapshot, save_snapshot  # noqa: E402
 from processors.dedup import dedupe_posts  # noqa: E402
 from processors.finalize_records import analysed_dataset_label, finalize_analysed_records  # noqa: E402
@@ -105,6 +106,8 @@ def _strip_join_keys(records: list[dict]) -> list[dict]:
 # ── Page setup ────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Analyse posts", layout="wide")
+_settings_early = load_settings()
+_corpus_ready = compute_corpus_readiness("analyse", settings=_settings_early)
 page_header(
     "Analyse posts",
     "Turn raw scraped JSON into structured features. "
@@ -112,7 +115,13 @@ page_header(
     "(paid and slow) — keep “Max posts” small while testing.",
     step_hint="Corpus step 2 of 5 · Previous: Collect samples · Next: Find patterns",
 )
-pipeline_flow_strip("corpus", "analyse")
+pipeline_flow_strip("corpus", "analyse", readiness=_corpus_ready)
+_embed_cue = _corpus_ready.steps.get("embed")
+_collect_cue = _corpus_ready.steps.get("collect")
+if _embed_cue and _embed_cue.state == "ready":
+    st.caption(f"→ {_embed_cue.hint}")
+elif _collect_cue and _collect_cue.state == "done" and _corpus_ready.steps["analyse"].state != "done":
+    st.caption(f"→ {_corpus_ready.steps['analyse'].hint}")
 
 section_header(
     "How to test without burning budget",
@@ -126,7 +135,7 @@ Stage 2 is the slow/expensive step — that is expected, not a UI bug.
 """,
 )
 
-settings = load_settings()
+settings = _settings_early
 
 if "python_features" not in st.session_state:
     st.session_state.python_features = []

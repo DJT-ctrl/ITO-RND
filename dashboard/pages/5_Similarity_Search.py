@@ -31,6 +31,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_corpus_readiness  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
 from processors.embedder import embed_query  # noqa: E402
 from storage.vector_store import find_similar, get_connection  # noqa: E402
@@ -38,6 +39,8 @@ from storage.vector_store import find_similar, get_connection  # noqa: E402
 # ── Page setup ────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Search similar", layout="wide")
+settings = load_settings()
+_corpus_ready = compute_corpus_readiness("search", settings=settings)
 page_header(
     "Search similar",
     "Paste a draft and find the closest historical posts in the database. "
@@ -45,7 +48,12 @@ page_header(
     "then pgvector cosine search.",
     step_hint="Corpus step 5 of 5 · Previous: Make embeddings · Also used by Draft evaluator",
 )
-pipeline_flow_strip("corpus", "search")
+pipeline_flow_strip("corpus", "search", readiness=_corpus_ready)
+_search = _corpus_ready.steps.get("search")
+if _search and _search.state == "blocked":
+    st.caption(f"· {_search.hint}")
+elif _search and _search.state == "ready":
+    st.caption(f"→ {_search.hint}")
 
 section_header(
     "What you need",
@@ -54,8 +62,6 @@ Requires **GEMINI_API_KEY** and **DATABASE_URL**, plus posts already ingested
 into Postgres with embeddings. The sidebar shows corpus status.
 """,
 )
-
-settings = load_settings()
 
 if "similar_result" not in st.session_state:
     st.session_state.similar_result = None

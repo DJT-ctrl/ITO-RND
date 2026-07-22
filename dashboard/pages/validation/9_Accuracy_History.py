@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, render_phase_badges, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_validation_readiness  # noqa: E402
 from feedback.ui import render_calibration_panel, render_coverage_panel  # noqa: E402
 from feedback.observability_ui import (  # noqa: E402
     render_cluster_accuracy,
@@ -22,6 +23,8 @@ from validation_pipeline.ui import (  # noqa: E402
 )
 
 st.set_page_config(page_title="Accuracy over time", layout="wide")
+settings = load_settings()
+_val_ready = compute_validation_readiness("accuracy", settings=settings)
 page_header(
     "Accuracy over time",
     "Charts and tables for how wrong (or right) predictions were after grading. "
@@ -29,7 +32,7 @@ page_header(
     "**Feedback loop**.",
     step_hint="Validation step 3 of 4 · Related phases: E (measure), A (calibration), F (go/no-go)",
 )
-pipeline_flow_strip("validation", "accuracy")
+pipeline_flow_strip("validation", "accuracy", readiness=_val_ready)
 render_phase_badges(["E", "A", "F"])
 
 section_header(
@@ -43,8 +46,6 @@ until Phase F says GO.
 For lessons, clusters, and manual jobs, open **Feedback loop**.
 """,
 )
-
-settings = load_settings()
 
 if not settings.database_url:
     st.warning("DATABASE_URL is not set.")

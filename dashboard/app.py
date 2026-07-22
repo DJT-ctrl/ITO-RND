@@ -16,10 +16,16 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
+from dashboard.invite_gate import invite_configured, require_invite
+
 _PAGES = Path(__file__).resolve().parent / "pages"
 _VALIDATION = _PAGES / "validation"
 
 st.set_page_config(page_title="ITO Test Harness", layout="wide")
+
+# Password first on shared demos; after unlock the harness below is unchanged.
+if invite_configured():
+    require_invite()
 
 pg = st.navigation(
     {

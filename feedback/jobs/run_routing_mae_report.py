@@ -14,7 +14,7 @@ from config.paths import resolve_data_path, utc_artifact_stamp
 from config.settings import load_settings
 from feedback.generate import FEEDBACK_VERSION
 from feedback.routing_mae import RoutingReplayRow, run_routing_mae_replay
-from feedback.store import fetch_cluster_centroids
+from feedback.store import embedding_to_float_list, fetch_cluster_centroids
 from storage.vector_store import create_schema, get_connection
 
 logger = logging.getLogger(__name__)
@@ -51,10 +51,7 @@ def fetch_routing_replay_rows(conn: psycopg.Connection) -> list[RoutingReplayRow
         embedding = row[5]
         vector: Optional[list[float]] = None
         if embedding is not None:
-            vector = [
-                float(x)
-                for x in (list(embedding) if not isinstance(embedding, list) else embedding)
-            ]
+            vector = embedding_to_float_list(embedding)
         result.append(
             RoutingReplayRow(
                 prediction_id=row[0] if isinstance(row[0], UUID) else UUID(str(row[0])),

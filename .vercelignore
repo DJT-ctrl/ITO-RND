@@ -1,0 +1,16 @@
+# Keep the Vercel upload small; Docker build context still uses .dockerignore.
+.venv/
+node_modules/
+data/
+.git/
+.pytest_cache/
+.ruff_cache/
+tests/
+docs/
+infra/
+deploy/
+First Ideas/
+*.pyc
+__pycache__/
+.env
+.env.local

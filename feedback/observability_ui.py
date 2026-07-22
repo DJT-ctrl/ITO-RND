@@ -128,14 +128,44 @@ def render_offline_evaluation_panel(
     holdout_size: int = 30,
 ) -> None:
     """Run leakage-safe 4-arm replay and show the latest saved report."""
-    st.subheader("Offline evaluation (Phase F) — prove it helps")
-    st.caption(
-        "Held-out replay: compare raw vs nudged scores, with and without lessons. "
-        f"Need more than {holdout_size} graded posts (holdout={holdout_size}). "
-        f"GO for calibration needs ≥{CALIBRATION_LIFT_GATE_PCT:g}% drop in average "
-        "error (MAE) on two stable runs. Soft blend / injection need shadow mode "
-        "to beat live."
+    st.subheader("Phase F · Offline evaluation — should we show lessons to the AI?")
+    st.markdown(
+        f"""
+**What this is:** a dry-run report on held-out graded posts. It compares raw
+scores vs nudged scores, with and without lessons. It does **not** write
+lessons and does **not** change Collect and predict.
+
+**What to do with the result:**
+- **Show lessons to the AI** → leave **OFF** until soft blend / injection is
+  **GO** (shadow must beat live). Recommended default today: **OFF**.
+- **Adjust scores from past mistakes** → leave **OFF** until calibration is
+  **GO** (≥{CALIBRATION_LIFT_GATE_PCT:g}% MAE drop on two stable runs).
+
+**Holdout** = a small sample (here {holdout_size}) taken from your graded posts
+for this test — not “how much feedback you have.” **Graded posts** = the full
+validated pile.
+"""
     )
+
+    inj_on = settings.validation_feedback_injection_enabled
+    cal_on = settings.validation_calibration_enabled
+    if inj_on or cal_on:
+        parts = []
+        if inj_on:
+            parts.append("**Show lessons to the AI** is ON")
+        if cal_on:
+            parts.append("**Adjust scores** is ON")
+        st.warning(
+            " · ".join(parts)
+            + ". Safe default until Phase F is GO: both OFF. "
+            "Only keep them on if a recent eval report below says GO."
+        )
+    else:
+        st.info(
+            "Recommended now: **Show lessons to the AI = OFF**, "
+            "**Adjust scores = OFF**. Run evaluation below; flip switches only "
+            "after GO."
+        )
 
     conn = get_connection(settings)
     try:
@@ -145,12 +175,29 @@ def render_offline_evaluation_panel(
         conn.close()
 
     n_validated = status.n_validated
-    cols = st.columns(3)
-    cols[0].metric("Graded posts", n_validated)
-    cols[1].metric("Holdout size", holdout_size)
+    cols = st.columns(4)
+    cols[0].metric(
+        "Graded posts",
+        n_validated,
+        help="All validated predictions (the full pile).",
+    )
+    cols[1].metric(
+        "Holdout size",
+        holdout_size,
+        help="How many graded posts this eval holds out for replay — not total feedback.",
+    )
     cols[2].metric(
-        "Ready to run?",
+        "Ready to run eval?",
         "yes" if n_validated > holdout_size else "not yet",
+        help=f"Need more than {holdout_size} graded posts.",
+    )
+    cols[3].metric(
+        "Show lessons to AI?",
+        "ON — confirm F is GO" if inj_on else "OFF (recommended)",
+        help=(
+            "Live injection switch. Keep OFF until Phase F soft_blend / "
+            "injection decision is GO."
+        ),
     )
 
     if n_validated <= holdout_size:
@@ -159,10 +206,14 @@ def render_offline_evaluation_panel(
             f"found {n_validated}. Collect and validate more posts first."
         )
     elif st.button(
-        "Run offline evaluation",
+        "Run offline evaluation (Phase F gate)",
         type="primary",
         key="run_offline_feedback_evaluation",
-        help="Same as: python -m feedback.jobs.run_feedback_evaluation",
+        help=(
+            "Replay holdout with/without calibration and lessons. "
+            "Does not turn on Show lessons to the AI — you still flip that switch "
+            "manually after GO. Same as: python -m feedback.jobs.run_feedback_evaluation"
+        ),
     ):
         try:
             report, path = run_and_save_offline_evaluation(
@@ -184,7 +235,10 @@ def render_offline_evaluation_panel(
 
     report, path = load_latest_eval_feedback_report(settings)
     if report is None or path is None:
-        st.info("No eval_feedback_*.json reports yet. Run an evaluation when N is ready.")
+        st.info(
+            "No `eval_feedback_*.json` reports yet. Run Phase F when graded posts "
+            "are ready. Until then: keep **Show lessons to the AI** OFF."
+        )
         return
     st.markdown(f"**Latest report:** `{path.name}`")
     _render_evaluation_report(report, path)
@@ -200,22 +254,23 @@ def _render_phase_f_status_banner(
     lift_label = f"{lift:.2f}%" if lift is not None else "n/a"
     if decision.calibration_decision == "GO" and decision.injection_decision == "GO":
         st.success(
-            f"Phase F **GO** — calibration lift {lift_label} "
-            f"(gate ≥{CALIBRATION_LIFT_GATE_PCT:g}%); shadow beats live. "
+            f"Phase F **GO** — you may turn on **Adjust scores** and "
+            f"**Show lessons to the AI** after a second stable run. "
+            f"Calibration lift {lift_label}; shadow beats live. "
             f"Latest: `{path.name}` (N={report.total_rows})."
         )
     elif decision.calibration_decision == "GO":
         st.warning(
-            f"Phase F calibration **GO** ({lift_label} ≥ {CALIBRATION_LIFT_GATE_PCT:g}%), "
-            f"but soft_blend / injection stay **NO-GO** "
+            f"Phase F: calibration **GO** ({lift_label}), but injection "
+            f"**NO-GO** — keep **Show lessons to the AI** OFF "
             f"(shadow does not beat live). Latest: `{path.name}`."
         )
     else:
         st.warning(
-            f"Phase F **NO-GO** — calibration lift {lift_label} "
-            f"(need ≥{CALIBRATION_LIFT_GATE_PCT:g}%); "
-            f"soft_blend / injection **NO-GO**. "
-            f"Keep shadow ON. Latest: `{path.name}` (N={report.total_rows})."
+            f"Phase F **NO-GO** — keep **Adjust scores** and "
+            f"**Show lessons to the AI** OFF. Calibration lift {lift_label} "
+            f"(need ≥{CALIBRATION_LIFT_GATE_PCT:g}%). "
+            f"Latest: `{path.name}` (N={report.total_rows})."
         )
 
 
@@ -291,7 +346,7 @@ def _render_phase_f_gates(
     report: FeedbackEvaluationReport,
 ) -> None:
     """Show calibration lift and shadow vs live against Phase F ship gates."""
-    st.markdown("#### Phase F go / no-go")
+    st.markdown("#### Phase F go / no-go — flip switches only after GO")
     lift = decision.calibration_lift_pct
     lift_label = f"{lift:.2f}%" if lift is not None else "n/a"
     delta = decision.shadow_mae_delta
@@ -308,9 +363,12 @@ def _render_phase_f_gates(
         ),
     )
     gate_cols[1].metric(
-        "Calibration",
+        "Calibration → Adjust scores?",
         decision.calibration_decision,
-        help=f"GO only when lift ≥ {CALIBRATION_LIFT_GATE_PCT:g}% on two stable runs.",
+        help=(
+            f"GO only when lift ≥ {CALIBRATION_LIFT_GATE_PCT:g}% on two stable runs. "
+            "Then you may turn on Adjust scores from past mistakes."
+        ),
     )
     gate_cols[2].metric(
         "Shadow sample",
@@ -318,21 +376,36 @@ def _render_phase_f_gates(
         help="Holdout rows with shadow_percentile telemetry.",
     )
     gate_cols[3].metric(
-        "Soft blend / injection",
+        "Injection → Show lessons to AI?",
         decision.soft_blend_decision,
         delta=f"live−shadow {delta_label}",
-        help="GO only when shadow MAE clearly beats live (positive live−shadow delta).",
+        help=(
+            "GO only when shadow MAE clearly beats live. "
+            "Then you may turn on Show lessons to the AI."
+        ),
     )
+
+    if decision.soft_blend_decision == "GO":
+        st.success(
+            "Injection gate **GO** — you *may* turn on **Show lessons to the AI** "
+            "(still confirm with a second stable run)."
+        )
+    else:
+        st.error(
+            "Injection gate **NO-GO** — keep **Show lessons to the AI** OFF. "
+            "This eval did not prove lesson injection helps yet."
+        )
 
     if decision.calibration_decision == "GO":
         st.success(
             f"Calibration gate met ({lift_label} ≥ {CALIBRATION_LIFT_GATE_PCT:g}%). "
-            "Confirm with a second identical run before flipping the flag."
+            "Confirm with a second identical run before flipping **Adjust scores**."
         )
     else:
         st.error(
             f"Calibration **NO-GO**: lift {lift_label} < {CALIBRATION_LIFT_GATE_PCT:g}% gate. "
-            "Keep `VALIDATION_CALIBRATION_ENABLED=false`."
+            "Keep **Adjust scores from past mistakes** OFF "
+            "(`VALIDATION_CALIBRATION_ENABLED=false`)."
         )
 
     if decision.shadow_sample_count == 0:
@@ -348,5 +421,6 @@ def _render_phase_f_gates(
     else:
         st.warning(
             f"Shadow does **not** beat live (MAE delta {delta_label}). "
-            "Keep `hard_lock` and injection OFF; continue collecting shadow."
+            "Keep `hard_lock` and **Show lessons to the AI** OFF; "
+            "continue collecting shadow."
         )

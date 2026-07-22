@@ -8,6 +8,7 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
+from dashboard.pipeline_readiness import compute_corpus_readiness  # noqa: E402
 from dashboard.pipeline_ui import load_records_from_bundles, render_bundle_multiselect  # noqa: E402
 from processors.pattern_analysis import (  # noqa: E402
     correlate_numeric_features,
@@ -16,13 +17,14 @@ from processors.pattern_analysis import (  # noqa: E402
 )
 
 st.set_page_config(page_title="Find patterns", layout="wide")
+_corpus_ready = compute_corpus_readiness("patterns")
 page_header(
     "Find patterns",
     "Plain statistics on analysed posts — engagement by tag, correlations, "
     "and optional feature importance. **No Gemini calls on this page.**",
     step_hint="Corpus step 3 of 5 · Previous: Analyse posts · Next: Make embeddings",
 )
-pipeline_flow_strip("corpus", "patterns")
+pipeline_flow_strip("corpus", "patterns", readiness=_corpus_ready)
 
 section_header(
     "What you need first",

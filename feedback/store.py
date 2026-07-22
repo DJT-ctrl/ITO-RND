@@ -25,6 +25,33 @@ from feedback.schemas import (
 logger = logging.getLogger(__name__)
 
 
+def embedding_to_float_list(embedding: object) -> list[float]:
+    """Convert a DB embedding (list, pgvector Vector, ndarray, …) to floats.
+
+    Newer pgvector returns a non-iterable ``Vector``; older adapters and
+    ``register_vector`` may return a plain ``list``. Prefer ``to_list()`` /
+    ``tolist()`` when present.
+    """
+    if embedding is None:
+        raise TypeError("embedding is None")
+    if isinstance(embedding, list):
+        return [float(x) for x in embedding]
+    to_list = getattr(embedding, "to_list", None)
+    if callable(to_list):
+        return [float(x) for x in to_list()]
+    tolist = getattr(embedding, "tolist", None)
+    if callable(tolist):
+        return [float(x) for x in tolist()]
+    if isinstance(embedding, tuple):
+        return [float(x) for x in embedding]
+    try:
+        return [float(x) for x in embedding]  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise TypeError(
+            f"Unsupported embedding type {type(embedding)!r}"
+        ) from exc
+
+
 _FEEDBACK_SELECT = """
     feedback_id, prediction_id, cluster_id, feedback_json,
     feedback_version, generated_at, generation_method,
@@ -391,8 +418,7 @@ def fetch_cluster_centroids(
     for cluster_id, embedding in rows:
         if embedding is None:
             continue
-        vector = list(embedding) if not isinstance(embedding, list) else embedding
-        results.append((cluster_id, [float(x) for x in vector]))
+        results.append((cluster_id, embedding_to_float_list(embedding)))
     return results
 
 
@@ -450,8 +476,7 @@ def fetch_validated_embeddings_by_metadata_cluster(
     for cluster_id, embedding in rows:
         if embedding is None:
             continue
-        vector = [float(x) for x in (list(embedding) if not isinstance(embedding, list) else embedding)]
-        grouped.setdefault(str(cluster_id), []).append(vector)
+        grouped.setdefault(str(cluster_id), []).append(embedding_to_float_list(embedding))
     return grouped
 
 

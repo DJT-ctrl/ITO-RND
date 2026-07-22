@@ -1,6 +1,6 @@
 """Shared Streamlit chrome: headers, ? help, phase badges, pipeline strips.
 
-Frontend-only helpers. No backend calls.
+Frontend helpers. Pipeline strips may receive readiness computed by callers.
 """
 
 from __future__ import annotations
@@ -259,56 +259,97 @@ def render_phase_badges(letters: Sequence[str]) -> None:
 
 
 def render_phase_legend(*, compact: bool = False) -> None:
-    """Full A–J (+0, G+) legend with plain English, examples, and status.
-
-    Uses Streamlit-native widgets (not an HTML table) so detail/example text
-    is not stripped by markdown HTML sanitization.
-    """
+    """Full A–J (+0, G+) legend: compact table rows; arrow expands detail."""
     keys = ["0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "G+"]
     if compact:
         html = "".join(phase_badge_html(k) for k in keys)
         st.markdown(html, unsafe_allow_html=True)
         return
 
+    header = st.columns([0.20, 0.60, 0.20])
+    header[0].markdown("**Phase**")
+    header[1].markdown("**What it does**")
+    header[2].markdown("**Status**")
+    st.markdown(
+        "<hr style='margin:0.25rem 0 0.5rem;border:none;border-top:1px solid #e2e8f0;'>",
+        unsafe_allow_html=True,
+    )
+
     for key in keys:
         meta = PHASES[key]
-        col_badge, col_body, col_status = st.columns([0.22, 0.58, 0.20])
+        detail = meta.get("detail", "")
+        example = meta.get("example", "")
+        col_badge, col_what, col_status = st.columns([0.20, 0.60, 0.20])
         with col_badge:
             st.markdown(phase_badge_html(key), unsafe_allow_html=True)
-        with col_body:
-            st.markdown(f"**{meta['plain']}**")
-            detail = meta.get("detail", "")
-            example = meta.get("example", "")
-            if detail:
-                st.caption(detail)
-            if example:
-                st.markdown(f"*Example:* {example}")
+        with col_what:
+            with st.expander(meta["plain"], expanded=False):
+                if detail:
+                    st.markdown(detail)
+                if example:
+                    st.markdown(f"**Example:** {example}")
         with col_status:
             st.markdown(f"*{meta['status']}*")
-        st.divider()
 
 
 def pipeline_flow_strip(
     kind: Literal["corpus", "validation"],
     current: str,
+    *,
+    readiness: Optional[object] = None,
+    show_caption: bool = True,
 ) -> None:
-    """You-are-here strip for corpus or validation steps."""
+    """You-are-here strip for corpus or validation steps.
+
+    When ``readiness`` (a ``PipelineReadiness``) is provided, chips use
+    symbol + color for done / current / ready / blocked / optional.
+    Without it, only the current step is highlighted (legacy behavior).
+    """
     steps = _CORPUS_STEPS if kind == "corpus" else _VALIDATION_STEPS
+    # state -> (bg, fg, symbol)
+    styles: dict[str, tuple[str, str, str]] = {
+        "current": ("#1f5f8b", "#ffffff", "●"),
+        "done": ("#0f766e", "#ffffff", "✓"),
+        "ready": ("#fef3c7", "#92400e", "○"),
+        "blocked": ("#e2e8f0", "#94a3b8", "·"),
+        "optional": ("#f1f5f9", "#64748b", "◌"),
+        "inactive": ("#e2e8f0", "#334155", ""),
+    }
+
+    readiness_steps = getattr(readiness, "steps", None) if readiness is not None else None
+
     parts: list[str] = []
     for key, label in steps:
-        active = key == current
-        bg = "#1f5f8b" if active else "#e2e8f0"
-        fg = "#ffffff" if active else "#334155"
-        weight = "700" if active else "500"
+        if key == current:
+            state = "current"
+        elif readiness_steps is not None:
+            info = readiness_steps.get(key)
+            state = getattr(info, "state", "blocked") if info is not None else "blocked"
+        else:
+            state = "inactive"
+
+        bg, fg, symbol = styles.get(state, styles["blocked"])
+        border = (
+            "border:1px dashed #94a3b8;"
+            if state == "optional"
+            else "border:1px solid transparent;"
+        )
+        short = label.split("·", 1)[0].strip()
+        name = label.split("·", 1)[-1].strip() if "·" in label else label
+        chip_label = f"{symbol} {short} {name}".strip() if symbol else label
+        weight = "700" if state == "current" else "500"
         parts.append(
             f'<span style="display:inline-block;padding:6px 12px;margin:2px 4px;'
             f"border-radius:8px;background:{bg};color:{fg};font-size:0.82rem;"
-            f'font-weight:{weight};">{label}</span>'
+            f'font-weight:{weight};{border}" title="{name}">{chip_label}</span>'
         )
     joiner = (
         '<span style="color:#94a3b8;margin:0 2px;font-weight:600;">→</span>'
     )
     st.markdown(joiner.join(parts), unsafe_allow_html=True)
+    caption = getattr(readiness, "caption", "") if readiness is not None else ""
+    if show_caption and caption:
+        st.caption(caption)
 
 
 def render_how_phases_connect() -> None:

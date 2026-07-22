@@ -27,8 +27,8 @@ section_header(
     "Browse",
     """
 Pick a document on the left. Placeholders marked *(paste later)* are reserved
-slots for notes you will submit. The **Phases A–J** doc is already filled in
-so the color legend has a readable home.
+slots for notes you will submit. Filled docs include **Phases A–J** and the
+**Feedback loop Q&A** operator notes.
 """,
 )
 

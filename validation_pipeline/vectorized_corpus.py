@@ -337,13 +337,14 @@ async def bulk_import_vectorized_and_predict_async(
     due_immediately: bool = False,
     skip_existing: bool = True,
     backtest: bool = False,
+    validation_window_hours: float | None = None,
 ):
     """Discover vectorized bundles, predict, and schedule validation.
 
     When *backtest* is True, engagement metrics are zeroed out before
     prediction and ``due_immediately`` is forced to True.
     """
-    from validation_pipeline.corpus_import import CorpusImportResult, predict_on_posts_async
+    from validation_pipeline.corpus_import import predict_on_posts_async
     from validation_pipeline.schemas import strip_engagement_for_backtest
 
     posts, datasets = load_all_vectorized_collected_posts(
@@ -359,6 +360,7 @@ async def bulk_import_vectorized_and_predict_async(
         due_immediately=due_immediately,
         skip_existing=skip_existing,
         is_backtest=backtest,
+        validation_window_hours=validation_window_hours,
     )
     result.source_files = [dataset.label for dataset in datasets]
     return result
@@ -379,5 +381,6 @@ def bulk_import_vectorized_and_predict(
             due_immediately=kwargs.get("due_immediately", False),
             skip_existing=kwargs.get("skip_existing", True),
             backtest=kwargs.get("backtest", False),
+            validation_window_hours=kwargs.get("validation_window_hours"),
         )
     )

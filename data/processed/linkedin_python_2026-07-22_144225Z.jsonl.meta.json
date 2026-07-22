@@ -1,0 +1,21 @@
+{
+  "bundle_id": "2026-07-22_144225Z",
+  "source_scans": [
+    "linkedin_20260704T132814Z.json",
+    "linkedin_20260704T125343Z.json",
+    "linkedin_20260703T180738Z.json",
+    "linkedin_20260703T162118Z.json",
+    "linkedin_2026-07-16_142623Z.json",
+    "linkedin_2026-07-14_122250Z.json"
+  ],
+  "source_profiles": [
+    "linkedin_profiles_20260710T000442Z.json",
+    "linkedin_profiles_20260710T000442Z.json",
+    "linkedin_profiles_20260710T000442Z.json",
+    "linkedin_profiles_20260710T000442Z.json",
+    "linkedin_profiles_2026-07-16_142623Z.json",
+    "linkedin_profiles_2026-07-14_122250Z.json"
+  ],
+  "with_gemini": false,
+  "post_count": 9
+}

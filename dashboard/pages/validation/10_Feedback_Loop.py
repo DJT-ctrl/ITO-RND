@@ -15,6 +15,7 @@ from dashboard.chrome import (  # noqa: E402
     render_phase_legend,
     section_header,
 )
+from dashboard.pipeline_readiness import compute_validation_readiness  # noqa: E402
 from feedback.ui import (  # noqa: E402
     render_calibration_panel,
     render_coverage_panel,
@@ -31,6 +32,8 @@ from feedback.observability_ui import (  # noqa: E402
 )
 
 st.set_page_config(page_title="Feedback loop", layout="wide")
+settings = load_settings()
+_val_ready = compute_validation_readiness("feedback", settings=settings)
 page_header(
     "Feedback loop",
     "After we grade predictions, this page is where the system can **learn**. "
@@ -38,9 +41,7 @@ page_header(
     "how feedback works, full written lessons, and bucket / B·G explorers.",
     step_hint="Validation step 4 of 4 · Two tabs: Operate · Understand learning",
 )
-pipeline_flow_strip("validation", "feedback")
-
-settings = load_settings()
+pipeline_flow_strip("validation", "feedback", readiness=_val_ready)
 
 if not settings.database_url:
     st.warning("DATABASE_URL is not set.")
@@ -66,7 +67,7 @@ For “how does learning work?” and bucket / full-lesson explorers, open
     )
     render_how_phases_connect()
 
-    with st.expander("Full phase color legend (A–J)", expanded=True):
+    with st.expander("Full phase color legend (A–J)", expanded=False):
         render_phase_legend()
 
     section_header(
@@ -81,11 +82,16 @@ on the next settings reload (this page, workers, CLI).
 
     st.divider()
     section_header(
-        "2 · Are we allowed to turn learning on?",
+        "2 · Should we turn learning on? (Phase F gate)",
         """
-**Learning active?** summarises whether calibration / injection should be live.
-**Offline evaluation (Phase F)** is the formal go/no-go test — need enough
-average-error improvement before flipping switches.
+**Learning active?** shows whether calibration / lesson injection are live right now.
+
+**Phase F — Offline evaluation** below is the formal go/no-go test. Until it
+says GO for injection, keep **Show lessons to the AI** OFF (recommended safe
+default). Same for **Adjust scores from past mistakes** until calibration is GO.
+
+Having many graded posts is **not** enough by itself — evaluation must prove
+average error drops before you flip those switches.
 """,
     )
     render_learning_status(settings)
@@ -94,11 +100,15 @@ average-error improvement before flipping switches.
 
     st.divider()
     section_header(
-        "3 · Day-to-day work",
+        "3 · Write / refresh lessons",
         """
-After you validate posts in the **Validation queue**, drain the feedback job
-queue here, refresh cluster stats, and review LLM lessons (approve/reject)
-before they can be injected.
+This section **stores lessons in Postgres** (and updates learning buckets).
+It does **not** change Collect and predict by itself.
+
+After **Validation queue** grades a post, a job is enqueued when
+**Save lessons after grading** is ON. Use the buttons below to drain that
+queue, backfill gaps, or rebuild one lesson. Then review LLM lessons
+(approve/reject) before they can be injected at predict time.
 """,
     )
     render_manual_actions(settings)

@@ -34,4 +34,8 @@ case "$BRANCH" in
     ;;
 esac
 
+# Prefer crash-resistant detached mode when the IDE keeps killing the server:
+#   scripts/keep-dashboard-alive.sh --detach
+#   scripts/keep-dashboard-alive.sh --stop
+
 exec "$STREAMLIT" run dashboard/app.py --server.headless true --server.port 8501

@@ -2,6 +2,9 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+from pgvector import Vector
+
 from feedback.dashboard_queries import (
     count_feedback_coverage,
     fetch_learning_status,
@@ -9,6 +12,7 @@ from feedback.dashboard_queries import (
     list_clusters,
     list_recent_feedback,
 )
+from feedback.store import embedding_to_float_list, fetch_cluster_centroids
 
 
 def test_count_feedback_coverage():
@@ -74,3 +78,24 @@ def test_fetch_learning_status():
 
     assert status.n_validated == 42
     assert status.last_cluster_refresh_at is None
+
+
+def test_embedding_to_float_list_handles_pgvector_vector():
+    values = embedding_to_float_list(Vector([0.1, 0.2, 0.3]))
+    assert len(values) == 3
+    assert values[0] == pytest.approx(0.1)
+    assert values[1] == pytest.approx(0.2)
+    assert values[2] == pytest.approx(0.3)
+
+
+def test_fetch_cluster_centroids_handles_pgvector_vector():
+    conn = MagicMock()
+    cursor = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    cursor.fetchall.return_value = [
+        ("medium_list_unknown", Vector([1.0, 2.0, 3.0])),
+        ("skip_null", None),
+    ]
+
+    rows = fetch_cluster_centroids(conn)
+    assert rows == [("medium_list_unknown", [1.0, 2.0, 3.0])]
