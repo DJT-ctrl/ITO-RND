@@ -259,43 +259,33 @@ def render_phase_badges(letters: Sequence[str]) -> None:
 
 
 def render_phase_legend(*, compact: bool = False) -> None:
-    """Full A–J (+0, G+) legend with plain English, examples, and status."""
+    """Full A–J (+0, G+) legend with plain English, examples, and status.
+
+    Uses Streamlit-native widgets (not an HTML table) so detail/example text
+    is not stripped by markdown HTML sanitization.
+    """
     keys = ["0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "G+"]
     if compact:
         html = "".join(phase_badge_html(k) for k in keys)
         st.markdown(html, unsafe_allow_html=True)
         return
 
-    rows = []
     for key in keys:
         meta = PHASES[key]
-        badge = phase_badge_html(key)
-        detail = meta.get("detail", "")
-        example = meta.get("example", "")
-        what = (
-            f"<div style='font-weight:600;margin-bottom:4px;'>{meta['plain']}</div>"
-            f"<div style='color:#475569;margin-bottom:6px;'>{detail}</div>"
-            f"<div style='color:#334155;'><strong>Example:</strong> {example}</div>"
-        )
-        rows.append(
-            f"<tr style='border-top:1px solid #e2e8f0;'>"
-            f"<td style='padding:10px;vertical-align:top;white-space:nowrap;'>"
-            f"{badge}</td>"
-            f"<td style='padding:10px;vertical-align:top;'>{what}</td>"
-            f"<td style='padding:10px;vertical-align:top;color:#475569;'>"
-            f"<em>{meta['status']}</em></td>"
-            f"</tr>"
-        )
-    st.markdown(
-        "<table style='width:100%;border-collapse:collapse;font-size:0.92rem;'>"
-        "<thead><tr>"
-        "<th style='text-align:left;padding:6px 10px;'>Phase</th>"
-        "<th style='text-align:left;padding:6px 10px;'>What it does + example</th>"
-        "<th style='text-align:left;padding:6px 10px;'>Status</th>"
-        "</tr></thead>"
-        f"<tbody>{''.join(rows)}</tbody></table>",
-        unsafe_allow_html=True,
-    )
+        col_badge, col_body, col_status = st.columns([0.22, 0.58, 0.20])
+        with col_badge:
+            st.markdown(phase_badge_html(key), unsafe_allow_html=True)
+        with col_body:
+            st.markdown(f"**{meta['plain']}**")
+            detail = meta.get("detail", "")
+            example = meta.get("example", "")
+            if detail:
+                st.caption(detail)
+            if example:
+                st.markdown(f"*Example:* {example}")
+        with col_status:
+            st.markdown(f"*{meta['status']}*")
+        st.divider()
 
 
 def pipeline_flow_strip(
