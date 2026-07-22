@@ -80,20 +80,22 @@ Good material for this slot:
 ## Phases A–J
 
 These letters show up as **color pills** across the dashboard. Same colors everywhere.
+Each row below has a short “what”, extra detail, and a concrete example.
 
-| Phase | Plain English | Status (as of redesign) |
-|-------|---------------|-------------------------|
-| **0** Foundation | Grade predictions once real engagement exists | Done |
-| **A** Calibration | Nudge predicted percentile using past errors | Done, prod OFF |
-| **B** Lessons | After grading, store a short template lesson | Done |
-| **C** Buckets | Route posts into length × format × audience groups | Done |
-| **D** Injection | Put recent same-bucket lessons into the predictor prompt | Done, prod OFF |
-| **E** Observability | Charts, telemetry, accuracy history, runbook | Done |
-| **F** Prove lift | Offline test: need enough error reduction before shipping | NO-GO |
-| **G** Smarter lessons | LLM “why” + human review before a lesson is injectable | Staging |
-| **H** Meaning match | Embeddings + centroids for better routing / retrieve | Staging |
-| **I** Scale | Async feedback queue + cluster roll-up summaries | Done |
-| **J** Injectability | Shadow mode / softer locks so lessons can move scores | Live = hard lock |
+| Phase | What it does | Detail + example | Status |
+|-------|--------------|------------------|--------|
+| **0** Foundation | Grade predictions once real engagement exists | Stores predicted vs real engagement so later phases can learn. *Ex:* predicted 72nd → real 45th → we record the miss. | Done |
+| **A** Calibration | Nudge predicted percentile using past errors | Numeric offset from recent mistakes (not a full model retrain). Prod OFF until F is GO. *Ex:* often over by ~8 on short text → subtract ~8 next time. | Done, prod OFF |
+| **B** Lessons | After grading, store a short template lesson | Raw material for buckets / injection / smarter lessons. Usually ON even when A/D stay OFF. *Ex:* “Carousel for founders: hooks buried below the fold.” | Done |
+| **C** Buckets | Route posts into length × format × audience groups | Keeps lessons from long video out of short-text advice. *Ex:* `medium × text × marketers` vs `short × carousel × founders`. | Done |
+| **D** Injection | Put recent same-bucket lessons into the predictor prompt | Model sees past lessons, not only a number nudge. Prod OFF until F. *Ex:* new short-text founder post gets the last 3 same-bucket lessons in the prompt. | Done, prod OFF |
+| **E** Observability | Charts, telemetry, accuracy history, runbook | MAE, costs, coverage, and “is learning safe to turn on?”. *Ex:* flat MAE + “F is NO-GO” before you flip toggles. | Done |
+| **F** Prove lift | Offline test: need enough error reduction before shipping | Replay history with learning ON vs OFF; need enough MAE drop. *Ex:* ~3% lift vs 5% bar → NO-GO; keep A/D OFF. | NO-GO |
+| **G** Smarter lessons | LLM “why” + human review before a lesson is injectable | Richer lesson text must be approved before injection. *Ex:* LLM drafts a “why”; reviewer Approves → injectable. | Staging |
+| **H** Meaning match | Embeddings + centroids for better routing / retrieve | Finds “posts like this” beyond exact bucket labels. *Ex:* labeled medium×text but sits near carousel×founders → still pull those lessons. | Staging |
+| **I** Scale | Async feedback queue + cluster roll-up summaries | Background jobs + short cluster summaries for volume. *Ex:* drain queue after 40 grades → rollup “CTA late = weak.” | Done |
+| **J** Injectability | Shadow mode / softer locks so lessons can move scores | hard_lock (live), soft_blend, shadow_only. *Ex:* shadow logs “would nudge −6” but live score unchanged. | Live = hard lock |
+| **G+** Auto-approve | Optionally auto-approve trusted LLM lessons | Skip human review only when trust rules say so. Default OFF. *Ex:* high-confidence templates auto-pass; rest still need a human. | Done, default OFF |
 
 **Safe live defaults:** feedback records ON; calibration OFF; prompt injection OFF;
 shadow ON. Do not flip calibration or injection on until Phase **F** is GO.

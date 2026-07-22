@@ -10,76 +10,186 @@ from typing import Literal, Optional, Sequence
 import streamlit as st
 
 # Fixed palette for Phase 0 / A–J (+ G+). Used everywhere for consistency.
+# plain = short “what it does”; detail = how it works; example = concrete walkthrough.
 PHASES: dict[str, dict[str, str]] = {
     "0": {
         "name": "Foundation",
         "plain": "Grade predictions after real engagement comes in",
+        "detail": (
+            "Without grading, nothing later can learn. We store the predicted "
+            "score, wait for real likes/comments/views, then score how far off "
+            "we were (error / MAE)."
+        ),
+        "example": (
+            "Predicted 72nd percentile → post later lands at 45th → we record "
+            "a miss so Phases A–B have something to learn from."
+        ),
         "color": "#64748b",
         "status": "Done",
     },
     "A": {
         "name": "Calibration",
         "plain": "Nudge predicted scores using past mistakes",
+        "detail": (
+            "A numeric offset from recent graded posts (global and/or per "
+            "bucket). It adjusts the final number without rewriting the model. "
+            "Kept OFF in prod until Phase F says GO."
+        ),
+        "example": (
+            "We often over-predict by ~8 points on short text posts → "
+            "calibration subtracts ~8 from the next similar prediction."
+        ),
         "color": "#2563eb",
         "status": "Done (prod OFF)",
     },
     "B": {
         "name": "Lessons",
         "plain": "Write a short lesson after each graded post",
+        "detail": (
+            "After a grade, we save a short template lesson (what we thought "
+            "vs what happened). Lessons are the raw material Phases C–D and "
+            "G reuse. Usually ON even when calibration/injection stay OFF."
+        ),
+        "example": (
+            "“Short carousel for founders: predicted high reach; actual "
+            "engagement low — hooks buried below the fold.”"
+        ),
         "color": "#0d9488",
         "status": "Done",
     },
     "C": {
         "name": "Buckets",
         "plain": "Sort posts into length × format × audience groups",
+        "detail": (
+            "Filing system so lessons from a long video don’t pollute advice "
+            "for a short text post. Buckets are the primary routing labels "
+            "before meaning-match (H)."
+        ),
+        "example": (
+            "A 400-word text post aimed at marketers → bucket like "
+            "`medium × text × marketers`, separate from `short × carousel × founders`."
+        ),
         "color": "#16a34a",
         "status": "Done",
     },
     "D": {
         "name": "Injection",
         "plain": "Show recent same-bucket lessons to the predictor",
+        "detail": (
+            "Puts a few recent same-bucket lessons into the predictor prompt "
+            "so the model can adjust reasoning (not only a numeric nudge). "
+            "Prod OFF until Phase F proves lift."
+        ),
+        "example": (
+            "Predicting a new short-text founder post → prompt includes the "
+            "last 3 graded lessons from that same bucket."
+        ),
         "color": "#d97706",
         "status": "Done (prod OFF)",
     },
     "E": {
         "name": "Observability",
         "plain": "Measure accuracy, costs, and learning health",
+        "detail": (
+            "Dashboards and telemetry: prediction error over time, LLM/API "
+            "spend, lesson coverage, queue depth, and whether learning "
+            "switches are safe to flip."
+        ),
+        "example": (
+            "You see MAE trending flat, Gemini cost per graded post, and "
+            "“Learning active? No — F is NO-GO” before changing toggles."
+        ),
         "color": "#4f46e5",
         "status": "Done",
     },
     "F": {
         "name": "Prove lift",
         "plain": "Offline test: only turn learning on if error drops enough",
+        "detail": (
+            "Replay historical posts with learning ON vs OFF. Need a clear "
+            "enough average-error drop (go/no-go bar) before turning "
+            "calibration or injection on in production."
+        ),
+        "example": (
+            "Offline re-run improved error by ~3% but the bar was 5% → "
+            "NO-GO; keep A/D OFF and keep gathering graded data."
+        ),
         "color": "#dc2626",
         "status": "NO-GO (keep OFF)",
     },
     "G": {
         "name": "Smarter lessons",
         "plain": "LLM “why” text + human approve/reject before use",
+        "detail": (
+            "An LLM writes a richer “why this missed / worked” lesson. A "
+            "human must approve (or reject) before that text can be injected. "
+            "Staging-ready; review queue lives on the Feedback page."
+        ),
+        "example": (
+            "LLM drafts: “Overestimated because CTA competed with a giveaway "
+            "in the first line.” Reviewer Approves → eligible for injection."
+        ),
         "color": "#7c3aed",
         "status": "Done (staging)",
     },
     "H": {
         "name": "Meaning match",
         "plain": "Route by embedding similarity (centroids), not only labels",
+        "detail": (
+            "Embeddings and cluster centroids find “posts like this one” even "
+            "when bucket labels don’t match perfectly — better lesson "
+            "retrieval for edge cases."
+        ),
+        "example": (
+            "New post is labeled `medium × text` but its embedding sits near "
+            "a `carousel × founders` cluster → we still pull those nearby "
+            "lessons."
+        ),
         "color": "#0891b2",
         "status": "Done (staging)",
     },
     "I": {
         "name": "Scale",
         "plain": "Background job queue + short cluster summaries",
+        "detail": (
+            "Grading/learning work runs as queued jobs so the UI stays "
+            "responsive. Cluster roll-ups compress many lessons into short "
+            "summaries for injection at volume."
+        ),
+        "example": (
+            "Validate 40 posts → drain the feedback queue once → cluster "
+            "rollup becomes “Short founder carousels: weak when CTA is late.”"
+        ),
         "color": "#a16207",
         "status": "Done",
     },
     "J": {
         "name": "Injectability",
         "plain": "Shadow mode and softer locks so lessons can move the score",
+        "detail": (
+            "Controls how strongly lessons may change the score: hard_lock "
+            "(lessons can’t move the number), soft_blend (partial move), "
+            "shadow_only (log what would happen). Live default stays hard_lock "
+            "until F is GO."
+        ),
+        "example": (
+            "Shadow ON + hard_lock: we log “lesson would have nudged −6” but "
+            "the live score stays unchanged."
+        ),
         "color": "#db2777",
         "status": "Done (hard lock live)",
     },
     "G+": {
         "name": "Auto-approve",
         "plain": "Optionally auto-approve trusted LLM lessons",
+        "detail": (
+            "Optional shortcut for Phase G: skip human review when a lesson "
+            "meets trust rules. Default OFF so reviewers stay in the loop."
+        ),
+        "example": (
+            "If enabled for high-confidence, low-risk templates, those LLM "
+            "lessons skip the review queue; everything else still needs a human."
+        ),
         "color": "#9333ea",
         "status": "Done (default OFF)",
     },
@@ -149,7 +259,7 @@ def render_phase_badges(letters: Sequence[str]) -> None:
 
 
 def render_phase_legend(*, compact: bool = False) -> None:
-    """Full A–J (+0, G+) legend with plain English and status."""
+    """Full A–J (+0, G+) legend with plain English, examples, and status."""
     keys = ["0", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "G+"]
     if compact:
         html = "".join(phase_badge_html(k) for k in keys)
@@ -160,12 +270,19 @@ def render_phase_legend(*, compact: bool = False) -> None:
     for key in keys:
         meta = PHASES[key]
         badge = phase_badge_html(key)
+        detail = meta.get("detail", "")
+        example = meta.get("example", "")
+        what = (
+            f"<div style='font-weight:600;margin-bottom:4px;'>{meta['plain']}</div>"
+            f"<div style='color:#475569;margin-bottom:6px;'>{detail}</div>"
+            f"<div style='color:#334155;'><strong>Example:</strong> {example}</div>"
+        )
         rows.append(
-            f"<tr>"
-            f"<td style='padding:6px 10px;vertical-align:top;white-space:nowrap;'>"
+            f"<tr style='border-top:1px solid #e2e8f0;'>"
+            f"<td style='padding:10px;vertical-align:top;white-space:nowrap;'>"
             f"{badge}</td>"
-            f"<td style='padding:6px 10px;vertical-align:top;'>{meta['plain']}</td>"
-            f"<td style='padding:6px 10px;vertical-align:top;color:#475569;'>"
+            f"<td style='padding:10px;vertical-align:top;'>{what}</td>"
+            f"<td style='padding:10px;vertical-align:top;color:#475569;'>"
             f"<em>{meta['status']}</em></td>"
             f"</tr>"
         )
@@ -173,7 +290,7 @@ def render_phase_legend(*, compact: bool = False) -> None:
         "<table style='width:100%;border-collapse:collapse;font-size:0.92rem;'>"
         "<thead><tr>"
         "<th style='text-align:left;padding:6px 10px;'>Phase</th>"
-        "<th style='text-align:left;padding:6px 10px;'>What it does</th>"
+        "<th style='text-align:left;padding:6px 10px;'>What it does + example</th>"
         "<th style='text-align:left;padding:6px 10px;'>Status</th>"
         "</tr></thead>"
         f"<tbody>{''.join(rows)}</tbody></table>",
