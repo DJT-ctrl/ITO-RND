@@ -14,7 +14,7 @@ Spreadsheet-style rows lived here earlier; this file is now the **index**. Each 
 |----|--------|-------------|--------|
 | **A1** | Anomaly Post-Mortem Agent | [phase_modules/A1_ANOMALY_POST_MORTEM.md](phase_modules/A1_ANOMALY_POST_MORTEM.md) | Implemented (v1) |
 | *(later)* | Percentile extreme case studies | [phase_modules/CONSIDERATION_PERCENTILE_EXTREMES.md](phase_modules/CONSIDERATION_PERCENTILE_EXTREMES.md) | Consideration (after A1) |
-| **A2** | Trend Radar & Topic-Drift Monitor | [phase_modules/A2_TREND_RADAR.md](phase_modules/A2_TREND_RADAR.md) | Discussing |
+| **A2** | Trend Radar & Topic-Drift Monitor | [phase_modules/A2_TREND_RADAR.md](phase_modules/A2_TREND_RADAR.md) | Implemented (v1) |
 | *(later)* | External popular-content trend tracker | [phase_modules/CONSIDERATION_EXTERNAL_TREND_TRACKER.md](phase_modules/CONSIDERATION_EXTERNAL_TREND_TRACKER.md) | Consideration (after / beside A2) |
 | B2 | Posting-Time Optimizer Engine | — | Planning |
 | C1 | Historical Backtesting & Calibration Harness | — | Planning |

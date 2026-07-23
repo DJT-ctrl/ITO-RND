@@ -17,14 +17,17 @@ import streamlit as st
 
 from config.settings import load_settings
 from post_mortems.ui import render_post_mortems_section
+from trend_radar.ui import render_trends_section
 
 st.title("Special cases")
 st.caption(
-    "Offline case-study libraries (anomaly post-mortems, later trends / "
-    "percentile extremes). These are for review and suggestions — they do "
+    "Offline case-study libraries (anomaly post-mortems, corpus trends, "
+    "later percentile extremes). These are for review and suggestions — they do "
     "not change calibration or injection scores."
 )
 
 settings = load_settings()
 limit = st.sidebar.number_input("Rows to load", min_value=5, max_value=200, value=50)
 render_post_mortems_section(settings, limit=int(limit))
+st.divider()
+render_trends_section(settings, limit=int(limit))

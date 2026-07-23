@@ -8,7 +8,7 @@ Each module gets its own focused note. No implementation code lives here — des
 |----|--------|-----|--------|
 | **A1** | Anomaly Post-Mortem Agent | [A1_ANOMALY_POST_MORTEM.md](A1_ANOMALY_POST_MORTEM.md) | Implemented (v1) |
 | *(later)* | Percentile extreme case studies | [CONSIDERATION_PERCENTILE_EXTREMES.md](CONSIDERATION_PERCENTILE_EXTREMES.md) | Consideration (after A1) |
-| **A2** | Trend Radar & Topic-Drift Monitor | [A2_TREND_RADAR.md](A2_TREND_RADAR.md) | Discussing |
+| **A2** | Trend Radar & Topic-Drift Monitor | [A2_TREND_RADAR.md](A2_TREND_RADAR.md) | Implemented (v1) |
 | *(later)* | External popular-content trend tracker | [CONSIDERATION_EXTERNAL_TREND_TRACKER.md](CONSIDERATION_EXTERNAL_TREND_TRACKER.md) | Consideration (after / beside A2) |
 | A3 | Comment & Reaction Mining | — | Not started |
 | A4 | Engagement-Decay Tracking | — | Not started |

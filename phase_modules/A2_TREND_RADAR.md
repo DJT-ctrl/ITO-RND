@@ -1,12 +1,25 @@
 # A2 — Trend Radar & Topic-Drift Monitor
 
-**Status:** Planning / discussion (no code yet)  
+**Status:** Implemented (v1 offline weekly batch + Special Cases UI)  
 **Owner:** Ademola (from Phase 9 sheet)  
 **Parent:** [T7 Independent Modules](../T7_INDEPENDENT_MODULES.md) · [Phase 9 index](../Phase_9.md) · [folder README](README.md)
 
 **Related consideration:** External / popular-content trend APIs → [CONSIDERATION_EXTERNAL_TREND_TRACKER.md](CONSIDERATION_EXTERNAL_TREND_TRACKER.md)
 
 ---
+
+## Run (v1)
+
+```bash
+python -m trend_radar.jobs.run_trend_radar --week 2026-07-20
+python -m trend_radar.jobs.run_trend_radar --dry-run --skip-llm-labels
+```
+
+Uses `posts.inserted_at` for the week window (no `posted_at` on `posts`).  
+Excludes `engagement_anomaly_flag = TRUE`.  
+Dashboard: **Check and learn → Special cases** (trends section).
+
+Schema: `storage/schema_modules/trends.sql`.
 
 ## One-sentence pitch
 
