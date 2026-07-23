@@ -110,13 +110,16 @@ def get_connection(settings: Settings) -> psycopg.Connection:
 
 def create_schema(conn: psycopg.Connection) -> None:
     """Apply storage/schema.sql (idempotent - every statement is IF NOT EXISTS),
-    then register the pgvector type adapter now that `vector` is guaranteed
-    to exist in this database.
+    then modular schemas under storage/schema_modules/, then register the
+    pgvector type adapter now that `vector` is guaranteed to exist.
     """
+    from storage.schema_modules import apply_module_schemas
+
     sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     with conn.cursor() as cur:
         cur.execute(sql)
     conn.commit()
+    apply_module_schemas(conn)
     register_vector(conn)
 
 

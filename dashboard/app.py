@@ -90,6 +90,11 @@ pg = st.navigation(
                 title="Feedback loop",
                 icon=":material/sync:",
             ),
+            st.Page(
+                str(_PAGES / "11_Special_Cases.py"),
+                title="Special cases",
+                icon=":material/folder_special:",
+            ),
         ],
         "Try it": [
             st.Page(
