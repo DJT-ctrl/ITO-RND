@@ -105,3 +105,13 @@ class EvaluateRequest(BaseModel):
             "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
         ),
     )
+
+
+class CritiqueRequest(BaseModel):
+    """Independent synthetic-audience critic (T7.11–T7.13). Not part of /evaluate."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Draft post text to critique through C-suite, practitioner, and peer lenses.",
+    )
