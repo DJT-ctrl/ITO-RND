@@ -7,6 +7,7 @@ from pydantic_ai.models.test import TestModel
 from agents.diagnostics import (
     DiagnosticOutput,
     build_clarity_agent,
+    build_clarity_prompt,
     build_diagnostic_agents,
     build_diagnostic_prompt,
     build_seo_agent,
@@ -113,3 +114,35 @@ def test_build_seo_prompt_corpus_includes_trends_section():
     prompt = build_seo_prompt(deps)
 
     assert "NOT LinkedIn-specific" in prompt
+
+
+def test_build_clarity_prompt_includes_grounding_block():
+    deps = EvaluationDeps(
+        draft_content="Hiring backend engineers today.",
+        clarity_context={
+            "deterministic_score": 7.0,
+            "word_count": 4,
+            "sentence_count": 1,
+            "avg_words_per_sentence": 4.0,
+            "flesch_kincaid_grade": 8.0,
+            "jargon_density_percent": 0.0,
+            "max_paragraph_words": 4,
+            "paragraph_count": 1,
+            "line_break_count": 0,
+            "bullet_line_count": 0,
+            "wall_of_text": False,
+            "signals": [
+                {
+                    "check": "wall_of_text",
+                    "status": "pass",
+                    "note": "ok",
+                    "value": 4,
+                }
+            ],
+        },
+    )
+    prompt = build_clarity_prompt(deps)
+
+    assert "deterministic clarity" in prompt.lower()
+    assert "Flesch–Kincaid grade" in prompt
+    assert "Hiring backend engineers today." in prompt

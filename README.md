@@ -28,6 +28,8 @@ This document is the **build and reproduction guide**. For production deployment
 
 ## Architecture overview
 
+**Phase indexes (planning):** [Phase 7 — evaluation agents](Phase_7.md) · [Phase 8 — feedback loop](Phase_8.md) · [Phase 9 — offline modules A1–A4](Phase_9.md)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Corpus pipeline (offline)                       │

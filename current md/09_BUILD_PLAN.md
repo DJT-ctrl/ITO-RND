@@ -11,6 +11,8 @@ Living tracker for implementing the validation feedback loop.
 
 ## How many phases?
 
+These **letter** phases (0, A–J, G+) are the internal build track for **[Phase 8](../Phase_8.md)** (validation feedback loop). They are not the same numbering as Phase 7 (evaluation agents) or Phase 9 (offline A1–A4).
+
 | # | Phase | Status |
 |---|-------|--------|
 | 0 | Foundation (validation grading exists) | Done |

@@ -32,6 +32,22 @@ from telemetry.schemas import RunMetadata
 
 SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
 
+# T7.1 comparison surface: how many nearest neighbors to retrieve.
+DEFAULT_NEIGHBOR_LIMIT = 10
+MIN_NEIGHBOR_LIMIT = 10
+MAX_NEIGHBOR_LIMIT = 100
+
+
+def resolve_neighbor_limit(neighbor_limit: Optional[int] = None) -> int:
+    """Clamp/validate neighbor retrieval size (default 10, allowed 10–100)."""
+    value = DEFAULT_NEIGHBOR_LIMIT if neighbor_limit is None else int(neighbor_limit)
+    if value < MIN_NEIGHBOR_LIMIT or value > MAX_NEIGHBOR_LIMIT:
+        raise ValueError(
+            f"neighbor_limit must be between {MIN_NEIGHBOR_LIMIT} and "
+            f"{MAX_NEIGHBOR_LIMIT} (got {value})"
+        )
+    return value
+
 
 @dataclass
 class EvaluationDeps:
@@ -48,12 +64,18 @@ class EvaluationDeps:
     # the SEO worker. None when seo_mode is gemini_only.
     discoverability_context: Optional[dict[str, Any]] = None
     seo_mode: SeoDiscoverabilityMode = "corpus"
+    # T7.5: deterministic reading-grade / jargon / scan-structure metrics for clarity.
+    clarity_context: Optional[dict[str, Any]] = None
     # T6 Point 1: deterministic neighbor-weighted prediction (processors/benchmark.py)
     # and optional draft-author follower count from the profiles cache.
     neighbor_prediction: Optional[dict[str, Any]] = None
     draft_follower_count: Optional[int] = None
     # Phase D feedback injection: compact validated lessons for the predictor prompt.
     feedback_context: Optional[str] = None
+    # T7.9+T7.10: optional draft image for multimodal visual diagnostics.
+    image_url: Optional[str] = None
+    image_bytes: Optional[bytes] = None
+    image_media_type: Optional[str] = None
 
 
 class PostEvaluationState(BaseModel):
@@ -68,6 +90,14 @@ class PostEvaluationState(BaseModel):
     # Phase H: query embedding from retrieval (list form for JSON/Pydantic).
     query_embedding: Optional[list[float]] = None
     embedding_model_version: Optional[str] = None
+    # Draft evaluator: Tier-1/2 discoverability payload for the Trend signals panel.
+    discoverability_context: Optional[dict] = None
+    google_trends_requested: bool = False
+    # T7.5: deterministic clarity / cognitive-load metrics for the draft evaluator.
+    clarity_context: Optional[dict] = None
+    # T7.9+T7.10: whether visual diagnostics were requested this run.
+    visual_diagnostics_requested: bool = False
+    visual_image_provided: bool = False
 
 
 def build_voice_profile_section(voice_profile: Optional[dict]) -> str:

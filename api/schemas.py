@@ -55,6 +55,15 @@ class SimilarPostsResponse(BaseModel):
 
 class EvaluateRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Draft post text to evaluate")
+    neighbor_limit: int = Field(
+        default=10,
+        ge=10,
+        le=100,
+        description=(
+            "How many nearest historical posts to retrieve for grounding and the "
+            "comparison surface (default 10, max 100)."
+        ),
+    )
     variant_strategy: Literal["dimension", "narrative", "tiered"] = Field(
         default="dimension",
         description=(
@@ -103,5 +112,20 @@ class EvaluateRequest(BaseModel):
         description=(
             "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). "
             "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
+        ),
+    )
+    use_visual_diagnostics: Optional[bool] = Field(
+        default=None,
+        description=(
+            "T7.9+T7.10: run Gemini multimodal visual diagnostics (hierarchy + OCR/copy alignment). "
+            "Defaults to settings.visual_diagnostics_enabled (off unless enabled in env). "
+            "Requires image_url when enabled; skipped with a note if no image is provided."
+        ),
+    )
+    image_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional draft image URL for visual diagnostics (jpeg/png/webp, max ~5MB). "
+            "Ignored when visual diagnostics are off."
         ),
     )
