@@ -2,7 +2,7 @@
 
 **Status:** Consideration / later (not A1 v1)  
 **ID (provisional):** A1-adjacent · maybe **A5** if we promote it into the module backlog  
-**Parent:** [A1 Anomaly Post-Mortem](A1_ANOMALY_POST_MORTEM.md) · [folder README](README.md) · [Phase 9](../Phase_9.md)
+**Parent:** [A1 / T9.1 Anomaly Post-Mortem](A1_ANOMALY_POST_MORTEM.md) · [folder README](README.md) · [Phase 9](../Phase_9.md)
 
 ---
 
@@ -86,11 +86,11 @@ A1 (ratio post-mortems)
   → later: retrieve either library into Predictor / ideation / digest
 ```
 
-Also plays nicely with:
+Also plays nicely with (ideas **outside** current Phase 9 scope — see [Phase_9.md](../Phase_9.md) “Out of scope”):
 
-- **B1 Ideation** — smash-hit case studies as inspiration
-- **C1 Backtesting** — flops/hits as hard examples (separate from prediction error)
-- **D4 Weekly digest** — “top / bottom of your niche this week”
+- **Ideation** — smash-hit case studies as inspiration
+- **Backtesting** — flops/hits as hard examples (separate from prediction error)
+- **Weekly digest** — “top / bottom of your niche this week”
 
 ---
 

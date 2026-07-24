@@ -2,7 +2,7 @@
 
 **Status:** Consideration / later (complements A2; not A2 v1)  
 **ID (provisional):** A2-adjacent · maybe **A6** if promoted  
-**Parent:** [A2 Trend Radar](A2_TREND_RADAR.md) · [folder README](README.md) · [Phase 9](../Phase_9.md)
+**Parent:** [A2 / T9.5 Trend Radar](A2_TREND_RADAR.md) · [folder README](README.md) · [Phase 9](../Phase_9.md)
 
 ---
 

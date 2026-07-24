@@ -90,6 +90,8 @@ class Settings:
     google_trends_enabled: bool = False
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
+    # T7.9 + T7.10: Gemini multimodal visual diagnostics (opt-in; off by default).
+    visual_diagnostics_enabled: bool = False
     # T6.6: re-scrape cached author profiles after this many days.
     profile_cache_staleness_days: int = 30
     # Prediction validation pipeline (validation_pipeline/).
@@ -170,6 +172,7 @@ def load_settings() -> Settings:
         google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=False),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
+        visual_diagnostics_enabled=_env_bool("VISUAL_DIAGNOSTICS_ENABLED", default=False),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
         validation_window_hours=int(os.getenv("VALIDATION_WINDOW_HOURS", "48")),
         validation_dev_window_minutes=_env_optional_int("VALIDATION_DEV_WINDOW_MINUTES"),

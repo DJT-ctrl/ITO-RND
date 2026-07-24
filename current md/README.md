@@ -3,6 +3,8 @@
 **Updated:** 2026-07-15 (post-F engineering package)  
 **Purpose:** Single place for the docs we are actively using right now (Phase F re-runs, ops, roadmap).
 
+**Numbered phase index:** this whole feedback-loop track is **[Phase 8](../Phase_8.md)** in the Phase 7 / 8 / 9 ladder (lettered sub-phases A–J live here).
+
 Historical design notes (01–08) stay in [`planning/validation-feedback-loop/`](../planning/validation-feedback-loop/).
 
 ---

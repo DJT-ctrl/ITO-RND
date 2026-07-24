@@ -2,7 +2,8 @@
 
 **Status:** Implemented (v1 offline batch + Special Cases UI)  
 **Owner:** Ademola (from Phase 9 sheet)  
-**Parent:** [T7 Independent Modules](../T7_INDEPENDENT_MODULES.md) · [Phase 9 index](../Phase_9.md) · [folder README](README.md)
+**Phase ID:** **T9.1** (alias A1)  
+**Parent:** [Phase 9 index](../Phase_9.md) · [folder README](README.md) · [legacy T7 stub](../T7_INDEPENDENT_MODULES.md)
 
 ---
 
@@ -154,7 +155,7 @@ posts WHERE engagement_anomaly_flag = TRUE
    - Never update core validation / predict paths
 ```
 
-**Acceptance (from Phase 9 sheet, refined):**
+**Acceptance (from Phase 9 / T9.1 sheet, refined):**
 
 - Batch job runnable without touching validation runtime.
 - Writes only to `post_mortems` (new table).
@@ -175,11 +176,11 @@ posts WHERE engagement_anomaly_flag = TRUE
 
 ## Relationship to the feedback loop
 
-| Feedback loop | A1 |
-|---------------|----|
+| Feedback loop ([Phase 8](../Phase_8.md)) | A1 / T9.1 |
+|------------------------------------------|-----------|
 | About **our predictions** vs later actuals | About **corpus engagement shape** looking fake/weird |
 | `prediction_feedback`, calibration, injection | `post_mortems` on flagged `posts` |
-| Mostly done engineering; gates for ON | Greenfield consumer of existing flags |
+| Mostly done engineering; gates for ON | v1 implemented; optional later grounding |
 
 They don’t block each other. A1 does not wait on Phase F GO.
 
@@ -187,6 +188,6 @@ They don’t block each other. A1 does not wait on Phase F GO.
 
 ## Next chat topics (when you’re ready)
 
-- Draft the `post_mortems` table sketch and prompt contract.
-- Decide v1 consumer (dashboard-only vs agent grounding).
-- Then B2 / next module — or stay on A1 until the open questions are settled.
+- Harden v1 consumers (dashboard-only vs agent grounding).
+- Percentile extremes consideration (separate from ratio anomalies).
+- Then **T9.8 / T9.9** — or stay on A1/A2 polish.

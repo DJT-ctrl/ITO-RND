@@ -42,10 +42,22 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel
 from pydantic_ai import Agent
 
+from agents.clarity_metrics import compute_clarity_metrics
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
 from agents.predictor import apply_deterministic_prediction
 from agents.prompt_safety import build_evaluation_user_message
-from agents.schemas import EvaluationDeps, PostEvaluationState, SeoDiscoverabilityMode
+from agents.schemas import (
+    EvaluationDeps,
+    PostEvaluationState,
+    SeoDiscoverabilityMode,
+    resolve_neighbor_limit,
+)
+from agents.visual_diagnostics import (
+    build_visual_agent,
+    build_visual_user_prompt,
+    prepare_visual_image,
+    resolve_use_visual_diagnostics,
+)
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.benchmark import compute_neighbor_prediction
 from processors.embedder import embed_query, EMBEDDING_MODEL_VERSION
@@ -78,8 +90,13 @@ async def _gather_similar_posts(
     settings: Settings,
     user_id: Optional[str] = None,
     collector: Optional[RunMetadataCollector] = None,
+    neighbor_limit: int = 10,
 ) -> None:
-    """Populate state.similar_posts with the 10 nearest vector neighbors.
+    """Populate state.similar_posts with the nearest vector neighbors.
+
+    `neighbor_limit` defaults to 10 (sheet/T7.1 default) and may be raised
+    up to 100 for a wider comparison surface. Validated via
+    ``resolve_neighbor_limit``.
 
     Wraps the existing *synchronous* embed_query() (processors/embedder.py)
     and find_similar()/get_connection() (storage/vector_store.py) via
@@ -96,6 +113,7 @@ async def _gather_similar_posts(
     own posts, with an automatic fallback to the global corpus when they
     don't have enough of their own (see find_similar()'s docstring).
     """
+    limit = resolve_neighbor_limit(neighbor_limit)
 
     def _embed() -> tuple[Any, int]:
         return embed_query(state.draft_content, settings)
@@ -135,7 +153,7 @@ async def _gather_similar_posts(
         conn = get_connection(settings)
         try:
             register_vector(conn)
-            return find_similar(conn, query_vector, limit=10, user_id=user_id)
+            return find_similar(conn, query_vector, limit=limit, user_id=user_id)
         finally:
             conn.close()
 
@@ -255,7 +273,7 @@ async def _run_agent_with_telemetry(
     collector: Optional[RunMetadataCollector],
     key: str,
     agent: EvaluationAgent,
-    prompt: str,
+    prompt: Any,
     deps: EvaluationDeps,
 ) -> Any:
     step_id = "agent.predictor" if key == "__predictor__" else f"agent.{key}"
@@ -282,9 +300,14 @@ async def run_evaluation_cycle(
     use_voice_profile: bool = True,
     seo_mode: Optional[SeoDiscoverabilityMode] = None,
     use_google_trends: Optional[bool] = None,
+    use_visual_diagnostics: Optional[bool] = None,
+    image_url: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
+    image_media_type: Optional[str] = None,
     collector: Optional[RunMetadataCollector] = None,
     variant_strategy: Optional[str] = None,
     reembed_variant_neighbors: bool = False,
+    neighbor_limit: int = 10,
 ) -> PostEvaluationState:
     """Run one full content-evaluation cycle for `draft_content`.
 
@@ -324,15 +347,22 @@ async def run_evaluation_cycle(
         use_google_trends: Tier 2 Google Trends toggle. None uses
             ``settings.google_trends_enabled`` (off by default; opt in via env or request).
             Always off when ``seo_mode`` is ``gemini_only``.
+        use_visual_diagnostics: T7.9+T7.10 multimodal visual diagnostics. None uses
+            ``settings.visual_diagnostics_enabled`` (off by default). Requires an image
+            (URL or bytes); skipped with a note when enabled without an image.
+        image_url: optional draft image URL for visual diagnostics.
+        image_bytes / image_media_type: optional uploaded image for visual diagnostics.
         collector: optional telemetry collector; created automatically when None.
         variant_strategy: recorded in run_metadata for persistence/dashboard.
         reembed_variant_neighbors: recorded in run_metadata.
+        neighbor_limit: how many nearest posts to retrieve (default 10, max 100).
 
     Returns:
         The populated PostEvaluationState. `predictor_result`, `diagnostics`,
         and `variants` stay at their empty defaults if no agents were
         supplied — expected until T3.2/T3.3/T3.4 land.
     """
+    resolved_neighbor_limit = resolve_neighbor_limit(neighbor_limit)
     if collector is None:
         resolved_seo_mode_for_meta: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
         if resolved_seo_mode_for_meta not in ("corpus", "gemini_only"):
@@ -344,11 +374,20 @@ async def run_evaluation_cycle(
             variant_strategy=variant_strategy,
             reembed_variant_neighbors=reembed_variant_neighbors,
             seo_mode=resolved_seo_mode_for_meta,
+            neighbor_limit=resolved_neighbor_limit,
         )
+    else:
+        collector._neighbor_limit = resolved_neighbor_limit
 
     state = PostEvaluationState(draft_content=draft_content)
 
-    await _gather_similar_posts(state, settings, user_id=user_id, collector=collector)
+    await _gather_similar_posts(
+        state,
+        settings,
+        user_id=user_id,
+        collector=collector,
+        neighbor_limit=resolved_neighbor_limit,
+    )
     if user_id is not None and use_voice_profile:
         await _fetch_voice_profile(state, settings, user_id, collector=collector)
 
@@ -390,24 +429,70 @@ async def run_evaluation_cycle(
         )
         state.errors.extend(context_warnings)
 
+    clarity_context = compute_clarity_metrics(draft_content)
+    state.clarity_context = clarity_context
+
+    resolved_visual = resolve_use_visual_diagnostics(
+        settings, use_visual_diagnostics=use_visual_diagnostics
+    )
+    state.visual_diagnostics_requested = resolved_visual
+
+    resolved_image_bytes: Optional[bytes] = None
+    resolved_image_media: Optional[str] = None
+    resolved_image_url: Optional[str] = None
+    if resolved_visual:
+        (
+            resolved_image_bytes,
+            resolved_image_media,
+            resolved_image_url,
+            image_warnings,
+        ) = prepare_visual_image(
+            image_url=image_url,
+            image_bytes=image_bytes,
+            image_media_type=image_media_type,
+        )
+        state.errors.extend(image_warnings)
+        state.visual_image_provided = bool(
+            resolved_image_bytes and resolved_image_media
+        ) or bool(resolved_image_url)
+        if not state.visual_image_provided:
+            state.errors.append(
+                "visual: skipped — enabled but no usable image provided "
+                "(pass image_url or upload jpeg/png/webp)."
+            )
+
     deps = EvaluationDeps(
         draft_content=draft_content,
         similar_posts=state.similar_posts,
         voice_profile=state.voice_profile,
         discoverability_context=discoverability_context,
         seo_mode=resolved_seo_mode,
+        clarity_context=clarity_context,
         neighbor_prediction=neighbor_prediction,
         draft_follower_count=draft_follower_count,
+        image_url=resolved_image_url,
+        image_bytes=resolved_image_bytes,
+        image_media_type=resolved_image_media,
     )
+
+    diag_agents: dict[str, EvaluationAgent] = dict(diagnostics or {})
+    run_visual = resolved_visual and state.visual_image_provided
+    if run_visual and "visual" not in diag_agents:
+        diag_agents["visual"] = build_visual_agent()
 
     keys: list[str] = []
     coros: list[Awaitable[Any]] = []
-    prompt = build_evaluation_user_message(draft_content)
+    text_prompt = build_evaluation_user_message(draft_content)
     if predictor is not None:
         keys.append("__predictor__")
-        coros.append(_run_agent_with_telemetry(collector, "__predictor__", predictor, prompt, deps))
-    for name, agent in (diagnostics or {}).items():
+        coros.append(
+            _run_agent_with_telemetry(collector, "__predictor__", predictor, text_prompt, deps)
+        )
+    for name, agent in diag_agents.items():
         keys.append(name)
+        prompt: Any = (
+            build_visual_user_prompt(deps) if name == "visual" else text_prompt
+        )
         coros.append(_run_agent_with_telemetry(collector, name, agent, prompt, deps))
 
     results = await asyncio.gather(*coros, return_exceptions=True)

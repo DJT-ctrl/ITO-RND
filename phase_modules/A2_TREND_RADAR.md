@@ -2,7 +2,8 @@
 
 **Status:** Implemented (v1 offline weekly batch + Special Cases UI)  
 **Owner:** Ademola (from Phase 9 sheet)  
-**Parent:** [T7 Independent Modules](../T7_INDEPENDENT_MODULES.md) · [Phase 9 index](../Phase_9.md) · [folder README](README.md)
+**Phase ID:** **T9.5** (alias A2)  
+**Parent:** [Phase 9 index](../Phase_9.md) · [folder README](README.md) · [legacy T7 stub](../T7_INDEPENDENT_MODULES.md)
 
 **Related consideration:** External / popular-content trend APIs → [CONSIDERATION_EXTERNAL_TREND_TRACKER.md](CONSIDERATION_EXTERNAL_TREND_TRACKER.md)
 
@@ -130,7 +131,7 @@ Details, API options, and how this differs from today’s Google Trends Tier 2:
 
 ---
 
-## Acceptance (from Phase 9, refined)
+## Acceptance (from Phase 9 / T9.5, refined)
 
 - Scheduled clustering writes labels + growth indicators to `trends`.
 - Does not modify validation / predict runtime paths.
@@ -152,10 +153,10 @@ Details, API options, and how this differs from today’s Google Trends Tier 2:
 ## Suggested order vs other modules
 
 ```text
-A1 (clean ratio anomalies)     optional hygiene before clustering
-  → A2 corpus Trend Radar      this doc
+T9.1 / A1 (clean ratio anomalies)     optional hygiene before clustering
+  → T9.5 / A2 corpus Trend Radar      this doc
   → External popular-content tracker   consideration (can parallel once A2 schema exists)
-  → B1 / D4 consume trends
+  → T9.8 / T9.9                        comments mining, engagement decay
 ```
 
 A2 can start without A1, but excluding flagged posts is cleaner once A1’s flags are trusted in DB.

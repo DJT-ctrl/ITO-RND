@@ -94,6 +94,7 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
         variant_strategy=request.variant_strategy,
         reembed_variant_neighbors=request.reembed_variant_neighbors,
         seo_mode=resolved_seo_mode,
+        neighbor_limit=request.neighbor_limit,
     )
     variant_hook = build_variant_engine(
         predictor_agent,
@@ -101,6 +102,7 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
         reembed_neighbors=request.reembed_variant_neighbors,
         settings=settings,
         collector=collector,
+        neighbor_limit=request.neighbor_limit,
     )
     try:
         return await run_evaluation_cycle(
@@ -113,9 +115,12 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
             use_voice_profile=request.use_voice_profile,
             seo_mode=request.seo_mode,
             use_google_trends=request.use_google_trends,
+            use_visual_diagnostics=request.use_visual_diagnostics,
+            image_url=request.image_url,
             collector=collector,
             variant_strategy=request.variant_strategy,
             reembed_variant_neighbors=request.reembed_variant_neighbors,
+            neighbor_limit=request.neighbor_limit,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

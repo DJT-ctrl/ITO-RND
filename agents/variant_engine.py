@@ -43,7 +43,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
-from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
+from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section, resolve_neighbor_limit
 from agents.structured_output import agent_structured_output
 from api.schemas import SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
@@ -238,12 +238,14 @@ async def _fetch_variant_neighbors(
     settings: Settings,
     collector: Optional[RunMetadataCollector] = None,
     strategy_label: str = "variant",
+    neighbor_limit: int = 10,
 ) -> List[SimilarPost]:
-    """Re-embed one variant's own text and fetch ITS OWN 10 nearest
-    neighbors — same blocking-call-in-a-thread pattern as
-    agents/orchestrator.py's _gather_similar_posts, and opens/closes its
-    own DB connection so nothing is held open across the concurrent
-    per-variant scoring stage."""
+    """Re-embed one variant's own text and fetch ITS OWN nearest neighbors —
+    same blocking-call-in-a-thread pattern as agents/orchestrator.py's
+    _gather_similar_posts, and opens/closes its own DB connection so nothing
+    is held open across the concurrent per-variant scoring stage.
+    """
+    limit = resolve_neighbor_limit(neighbor_limit)
     safe_label = strategy_label.replace(" ", "_").lower()[:32]
 
     def _embed() -> Tuple[Any, int]:
@@ -282,7 +284,7 @@ async def _fetch_variant_neighbors(
         conn = get_connection(settings)
         try:
             register_vector(conn)
-            return find_similar(conn, query_vector, limit=10)
+            return find_similar(conn, query_vector, limit=limit)
         finally:
             conn.close()
 
@@ -304,6 +306,7 @@ async def _score_variant(
     reembed_neighbors: bool,
     settings: Optional[Settings],
     collector: Optional[RunMetadataCollector] = None,
+    neighbor_limit: int = 10,
 ) -> Any:
     """Score one variant with the T3.2 predictor agent, using either the
     shared stage-1 neighbors or this variant's own re-embedded neighbors
@@ -314,6 +317,7 @@ async def _score_variant(
             settings,
             collector=collector,
             strategy_label=item.strategy_label,
+            neighbor_limit=neighbor_limit,
         )
     else:
         neighbors = state.similar_posts
@@ -338,6 +342,7 @@ def build_variant_engine(
     reembed_neighbors: bool = False,
     settings: Optional[Settings] = None,
     collector: Optional[RunMetadataCollector] = None,
+    neighbor_limit: int = 10,
 ) -> Callable[[PostEvaluationState], Awaitable[None]]:
     """Build the T3.4 finalize hook for run_evaluation_cycle().
 
@@ -356,10 +361,13 @@ def build_variant_engine(
             Requires `settings` to be provided.
         settings: required when reembed_neighbors=True (fails fast at build
             time, before any request runs, if missing).
+        neighbor_limit: when reembed_neighbors=True, how many neighbors each
+            variant fetches (default 10, max 100 — same as stage 1).
     """
     if reembed_neighbors and settings is None:
         raise ValueError("build_variant_engine: settings is required when reembed_neighbors=True")
 
+    resolved_neighbor_limit = resolve_neighbor_limit(neighbor_limit)
     generation_agent = build_variant_generation_agent(model)
 
     async def _finalize(state: PostEvaluationState) -> None:
@@ -396,7 +404,15 @@ def build_variant_engine(
 
         rerun_results = await asyncio.gather(
             *(
-                _score_variant(item, state, predictor_agent, reembed_neighbors, settings, collector)
+                _score_variant(
+                    item,
+                    state,
+                    predictor_agent,
+                    reembed_neighbors,
+                    settings,
+                    collector,
+                    neighbor_limit=resolved_neighbor_limit,
+                )
                 for item in draft_items
             ),
             return_exceptions=True,

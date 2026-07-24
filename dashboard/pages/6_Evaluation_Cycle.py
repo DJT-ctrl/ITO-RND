@@ -38,9 +38,16 @@ from agents.predictor import build_predictor_agent  # noqa: E402
 from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
+from agents.visual_diagnostics import (  # noqa: E402
+    build_visual_agent,
+    build_visual_user_prompt,
+    prepare_visual_image,
+    resolve_use_visual_diagnostics,
+)
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
 from dashboard.chrome import page_header, section_header  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
+from dashboard.trend_signals_ui import render_trend_signals_panel  # noqa: E402
 from processors.benchmark import compute_neighbor_prediction  # noqa: E402
 from telemetry.collector import RunMetadataCollector  # noqa: E402
 from telemetry.instrument import run_agent_step  # noqa: E402
@@ -84,6 +91,10 @@ async def _run_concurrent_eval(
     discoverability_context=None,
     neighbor_prediction=None,
     draft_follower_count=None,
+    clarity_context=None,
+    image_url: Optional[str] = None,
+    image_bytes: Optional[bytes] = None,
+    image_media_type: Optional[str] = None,
 ) -> None:
     """Stage 2: run Predictor + all Diagnostic agents concurrently.
 
@@ -97,11 +108,15 @@ async def _run_concurrent_eval(
         voice_profile=state.voice_profile,
         discoverability_context=discoverability_context,
         seo_mode=seo_mode,
+        clarity_context=clarity_context,
         neighbor_prediction=neighbor_prediction,
         draft_follower_count=draft_follower_count,
+        image_url=image_url,
+        image_bytes=image_bytes,
+        image_media_type=image_media_type,
     )
     keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
-    prompt = build_evaluation_user_message(state.draft_content)
+    text_prompt = build_evaluation_user_message(state.draft_content)
     agent_model = pydantic_ai_gemini_model()
     coros = [
         run_agent_step(
@@ -110,7 +125,7 @@ async def _run_concurrent_eval(
             label="Predictor",
             stage="agent",
             agent=predictor,
-            prompt=prompt,
+            prompt=text_prompt,
             deps=deps,
             model=agent_model,
         ),
@@ -121,7 +136,11 @@ async def _run_concurrent_eval(
                 label=name.title(),
                 stage="agent",
                 agent=agent,
-                prompt=prompt,
+                prompt=(
+                    build_visual_user_prompt(deps)
+                    if name == "visual"
+                    else text_prompt
+                ),
                 deps=deps,
                 model=agent_model,
             )
@@ -196,6 +215,16 @@ with st.sidebar:
     )
     st.subheader("Options")
     st.caption(f"Agent model: `{_eval_model}`")
+    neighbor_limit = st.slider(
+        "Neighbor limit",
+        min_value=10,
+        max_value=100,
+        value=10,
+        step=1,
+        help="How many nearest historical posts to retrieve for grounding and comparison "
+        "(default 10). Higher values widen the comparison surface but add prompt tokens "
+        "and can dilute the baseline if distant neighbors are weak matches.",
+    )
     strategy_choice = st.selectbox(
         "Variant strategy",
         options=list(_STRATEGY_LABELS.keys()),
@@ -217,11 +246,35 @@ with st.sidebar:
     seo_mode = _SEO_MODE_LABELS[seo_mode_choice]
     use_google_trends = st.checkbox(
         "Include Google Trends",
-        value=settings.google_trends_enabled,
+        value=True,
         disabled=seo_mode == "gemini_only",
-        help="Optional: adds web-wide search momentum for keywords from your draft. "
-        "Not LinkedIn-specific — off by default so corpus evidence stays primary. "
-        "Disabled in Gemini-only baseline mode.",
+        key="eval_include_google_trends",
+        help="After evaluate, shows a Trend signals panel with keyword momentum from "
+        "Google Trends (web search — not LinkedIn). Keywords come from hashtags / "
+        "draft text detectors (no extra AI search step). Disabled in Gemini-only mode.",
+    )
+    if seo_mode == "gemini_only":
+        use_google_trends = False
+    use_visual_diagnostics = st.checkbox(
+        "Include visual diagnostics (T7.9 + T7.10)",
+        value=False,
+        key="eval_include_visual_diagnostics",
+        help="Off by default. When on, Gemini multimodal judges image hierarchy "
+        "(contrast/clutter) and OCR/copy alignment. Requires an image URL or upload.",
+    )
+    image_url = st.text_input(
+        "Draft image URL (optional)",
+        value="",
+        disabled=not use_visual_diagnostics,
+        key="eval_visual_image_url",
+        help="Public http(s) jpeg/png/webp URL. Ignored when visual diagnostics are off.",
+    ).strip() or None
+    uploaded_image = st.file_uploader(
+        "Or upload draft image",
+        type=["jpg", "jpeg", "png", "webp"],
+        disabled=not use_visual_diagnostics,
+        key="eval_visual_image_upload",
+        help="Used instead of URL when both are provided. Max ~5MB.",
     )
     st.subheader("Personalization")
     user_id = st.text_input(
@@ -258,6 +311,7 @@ if run_clicked and draft_content.strip():
         variant_strategy=variant_strategy,
         reembed_variant_neighbors=reembed_neighbors,
         seo_mode=seo_mode,
+        neighbor_limit=neighbor_limit,
     )
     variant_hook = build_variant_engine(
         predictor_agent,
@@ -266,13 +320,22 @@ if run_clicked and draft_content.strip():
         reembed_neighbors=reembed_neighbors,
         settings=settings,
         collector=collector,
+        neighbor_limit=neighbor_limit,
     )
     state = PostEvaluationState(draft_content=draft_content.strip())
     stage1_start = len(collector.steps)
 
     # Stage 1: neighbor fetch
     with st.status("Finding similar posts...", expanded=True) as s:
-        asyncio.run(_gather_similar_posts(state, settings, user_id=user_id, collector=collector))
+        asyncio.run(
+            _gather_similar_posts(
+                state,
+                settings,
+                user_id=user_id,
+                collector=collector,
+                neighbor_limit=neighbor_limit,
+            )
+        )
         if user_id and use_voice_profile:
             asyncio.run(_fetch_voice_profile(state, settings, user_id, collector=collector))
         label = f"Found {len(state.similar_posts)} similar posts"
@@ -301,6 +364,9 @@ if run_clicked and draft_content.strip():
         async def _stage2() -> None:
             discoverability_context = None
             resolved_seo_mode = seo_mode or settings.seo_discoverability_mode
+            state.google_trends_requested = bool(
+                use_google_trends and resolved_seo_mode == "corpus"
+            )
             if resolved_seo_mode == "corpus":
                 from agents.discoverability_context import resolve_use_google_trends
 
@@ -316,16 +382,65 @@ if run_clicked and draft_content.strip():
                     use_google_trends=resolved_use_trends,
                     collector=collector,
                 )
+                state.discoverability_context = discoverability_context
                 state.errors.extend(warnings)
+
+            from agents.clarity_metrics import compute_clarity_metrics
+
+            clarity_context = compute_clarity_metrics(state.draft_content)
+            state.clarity_context = clarity_context
+
+            resolved_visual = resolve_use_visual_diagnostics(
+                settings, use_visual_diagnostics=use_visual_diagnostics
+            )
+            state.visual_diagnostics_requested = resolved_visual
+
+            upload_bytes = None
+            upload_media = None
+            if uploaded_image is not None:
+                upload_bytes = uploaded_image.getvalue()
+                upload_media = uploaded_image.type or None
+
+            resolved_image_bytes = None
+            resolved_image_media = None
+            resolved_image_url = None
+            stage_diagnostics = dict(diagnostic_agents)
+            if resolved_visual:
+                (
+                    resolved_image_bytes,
+                    resolved_image_media,
+                    resolved_image_url,
+                    image_warnings,
+                ) = prepare_visual_image(
+                    image_url=image_url,
+                    image_bytes=upload_bytes,
+                    image_media_type=upload_media,
+                )
+                state.errors.extend(image_warnings)
+                state.visual_image_provided = bool(
+                    resolved_image_bytes and resolved_image_media
+                ) or bool(resolved_image_url)
+                if state.visual_image_provided:
+                    stage_diagnostics["visual"] = build_visual_agent(_eval_model)
+                else:
+                    state.errors.append(
+                        "visual: skipped — enabled but no usable image provided "
+                        "(pass image URL or upload jpeg/png/webp)."
+                    )
+
             await _run_concurrent_eval(
                 state,
                 predictor_agent,
-                diagnostic_agents,
+                stage_diagnostics,
                 collector=collector,
                 seo_mode=resolved_seo_mode,
                 discoverability_context=discoverability_context,
                 neighbor_prediction=neighbor_prediction,
                 draft_follower_count=draft_follower_count,
+                clarity_context=clarity_context,
+                image_url=resolved_image_url,
+                image_bytes=resolved_image_bytes,
+                image_media_type=resolved_image_media,
             )
 
         asyncio.run(_stage2())
@@ -415,6 +530,71 @@ with results_tab:
             )
 
         st.divider()
+        render_trend_signals_panel(
+            state.discoverability_context,
+            trends_requested=bool(state.google_trends_requested),
+        )
+
+        clarity_ctx = state.clarity_context or {}
+        if clarity_ctx:
+            st.divider()
+            st.subheader("Clarity metrics")
+            st.caption(
+                "Deterministic cognitive-load checks (T7.5) — grounded into the Clarity diagnostic."
+            )
+            mcols = st.columns(4)
+            fk = clarity_ctx.get("flesch_kincaid_grade")
+            mcols[0].metric("Reading grade", "—" if fk is None else fk)
+            mcols[1].metric("Jargon %", f"{clarity_ctx.get('jargon_density_percent', 0)}%")
+            mcols[2].metric(
+                "Longest paragraph",
+                f"{clarity_ctx.get('max_paragraph_words', 0)} words",
+            )
+            mcols[3].metric(
+                "Clarity baseline",
+                f"{clarity_ctx.get('deterministic_score', 0)}/10",
+            )
+            with st.expander("Clarity signal detail", expanded=False):
+                for signal in clarity_ctx.get("signals") or []:
+                    st.markdown(
+                        f"- **{signal.get('check')}** ({signal.get('status')}): "
+                        f"{signal.get('note', '')}"
+                    )
+
+        visual_diag = state.diagnostics.get("visual")
+        if state.visual_diagnostics_requested or visual_diag:
+            st.divider()
+            st.subheader("Visual diagnostics")
+            st.caption(
+                "T7.9 hierarchy + T7.10 OCR/alignment — opt-in, off by default. "
+                "Uses Gemini multimodal (no separate OCR model)."
+            )
+            if visual_diag:
+                vcols = st.columns(4)
+                vcols[0].metric("Visual score", f"{visual_diag.get('score', 0):.1f}/10")
+                vcols[1].metric(
+                    "Contrast",
+                    "pass" if visual_diag.get("contrast_pass") else "fail",
+                )
+                vcols[2].metric("Clutter", visual_diag.get("visual_clutter") or "—")
+                vcols[3].metric(
+                    "Copy alignment",
+                    f"{visual_diag.get('copy_alignment_score', 0):.1f}/10",
+                )
+                if visual_diag.get("hierarchy_critique"):
+                    st.markdown(f"**Hierarchy:** {visual_diag['hierarchy_critique']}")
+                if visual_diag.get("extracted_text"):
+                    with st.expander("Extracted image text", expanded=False):
+                        st.write(visual_diag["extracted_text"])
+                if visual_diag.get("alignment_notes"):
+                    st.markdown(f"**Alignment:** {visual_diag['alignment_notes']}")
+            elif state.visual_diagnostics_requested:
+                st.info(
+                    "Visual diagnostics were requested but no result was produced "
+                    "(missing/unusable image, or the agent failed — see errors)."
+                )
+
+        st.divider()
 
         # Predictor + Diagnostics side-by-side
         left, right = st.columns(2)
@@ -431,7 +611,7 @@ with results_tab:
             if not state.diagnostics:
                 st.info("No diagnostic results.")
             else:
-                for name in ["seo", "clarity", "tone"]:
+                for name in ["seo", "clarity", "tone", "visual"]:
                     diag = state.diagnostics.get(name)
                     if not diag:
                         continue
@@ -499,7 +679,7 @@ with results_tab:
             f"Similar posts used as context ({len(state.similar_posts)} retrieved)",
             expanded=False,
         ):
-            for j, post in enumerate(state.similar_posts[:5], start=1):
+            for j, post in enumerate(state.similar_posts, start=1):
                 st.markdown(
                     f"**#{j}** &nbsp; `{post.post_id}` · "
                     f"p{post.engagement_percentile:.0f} · "
@@ -509,7 +689,7 @@ with results_tab:
                 if len(post.content) > 300:
                     preview += "…"
                 st.caption(preview)
-                if j < min(5, len(state.similar_posts)):
+                if j < len(state.similar_posts):
                     st.divider()
 
     else:

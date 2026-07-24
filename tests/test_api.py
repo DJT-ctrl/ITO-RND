@@ -241,6 +241,56 @@ def test_evaluate_endpoint_passes_reembed_variant_neighbors_flag(
 @patch("agents.orchestrator.get_connection")
 @patch("agents.orchestrator.find_similar")
 @patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_passes_neighbor_limit(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
+
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={"content": "Excited to announce our new product launch!", "neighbor_limit": 40},
+        )
+
+    assert response.status_code == 200
+    assert mock_find_similar.call_args.kwargs["limit"] == 40
+    assert mock_build_variant_engine.call_args.kwargs["neighbor_limit"] == 40
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_neighbor_limit_out_of_range_rejected(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    response = client.post(
+        "/api/v1/evaluate",
+        json={"content": "Excited to announce our new product launch!", "neighbor_limit": 5},
+    )
+    assert response.status_code == 422
+    mock_embed_query.assert_not_called()
+
+    response = client.post(
+        "/api/v1/evaluate",
+        json={"content": "Excited to announce our new product launch!", "neighbor_limit": 101},
+    )
+    assert response.status_code == 422
+    mock_embed_query.assert_not_called()
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
 def test_evaluate_endpoint_defaults_variant_strategy_to_dimension(
     mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
 ):
@@ -296,3 +346,37 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
 
     assert response.status_code == 200
     assert mock_find_similar.call_args.kwargs["user_id"] == "user-42"
+
+
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_accepts_visual_diagnostics_fields(
+    mock_embed_query, mock_find_similar, mock_get_connection, mock_register_vector, mock_build_variant_engine
+):
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    diagnostics = {"seo": _AgentStub({"score": 7.0})}
+
+    with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={
+                "content": "Excited to announce our new product launch!",
+                "use_visual_diagnostics": True,
+                "image_url": "https://cdn.example.com/shot.png",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["visual_diagnostics_requested"] is True
+    # Fetch will fail in unit tests (no network) → skip note, no visual diagnostic.
+    assert "visual" not in body["diagnostics"]
+    assert any("visual" in err for err in body["errors"])
