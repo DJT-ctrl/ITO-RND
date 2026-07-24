@@ -25,6 +25,11 @@ from pydantic import BaseModel
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from agents.audience_critic import (  # noqa: E402
+    AudienceCriticOutput,
+    build_audience_critic_agent,
+    run_audience_critic,
+)
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
 # _gather_similar_posts is the stage-1 coroutine from the orchestrator;
 # imported directly here so we can run each stage separately for T4.2.
@@ -163,6 +168,10 @@ if "draft_text" not in st.session_state:
     st.session_state.draft_text = _DEFAULT_DRAFT
 if "eval_result" not in st.session_state:
     st.session_state.eval_result = None
+if "critic_result" not in st.session_state:
+    st.session_state.critic_result = None
+if "critic_error" not in st.session_state:
+    st.session_state.critic_error = None
 
 missing_config = []
 if not settings.gemini_api_key:
@@ -234,6 +243,26 @@ with st.sidebar:
     )
     if missing_config:
         st.warning(f"Missing config: {', '.join(missing_config)}")
+
+    st.divider()
+    st.subheader("Synthetic audience critic")
+    with st.expander("What this does", expanded=False):
+        st.markdown(
+            "Optional **independent** critique (T7.11–T7.13) — not part of the "
+            "evaluate loop. One Gemini call role-plays three skeptical readers:\n\n"
+            "- **C-Suite** — ROI holes, fluff, executive objections\n"
+            "- **Practitioner** — tactical value for daily operators\n"
+            "- **Industry peer** — credibility and originality in-market\n\n"
+            "Does **not** change predicted scores, diagnostics, or variants."
+        )
+    critic_clicked = st.button(
+        "Run critic",
+        type="secondary",
+        disabled=bool(missing_config) or not draft_content.strip(),
+        use_container_width=True,
+        key="run_audience_critic",
+        help="Independent synthetic-audience pass. Uses the current draft only.",
+    )
 
 # ── Evaluation (T4.2 — staged progress) ───────────────────────────────────────
 
@@ -342,6 +371,25 @@ if run_clicked and draft_content.strip():
     st.session_state.draft_text = draft_content.strip()
     st.rerun()
 
+# ── Independent audience critic (T7.11–T7.13) ─────────────────────────────────
+
+if critic_clicked and draft_content.strip():
+    st.session_state.critic_error = None
+    try:
+        with st.spinner("Running synthetic audience critic…"):
+            critic_output = asyncio.run(
+                run_audience_critic(
+                    draft_content.strip(),
+                    agent=build_audience_critic_agent(_eval_model),
+                )
+            )
+        st.session_state.critic_result = critic_output
+        st.session_state.draft_text = draft_content.strip()
+    except Exception as exc:  # noqa: BLE001 — surface soft-fail in UI
+        st.session_state.critic_error = str(exc)
+        st.session_state.critic_result = None
+    st.rerun()
+
 # ── Results + Accuracy History ───────────────────────────────────────────────
 
 st.divider()
@@ -367,6 +415,50 @@ with gemini_cost_tab:
 
 
 with results_tab:
+    if st.session_state.critic_error:
+        st.error(f"Audience critic failed: {st.session_state.critic_error}")
+
+    critic = st.session_state.critic_result
+    if critic is not None:
+        st.subheader("Synthetic audience critic")
+        st.caption(
+            "Independent side-step (T7.11–T7.13) — does not affect scores or variants."
+        )
+        if isinstance(critic, AudienceCriticOutput):
+            critic_data = critic.model_dump()
+        elif isinstance(critic, BaseModel):
+            critic_data = critic.model_dump()
+        else:
+            critic_data = dict(critic)
+
+        score = critic_data.get("score", 0)
+        st.metric("Critic score", f"{score:.1f}/10")
+        st.markdown(f"**Overall verdict:** {critic_data.get('overall_verdict', '')}")
+
+        c_suite = critic_data.get("c_suite") or {}
+        practitioner = critic_data.get("practitioner") or {}
+        peer = critic_data.get("peer") or {}
+        lens_cols = st.columns(3)
+        with lens_cols[0]:
+            with st.expander("C-Suite", expanded=True):
+                st.markdown(f"**Reaction:** {c_suite.get('reaction', '')}")
+                st.markdown(f"**Primary objection:** {c_suite.get('primary_objection', '')}")
+                if c_suite.get("roi_notes"):
+                    st.markdown(f"**ROI notes:** {c_suite['roi_notes']}")
+        with lens_cols[1]:
+            with st.expander("Practitioner", expanded=True):
+                st.markdown(f"**Reaction:** {practitioner.get('reaction', '')}")
+                st.markdown(f"**Perceived value:** {practitioner.get('perceived_value', '')}")
+                if practitioner.get("tactical_gaps"):
+                    st.markdown(f"**Tactical gaps:** {practitioner['tactical_gaps']}")
+        with lens_cols[2]:
+            with st.expander("Industry peer", expanded=True):
+                st.markdown(f"**Reaction:** {peer.get('reaction', '')}")
+                st.markdown(f"**Credibility:** {peer.get('credibility_check', '')}")
+                if peer.get("originality_notes"):
+                    st.markdown(f"**Originality:** {peer['originality_notes']}")
+        st.divider()
+
     if st.session_state.eval_result is not None:
         state = st.session_state.eval_result
         predictor = state.predictor_result or {}
@@ -500,4 +592,7 @@ with results_tab:
                     st.divider()
 
     else:
-        st.info("Enter your draft post in the sidebar and click **Evaluate Post**.")
+        if st.session_state.critic_result is None and not st.session_state.critic_error:
+            st.info(
+                "Enter your draft in the sidebar, then **Evaluate Post** and/or **Run critic**."
+            )
