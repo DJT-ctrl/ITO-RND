@@ -1,18 +1,10 @@
 """LinkedIn Post Evaluator — Phase 4 production interface (T4.1-T4.4).
 
-Runs the full Phase 3 pipeline end-to-end:
+Runs the full Phase 3 pipeline end-to-end, plus optional independent side-steps:
+  - Synthetic audience critic (T7.11–T7.13)
+  - Synthesis optimisation (T7.14–T7.16)
 
-  Stage 1 (sequential): embed the draft and retrieve 10 nearest historical
-      neighbors via pgvector cosine search (T2 retrieval layer).
-  Stage 2 (concurrent): Predictor Agent (T3.2) estimates engagement
-      percentile; Diagnostic Worker Agents (T3.3) check SEO, clarity, and
-      tone in parallel via asyncio.gather().
-  Stage 3 (sequential): Variant Optimisation Engine (T3.4) produces 3
-      ranked rewrites using the collected diagnostic output.
-
-T4.2 — each stage surfaces its own progress indicator as it completes.
-T4.3 — top scorecard + per-diagnostic progress bars.
-T4.4 — any variant can be applied back to the draft input with one click.
+Heavy UI panels live in dashboard/*_ui.py so this page stays under 500 lines.
 """
 
 import asyncio
@@ -25,21 +17,40 @@ from pydantic import BaseModel
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
+from agents.audience_critic import (  # noqa: E402
+    build_audience_critic_agent,
+    run_audience_critic,
+)
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
-# _gather_similar_posts is the stage-1 coroutine from the orchestrator;
-# imported directly here so we can run each stage separately for T4.2.
 from agents.orchestrator import (  # noqa: E402
     _fetch_draft_follower_count,
     _fetch_voice_profile,
     _gather_discoverability_context,
     _gather_similar_posts,
 )
-from agents.predictor import build_predictor_agent  # noqa: E402
+from agents.predictor import (  # noqa: E402
+    apply_deterministic_prediction,
+    build_predictor_agent,
+)
 from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
+from agents.synthesis import run_synthesis  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+from dashboard.audience_critic_ui import (  # noqa: E402
+    extract_primary_objection,
+    render_critic_results_panel,
+    render_critic_sidebar_controls,
+)
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
+from dashboard.synthesis_ui import (  # noqa: E402
+    render_synthesis_results_panel,
+    render_synthesis_sidebar_controls,
+)
+from dashboard.variant_results_ui import (  # noqa: E402
+    render_similar_posts_expander,
+    render_variant_results,
+)
 from processors.benchmark import compute_neighbor_prediction  # noqa: E402
 from telemetry.collector import RunMetadataCollector  # noqa: E402
 from telemetry.instrument import run_agent_step  # noqa: E402
@@ -52,21 +63,17 @@ _STRATEGY_LABELS = {
     "Narrative angles (hook / educational / story)": "narrative",
     "Tiered risk (safe / moderate / bold)": "tiered",
 }
-
 _SEO_MODE_LABELS = {
     "Corpus-grounded (default)": "corpus",
     "Gemini only (baseline for testing)": "gemini_only",
 }
-
 _DEFAULT_DRAFT = (
     "Excited to announce our new product launch! "
     "We've been working on this for months."
 )
 
-# ── Stage helpers ──────────────────────────────────────────────────────────────
 
 def _as_dict(output: Any) -> dict:
-    """Coerce a PydanticAI result output to a plain dict."""
     if isinstance(output, BaseModel):
         return output.model_dump()
     if isinstance(output, dict):
@@ -84,85 +91,81 @@ async def _run_concurrent_eval(
     neighbor_prediction=None,
     draft_follower_count=None,
 ) -> None:
-    """Stage 2: run Predictor + all Diagnostic agents concurrently.
+    """Stage 2: Predictor + diagnostics concurrently (mirrors orchestrator)."""
+    from agents.predictor import PredictorOutput  # noqa: PLC0415
 
-    Mirrors the asyncio.gather logic in agents/orchestrator.py but exposed
-    as a standalone coroutine so the Streamlit page can show separate
-    progress for each pipeline stage (T4.2).
-    """
     deps = EvaluationDeps(
         draft_content=state.draft_content,
         similar_posts=state.similar_posts,
         voice_profile=state.voice_profile,
-        discoverability_context=discoverability_context,
         seo_mode=seo_mode,
-        neighbor_prediction=neighbor_prediction,
+        discoverability_context=discoverability_context,
         draft_follower_count=draft_follower_count,
     )
-    keys: list[str] = ["__predictor__"] + list(diagnostics.keys())
-    prompt = build_evaluation_user_message(state.draft_content)
-    agent_model = pydantic_ai_gemini_model()
-    coros = [
+    names = list(diagnostics.keys())
+    tasks = [
         run_agent_step(
             collector,
             step_id="agent.predictor",
             label="Predictor",
             stage="agent",
             agent=predictor,
-            prompt=prompt,
+            prompt=build_evaluation_user_message(state.draft_content),
             deps=deps,
-            model=agent_model,
-        ),
-        *(
+            model=pydantic_ai_gemini_model(),
+        )
+    ]
+    for name in names:
+        tasks.append(
             run_agent_step(
                 collector,
-                step_id=f"agent.{name}",
-                label=name.title(),
+                step_id=f"agent.diagnostic.{name}",
+                label=f"Diagnostic ({name})",
                 stage="agent",
-                agent=agent,
-                prompt=prompt,
+                agent=diagnostics[name],
+                prompt=build_evaluation_user_message(state.draft_content),
                 deps=deps,
-                model=agent_model,
+                model=pydantic_ai_gemini_model(),
             )
-            for name, agent in diagnostics.items()
-        ),
-    ]
-    results = await asyncio.gather(*coros, return_exceptions=True)
-    for key, result in zip(keys, results):
+        )
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    pred_result, *diag_results = results
+
+    if isinstance(pred_result, Exception):
+        state.errors.append(f"predictor: {pred_result}")
+    else:
+        output = _as_dict(pred_result.output)
+        if isinstance(pred_result.output, PredictorOutput) and neighbor_prediction:
+            corrected = apply_deterministic_prediction(
+                pred_result.output, neighbor_prediction
+            )
+            output = corrected.model_dump()
+        state.predictor_result = output
+
+    for name, result in zip(names, diag_results):
         if isinstance(result, Exception):
-            state.errors.append(f"{key}: {result}")
-            continue
-        output = _as_dict(result.output)
-        if key == "__predictor__":
-            from agents.predictor import PredictorOutput, apply_deterministic_prediction
-
-            if isinstance(result.output, PredictorOutput) and neighbor_prediction:
-                corrected = apply_deterministic_prediction(result.output, neighbor_prediction)
-                output = corrected.model_dump()
-            state.predictor_result = output
+            state.errors.append(f"{name}: {result}")
         else:
-            state.diagnostics[key] = output
+            state.diagnostics[name] = _as_dict(result.output)
 
-
-# ── Page config ───────────────────────────────────────────────────────────────
-
-st.set_page_config(page_title="Post Evaluator", layout="wide")
-st.title("LinkedIn Post Evaluator")
-st.caption(
-    "Enter a draft post, then click **Evaluate Post** to get an engagement "
-    "prediction, diagnostic analysis, and 3 AI-generated rewrites."
-)
 
 settings = load_settings()
 _eval_model = pydantic_ai_gemini_model()
 predictor_agent = build_predictor_agent(_eval_model)
 diagnostic_agents = build_diagnostic_agents(_eval_model)
 
-# T4.4: session state holds the active draft so variant apply can overwrite it.
 if "draft_text" not in st.session_state:
     st.session_state.draft_text = _DEFAULT_DRAFT
 if "eval_result" not in st.session_state:
     st.session_state.eval_result = None
+if "critic_result" not in st.session_state:
+    st.session_state.critic_result = None
+if "critic_error" not in st.session_state:
+    st.session_state.critic_error = None
+if "synthesis_result" not in st.session_state:
+    st.session_state.synthesis_result = None
+if "synthesis_error" not in st.session_state:
+    st.session_state.synthesis_error = None
 
 missing_config = []
 if not settings.gemini_api_key:
@@ -178,52 +181,38 @@ with st.sidebar:
         "Post content",
         value=st.session_state.draft_text,
         height=200,
-        help="The draft LinkedIn post to evaluate. The system retrieves similar "
-        "historical posts, predicts engagement, and runs SEO/clarity/tone diagnostics.",
+        help="Draft LinkedIn post for evaluate / critic / optimisation side-steps.",
     )
     st.subheader("Options")
     st.caption(f"Agent model: `{_eval_model}`")
     strategy_choice = st.selectbox(
         "Variant strategy",
         options=list(_STRATEGY_LABELS.keys()),
-        help="The rewriting axis the Variant Engine uses to produce 3 distinct alternatives.",
+        help="Rewriting axis for evaluate-loop variants (T3.4).",
     )
     variant_strategy = _STRATEGY_LABELS[strategy_choice]
     reembed_neighbors = st.checkbox(
         "Per-variant neighbors",
         value=False,
-        help="Off (default): all 3 variants scored against the original draft's neighbors. "
-        "On: each variant fetches its own nearest neighbors — more accurate but slower.",
+        help="Off: shared neighbors. On: each variant fetches its own (slower).",
     )
     seo_mode_choice = st.selectbox(
         "Discoverability mode",
         options=list(_SEO_MODE_LABELS.keys()),
-        help="Corpus-grounded SEO uses your scraped dataset. Gemini only keeps the legacy "
-        "static prompt for side-by-side testing.",
     )
     seo_mode = _SEO_MODE_LABELS[seo_mode_choice]
     use_google_trends = st.checkbox(
         "Include Google Trends",
         value=settings.google_trends_enabled,
         disabled=seo_mode == "gemini_only",
-        help="Optional: adds web-wide search momentum for keywords from your draft. "
-        "Not LinkedIn-specific — off by default so corpus evidence stays primary. "
-        "Disabled in Gemini-only baseline mode.",
+        help="Optional web-wide search momentum. Disabled in Gemini-only mode.",
     )
     st.subheader("Personalization")
-    user_id = st.text_input(
-        "Subscriber user_id (optional)",
-        value="",
-        help="When set, retrieval is scoped to this subscriber's own posts (falling back to "
-        "the global corpus if they don't have enough yet), and a derived voice profile from "
-        "their top posts is injected into every agent's prompt.",
-    ).strip() or None
+    user_id = st.text_input("Subscriber user_id (optional)", value="").strip() or None
     use_voice_profile = st.checkbox(
         "Use voice profile",
         value=True,
         disabled=user_id is None,
-        help="Has no effect without a user_id. Turn off to scope retrieval to the subscriber "
-        "without personalizing the agent prompts.",
     )
     st.divider()
     run_clicked = st.button(
@@ -235,7 +224,14 @@ with st.sidebar:
     if missing_config:
         st.warning(f"Missing config: {', '.join(missing_config)}")
 
-# ── Evaluation (T4.2 — staged progress) ───────────────────────────────────────
+    critic_clicked = render_critic_sidebar_controls(
+        missing_config=bool(missing_config), draft_content=draft_content
+    )
+    optimise_clicked = render_synthesis_sidebar_controls(
+        missing_config=bool(missing_config), draft_content=draft_content
+    )
+
+# ── Evaluate (T4.2 staged progress) ───────────────────────────────────────────
 
 if run_clicked and draft_content.strip():
     collector = RunMetadataCollector(
@@ -257,9 +253,10 @@ if run_clicked and draft_content.strip():
     state = PostEvaluationState(draft_content=draft_content.strip())
     stage1_start = len(collector.steps)
 
-    # Stage 1: neighbor fetch
     with st.status("Finding similar posts...", expanded=True) as s:
-        asyncio.run(_gather_similar_posts(state, settings, user_id=user_id, collector=collector))
+        asyncio.run(
+            _gather_similar_posts(state, settings, user_id=user_id, collector=collector)
+        )
         if user_id and use_voice_profile:
             asyncio.run(_fetch_voice_profile(state, settings, user_id, collector=collector))
         label = f"Found {len(state.similar_posts)} similar posts"
@@ -278,10 +275,11 @@ if run_clicked and draft_content.strip():
         label="Compute neighbor prediction",
         stage="setup",
         call_type="compute",
-        fn=lambda: compute_neighbor_prediction(state.similar_posts, draft_follower_count=draft_follower_count),
+        fn=lambda: compute_neighbor_prediction(
+            state.similar_posts, draft_follower_count=draft_follower_count
+        ),
     )
 
-    # Stage 2: concurrent evaluation
     with st.status("Running Predictor + Diagnostics...", expanded=True) as s:
         stage2_start = len(collector.steps)
 
@@ -292,9 +290,7 @@ if run_clicked and draft_content.strip():
                 from agents.discoverability_context import resolve_use_google_trends
 
                 resolved_use_trends = resolve_use_google_trends(
-                    resolved_seo_mode,
-                    settings,
-                    use_google_trends=use_google_trends,
+                    resolved_seo_mode, settings, use_google_trends=use_google_trends
                 )
                 discoverability_context, warnings = await _gather_discoverability_context(
                     state.draft_content,
@@ -316,22 +312,20 @@ if run_clicked and draft_content.strip():
             )
 
         asyncio.run(_stage2())
-        label = "Predictor + Diagnostics complete" + collector.format_snippet(stage="agent", since_index=stage2_start)
         s.update(
-            label=label,
+            label="Predictor + Diagnostics complete"
+            + collector.format_snippet(stage="agent", since_index=stage2_start),
             state="complete",
             expanded=False,
         )
 
-    # Stage 3: variant engine
     with st.status("Generating variants...", expanded=True) as s:
         stage3_start = len(collector.steps)
         asyncio.run(variant_hook(state))
         n = len(state.variants)
-        label = f"{n} variant{'s' if n != 1 else ''} generated"
-        label += collector.format_snippet(stage="variant", since_index=stage3_start)
         s.update(
-            label=label,
+            label=f"{n} variant{'s' if n != 1 else ''} generated"
+            + collector.format_snippet(stage="variant", since_index=stage3_start),
             state="complete",
             expanded=False,
         )
@@ -342,7 +336,58 @@ if run_clicked and draft_content.strip():
     st.session_state.draft_text = draft_content.strip()
     st.rerun()
 
-# ── Results + Accuracy History ───────────────────────────────────────────────
+# ── Independent critic ────────────────────────────────────────────────────────
+
+if critic_clicked and draft_content.strip():
+    st.session_state.critic_error = None
+    try:
+        with st.spinner("Running synthetic audience critic…"):
+            st.session_state.critic_result = asyncio.run(
+                run_audience_critic(
+                    draft_content.strip(),
+                    agent=build_audience_critic_agent(_eval_model),
+                )
+            )
+        st.session_state.draft_text = draft_content.strip()
+    except Exception as exc:  # noqa: BLE001
+        st.session_state.critic_error = str(exc)
+        st.session_state.critic_result = None
+    st.rerun()
+
+# ── Independent synthesis optimisation ────────────────────────────────────────
+
+if optimise_clicked and draft_content.strip():
+    st.session_state.synthesis_error = None
+    eval_state = st.session_state.eval_result
+    predictor = (eval_state.predictor_result or {}) if eval_state else {}
+    baseline_pct = predictor.get("predicted_engagement_percentile")
+    baseline_eng = predictor.get("predicted_total_engagement")
+    objection = extract_primary_objection(st.session_state.critic_result)
+    voice = eval_state.voice_profile if eval_state else None
+    neighbors = eval_state.similar_posts if eval_state else None
+    try:
+        with st.spinner("Running synthesis optimisation…"):
+            st.session_state.synthesis_result = asyncio.run(
+                run_synthesis(
+                    draft_content.strip(),
+                    settings,
+                    primary_objection=objection,
+                    baseline_percentile=baseline_pct,
+                    baseline_total_engagement=baseline_eng,
+                    voice_profile=voice,
+                    similar_posts=neighbors,
+                    user_id=user_id,
+                    predictor_agent=predictor_agent,
+                    model=_eval_model,
+                )
+            )
+        st.session_state.draft_text = draft_content.strip()
+    except Exception as exc:  # noqa: BLE001
+        st.session_state.synthesis_error = str(exc)
+        st.session_state.synthesis_result = None
+    st.rerun()
+
+# ── Results tabs ──────────────────────────────────────────────────────────────
 
 st.divider()
 results_tab, accuracy_tab, gemini_cost_tab = st.tabs(
@@ -350,38 +395,34 @@ results_tab, accuracy_tab, gemini_cost_tab = st.tabs(
 )
 
 with accuracy_tab:
-    st.caption(
-        "Read-only summary from the Validation Pipeline — "
-        "predicted vs actual engagement after scheduled re-scrape."
-    )
+    st.caption("Predicted vs actual engagement after scheduled re-scrape.")
     render_accuracy_summary(settings, compact=True)
 
 with gemini_cost_tab:
-    st.caption(
-        "Estimated Gemini API cost across all logged evaluation runs. "
-        "Based on token counts and published per-1M-token rates."
-    )
+    st.caption("Estimated Gemini API cost across logged evaluation runs.")
     from telemetry.ui import render_gemini_cost_history  # noqa: E402
 
     render_gemini_cost_history(settings)
 
-
 with results_tab:
+    render_critic_results_panel(
+        st.session_state.critic_result, st.session_state.critic_error
+    )
+    render_synthesis_results_panel(
+        st.session_state.synthesis_result, st.session_state.synthesis_error
+    )
+
     if st.session_state.eval_result is not None:
         state = st.session_state.eval_result
         predictor = state.predictor_result or {}
-
         render_run_metadata_summary(state.run_metadata)
-
         st.divider()
 
-        # T4.3 — Top scorecard
         st.subheader("Scorecard")
         sc = st.columns(5)
         sc[0].metric(
             "Predicted Percentile",
             f"{predictor.get('predicted_engagement_percentile', 0):.0f}",
-            help="Where this post is predicted to rank vs all historical posts (0–100).",
         )
         sc[1].metric(
             "Predicted Engagements",
@@ -391,28 +432,15 @@ with results_tab:
             diag = state.diagnostics.get(name, {})
             sc[idx].metric(name.title(), f"{diag.get('score', 0):.1f}/10")
 
-        if predictor.get("predicted_likes") is not None:
-            breakdown_cols = st.columns(4)
-            breakdown_cols[0].metric("Pred. Likes", predictor.get("predicted_likes", "—"))
-            breakdown_cols[1].metric("Pred. Comments", predictor.get("predicted_comments", "—"))
-            breakdown_cols[2].metric("Pred. Shares", predictor.get("predicted_shares", "—"))
-            breakdown_cols[3].metric(
-                "Pred. Total",
-                predictor.get("predicted_total_engagement", "—"),
-            )
-
         st.divider()
-
-        # Predictor + Diagnostics side-by-side
         left, right = st.columns(2)
-
         with left:
             st.subheader("Predictor Analysis")
-            if predictor:
-                st.write(predictor.get("reasoning", "No reasoning returned."))
-            else:
-                st.info("No predictor result.")
-
+            st.write(
+                predictor.get("reasoning", "No reasoning returned.")
+                if predictor
+                else "No predictor result."
+            )
         with right:
             st.subheader("Diagnostics")
             if not state.diagnostics:
@@ -442,62 +470,19 @@ with results_tab:
                     st.error(err)
 
         st.divider()
-
-        # T4.3 + T4.4 — Variants with one-click apply
-        st.subheader(f"Variants ({len(state.variants)})")
-        original_pct = predictor.get("predicted_engagement_percentile")
-
-        if not state.variants:
-            st.info("No variants were generated.")
-        else:
-            for i, variant in enumerate(state.variants, start=1):
-                with st.container(border=True):
-                    header_col, metric_col = st.columns([3, 1])
-                    with header_col:
-                        label = "Top Variant" if i == 1 else f"Variant {i}"
-                        st.markdown(f"**{label}** &nbsp; `{variant.get('strategy_label', '')}`")
-                        st.write(variant.get("rationale", ""))
-                    with metric_col:
-                        pct = variant.get("predicted_engagement_percentile", 0)
-                        delta = (
-                            f"{pct - original_pct:+.0f}" if original_pct is not None else None
-                        )
-                        st.metric("Percentile", f"{pct:.0f}", delta=delta)
-                        st.metric(
-                            "Engagements",
-                            variant.get("predicted_total_engagement", "—"),
-                        )
-
-                    st.text_area(
-                        f"v{i}",
-                        value=variant.get("variant_text", ""),
-                        height=110,
-                        label_visibility="collapsed",
-                    )
-
-                    # T4.4: one-click apply — loads variant text back into the draft input
-                    if st.button(f"Use Variant {i}", key=f"apply_{i}", type="secondary"):
-                        st.session_state.draft_text = variant.get("variant_text", "")
-                        st.session_state.eval_result = None
-                        st.rerun()
-
+        render_variant_results(
+            state.variants,
+            original_percentile=predictor.get("predicted_engagement_percentile"),
+        )
         st.divider()
-        with st.expander(
-            f"Similar posts used as context ({len(state.similar_posts)} retrieved)",
-            expanded=False,
-        ):
-            for j, post in enumerate(state.similar_posts[:5], start=1):
-                st.markdown(
-                    f"**#{j}** &nbsp; `{post.post_id}` · "
-                    f"p{post.engagement_percentile:.0f} · "
-                    f"distance={post.cosine_distance:.3f}"
-                )
-                preview = post.content[:300]
-                if len(post.content) > 300:
-                    preview += "…"
-                st.caption(preview)
-                if j < min(5, len(state.similar_posts)):
-                    st.divider()
-
-    else:
-        st.info("Enter your draft post in the sidebar and click **Evaluate Post**.")
+        render_similar_posts_expander(state.similar_posts)
+    elif (
+        st.session_state.critic_result is None
+        and not st.session_state.critic_error
+        and st.session_state.synthesis_result is None
+        and not st.session_state.synthesis_error
+    ):
+        st.info(
+            "Enter your draft in the sidebar, then **Evaluate Post**, "
+            "**Run critic**, and/or **Run optimisation**."
+        )

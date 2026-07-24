@@ -105,3 +105,49 @@ class EvaluateRequest(BaseModel):
             "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
         ),
     )
+
+
+class CritiqueRequest(BaseModel):
+    """Independent synthetic-audience critic (T7.11–T7.13). Not part of /evaluate."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Draft post text to critique through C-suite, practitioner, and peer lenses.",
+    )
+
+
+class OptimiseRequest(BaseModel):
+    """Independent Stage 5 synthesis (T7.14–T7.16). Not part of /evaluate finalize."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Draft post text to optimise into maximizer / counter / brand_purist rewrites.",
+    )
+    primary_objection: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional C-suite objection (e.g. from /critique). Used by the Strategic Counter "
+            "variant. When omitted, a generic executive-skepticism brief is used."
+        ),
+    )
+    baseline_percentile: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Optional original-draft predicted percentile for delta display.",
+    )
+    baseline_total_engagement: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Optional original-draft predicted total engagement for score fallbacks.",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional subscriber id for neighbor scoping / voice profile.",
+    )
+    use_voice_profile: bool = Field(
+        default=True,
+        description="When user_id is set, derive and apply the subscriber voice profile.",
+    )

@@ -296,3 +296,125 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
 
     assert response.status_code == 200
     assert mock_find_similar.call_args.kwargs["user_id"] == "user-42"
+
+
+def test_critique_endpoint_empty_content_rejected():
+    response = client.post("/api/v1/critique", json={"content": ""})
+    assert response.status_code == 422
+
+
+@patch("api.main.run_audience_critic")
+def test_critique_endpoint_returns_three_lenses(mock_run_audience_critic):
+    """T7.11–T7.13: /critique is independent of the evaluate orchestrator."""
+    from agents.audience_critic import (
+        AudienceCriticOutput,
+        CSuiteLens,
+        PeerLens,
+        PractitionerLens,
+    )
+
+    mock_run_audience_critic.return_value = AudienceCriticOutput(
+        overall_verdict="Thin ROI case; weak tactics.",
+        score=3.5,
+        c_suite=CSuiteLens(
+            reaction="Not convinced",
+            primary_objection="No business outcome stated.",
+            roi_notes="Buzzwords without numbers.",
+        ),
+        practitioner=PractitionerLens(
+            reaction="Can't use this Monday",
+            perceived_value="Low — no playbook.",
+            tactical_gaps="Missing steps and owners.",
+        ),
+        peer=PeerLens(
+            reaction="Familiar framing",
+            credibility_check="Sounds like every other agency post.",
+            originality_notes="No distinctive POV.",
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/critique",
+        json={"content": "Unlock synergy to drive digital transformation at scale."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_verdict"].startswith("Thin ROI")
+    assert body["score"] == 3.5
+    assert body["c_suite"]["primary_objection"]
+    assert body["practitioner"]["perceived_value"]
+    assert body["peer"]["credibility_check"]
+    mock_run_audience_critic.assert_called_once()
+    assert "Unlock synergy" in mock_run_audience_critic.call_args.args[0]
+
+
+def test_optimise_endpoint_empty_content_rejected():
+    response = client.post("/api/v1/optimise", json={"content": ""})
+    assert response.status_code == 422
+
+
+@patch("api.main.run_synthesis")
+def test_optimise_endpoint_returns_synthesis_result(mock_run_synthesis):
+    """T7.14–T7.16: /optimise is independent of the evaluate orchestrator."""
+    from agents.synthesis.schemas import (
+        SynthesisRecommendation,
+        SynthesisResult,
+        SynthesisVariant,
+    )
+
+    mock_run_synthesis.return_value = SynthesisResult(
+        variants=[
+            SynthesisVariant(
+                agent_id="maximizer",
+                variant_name="Algorithmic Maximizer",
+                optimized_text="Hook-first rewrite.",
+                rationale="Stronger CTA.",
+                predicted_engagement_percentile=80.0,
+                predicted_total_engagement=120,
+                delta_percentile=10.0,
+            ),
+            SynthesisVariant(
+                agent_id="counter",
+                variant_name="Strategic Counter",
+                optimized_text="ROI-first rewrite.",
+                rationale="Addresses CFO objections.",
+                predicted_engagement_percentile=75.0,
+                predicted_total_engagement=100,
+                delta_percentile=5.0,
+            ),
+            SynthesisVariant(
+                agent_id="brand_purist",
+                variant_name="Brand Purist",
+                optimized_text="Measured rewrite.",
+                rationale="More credible tone.",
+                predicted_engagement_percentile=70.0,
+                predicted_total_engagement=90,
+                delta_percentile=0.0,
+            ),
+        ],
+        recommendation=SynthesisRecommendation(
+            agent_id="maximizer",
+            reason="Highest predicted engagement percentile (80).",
+        ),
+        baseline_percentile=70.0,
+        critic_objection_used="No ROI proof.",
+        errors=[],
+    )
+
+    response = client.post(
+        "/api/v1/optimise",
+        json={
+            "content": "Unlock synergy at scale.",
+            "primary_objection": "No ROI proof.",
+            "baseline_percentile": 70.0,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["variants"]) == 3
+    assert body["recommendation"]["agent_id"] == "maximizer"
+    assert body["critic_objection_used"] == "No ROI proof."
+    mock_run_synthesis.assert_called_once()
+    assert "Unlock synergy" in mock_run_synthesis.call_args.args[0]

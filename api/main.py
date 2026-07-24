@@ -18,21 +18,35 @@ PhaseT2plan.md Decision #3).
 from fastapi import FastAPI, HTTPException
 from pgvector.psycopg import register_vector
 
+from agents.audience_critic import (
+    AudienceCriticOutput,
+    build_audience_critic_agent,
+    run_audience_critic,
+)
 from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
+from agents.synthesis import SynthesisResult, run_synthesis
 from agents.variant_engine import build_variant_engine
-from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
+from api.schemas import (
+    CritiqueRequest,
+    EvaluateRequest,
+    OptimiseRequest,
+    SimilarPost,
+    SimilarPostsRequest,
+    SimilarPostsResponse,
+)
 from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
-from storage.vector_store import find_similar, get_connection
+from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()
 _eval_model = pydantic_ai_gemini_model()
 predictor_agent = build_predictor_agent(_eval_model)
 diagnostic_agents = build_diagnostic_agents(_eval_model)
+audience_critic_agent = build_audience_critic_agent(_eval_model)
 
 app = FastAPI(title="ITO Post Similarity API")
 
@@ -118,4 +132,50 @@ async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
             reembed_variant_neighbors=request.reembed_variant_neighbors,
         )
     except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/critique", response_model=AudienceCriticOutput)
+async def critique(request: CritiqueRequest) -> AudienceCriticOutput:
+    """Independent synthetic-audience critic (T7.11–T7.13).
+
+    Not part of the evaluate loop — does not affect predictor, diagnostics, or variants.
+    """
+    try:
+        return await run_audience_critic(request.content, agent=audience_critic_agent)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/optimise", response_model=SynthesisResult)
+async def optimise(request: OptimiseRequest) -> SynthesisResult:
+    """Independent Stage 5 synthesis (T7.14–T7.16).
+
+    Does not replace evaluate-loop variants. Soft-fails scoring into result.errors.
+    """
+    voice_profile = None
+    if request.user_id and request.use_voice_profile:
+        conn = get_connection(settings)
+        try:
+            voice_profile = get_user_voice_profile(conn, request.user_id)
+        finally:
+            conn.close()
+
+    try:
+        return await run_synthesis(
+            request.content,
+            settings,
+            primary_objection=request.primary_objection,
+            baseline_percentile=request.baseline_percentile,
+            baseline_total_engagement=request.baseline_total_engagement,
+            voice_profile=voice_profile,
+            user_id=request.user_id,
+            predictor_agent=predictor_agent,
+            model=_eval_model,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
