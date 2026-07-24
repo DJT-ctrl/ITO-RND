@@ -13,44 +13,31 @@ diagnostic flaws/improvements) as its input.
 Two-step process:
   1. One LLM call ("the cleanup prompt") rewrites the draft into exactly 3
      variants, each carrying rewritten copy + a rationale + a strategy label.
-     Which 3 axes the variants target is controlled by `strategy` (see
-     `VariantStrategy` below) and is caller-selectable, not hardcoded.
   2. The existing T3.2 Predictor Agent is re-run on each of the 3 variant
-     texts (concurrently) to get the "recalculated performance estimations"
-     from the same scoring method as the rest of the pipeline, rather than
-     the generation LLM guessing its own number. Variants are ranked by this
-     recalculated score, descending.
+     texts (concurrently) via agents.variant_scoring.
 
 Neighbor set used for step 2 (caller-selectable via `reembed_neighbors`):
-  - Default (False): reuse the SAME neighbors already fetched in stage 1
-    against the original draft (cheap — 0 extra Gemini/DB calls). Fair when
-    variants are close rewrites of the original topic, and keeps all 3
-    variants scored against one shared baseline for consistent comparison.
-  - Opt-in (True): re-embed each variant's own text and fetch ITS OWN
-    nearest neighbors before scoring it. More accurate when a variant
-    meaningfully shifts topic/angle (e.g. a "narrative" strategy variant
-    telling a different story), at the cost of up to 3 extra Gemini embed
-    calls + 3 extra DB queries.
+  - Default (False): reuse the SAME neighbors already fetched in stage 1.
+  - Opt-in (True): re-embed each variant's own text and fetch its neighbors.
 """
 
 import asyncio
-import time
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, List, Literal, Optional, Tuple
+from typing import Any, Awaitable, Callable, List, Literal, Optional
 
-from pgvector.psycopg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
+from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section
 from agents.structured_output import agent_structured_output
-from api.schemas import SimilarPost
+from agents.variant_scoring import (
+    fallback_scores_from_baseline,
+    fetch_neighbors_for_text,
+    score_text_with_predictor,
+)
 from config.settings import Settings, pydantic_ai_gemini_model
-from processors.embedder import embed_query
-from storage.vector_store import find_similar, get_connection
 from telemetry.collector import RunMetadataCollector
-from telemetry.instrument import run_agent_step, run_timed_thread
+from telemetry.instrument import run_agent_step
 
 VariantStrategy = Literal["dimension", "narrative", "tiered"]
 
@@ -135,7 +122,9 @@ def _build_diagnostic_context(strategy: VariantStrategy, state: PostEvaluationSt
     for name, output in state.diagnostics.items():
         flaws = ", ".join(output.get("flaws", [])) or "none noted"
         improvements = ", ".join(output.get("improvements", [])) or "none noted"
-        lines.append(f"- {name}: score {output.get('score')}/10; flaws: {flaws}; improvements: {improvements}")
+        lines.append(
+            f"- {name}: score {output.get('score')}/10; flaws: {flaws}; improvements: {improvements}"
+        )
     context = "\n".join(lines)
 
     if strategy == "dimension":
@@ -160,15 +149,10 @@ def _build_neighbor_context(deps: EvaluationDeps) -> str:
     return "\n".join(lines)
 
 
-def build_variant_prompt(strategy: VariantStrategy, deps: EvaluationDeps, state: PostEvaluationState) -> str:
-    """Build the "cleanup prompt" — the variant engine's sole LLM input.
-
-    Summarizes the predictor's score/reasoning and whatever diagnostic
-    criticism exists (T3.3 may not have produced all 3 checks, see
-    build_variant_engine's "run with what's available" rule) plus the
-    nearest historical posts, then instructs the model per the selected
-    strategy (see VariantStrategy).
-    """
+def build_variant_prompt(
+    strategy: VariantStrategy, deps: EvaluationDeps, state: PostEvaluationState
+) -> str:
+    """Build the cleanup prompt — the variant engine's sole LLM input."""
     spec = _STRATEGY_SPECS[strategy]
     voice_section = build_voice_profile_section(deps.voice_profile)
     draft_section = wrap_untrusted_text(deps.draft_content)
@@ -204,14 +188,7 @@ Return only structured data matching the required output schema: exactly 3 varia
 
 
 def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, VariantDraftSet]:
-    """Create the variant-generation agent.
-
-    Unlike the T3.2/T3.3 agents, this one has no `@agent.system_prompt`
-    hook tied to `ctx.deps` — the full "cleanup prompt" (built by
-    build_variant_prompt, which needs predictor_result/diagnostics from
-    PostEvaluationState, not just EvaluationDeps) is passed directly as the
-    run's user prompt instead.
-    """
+    """Create the variant-generation agent."""
     resolved = pydantic_ai_gemini_model() if model is None else model
     return Agent(
         resolved,
@@ -221,80 +198,13 @@ def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, V
     )
 
 
-def _fallback_scores(state: PostEvaluationState) -> Tuple[float, int]:
-    """Fallback recalculated score if a variant's predictor re-run fails —
-    reuse the original draft's predictor score rather than crash/zero it
-    out, since it's the best available estimate."""
+def _fallback_scores(state: PostEvaluationState) -> tuple[float, int]:
     if state.predictor_result:
-        return (
-            float(state.predictor_result.get("predicted_engagement_percentile", 0.0)),
-            int(state.predictor_result.get("predicted_total_engagement", 0)),
+        return fallback_scores_from_baseline(
+            state.predictor_result.get("predicted_engagement_percentile"),
+            state.predictor_result.get("predicted_total_engagement"),
         )
-    return 0.0, 0
-
-
-async def _fetch_variant_neighbors(
-    variant_text: str,
-    settings: Settings,
-    collector: Optional[RunMetadataCollector] = None,
-    strategy_label: str = "variant",
-) -> List[SimilarPost]:
-    """Re-embed one variant's own text and fetch ITS OWN 10 nearest
-    neighbors — same blocking-call-in-a-thread pattern as
-    agents/orchestrator.py's _gather_similar_posts, and opens/closes its
-    own DB connection so nothing is held open across the concurrent
-    per-variant scoring stage."""
-    safe_label = strategy_label.replace(" ", "_").lower()[:32]
-
-    def _embed() -> Tuple[Any, int]:
-        return embed_query(variant_text, settings)
-
-    started_at = datetime.now(timezone.utc)
-    t0 = time.perf_counter()
-    try:
-        query_vector, prompt_tokens = await asyncio.to_thread(_embed)
-        if collector is not None:
-            collector.record_embedding(
-                step_id=f"variant.embed.{safe_label}",
-                label=f"Embed variant ({strategy_label})",
-                stage="variant",
-                prompt_tokens=prompt_tokens,
-                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
-                started_at=started_at,
-                ended_at=datetime.now(timezone.utc),
-            )
-    except Exception as exc:
-        if collector is not None:
-            collector.record_embedding(
-                step_id=f"variant.embed.{safe_label}",
-                label=f"Embed variant ({strategy_label})",
-                stage="variant",
-                prompt_tokens=0,
-                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
-                started_at=started_at,
-                ended_at=datetime.now(timezone.utc),
-                status="error",
-                error=str(exc),
-            )
-        raise
-
-    def _fetch() -> List[dict]:
-        conn = get_connection(settings)
-        try:
-            register_vector(conn)
-            return find_similar(conn, query_vector, limit=10)
-        finally:
-            conn.close()
-
-    rows = await run_timed_thread(
-        collector,
-        step_id=f"variant.vector_search.{safe_label}",
-        label=f"Variant vector search ({strategy_label})",
-        stage="variant",
-        call_type="db",
-        fn=_fetch,
-    )
-    return [SimilarPost(**row) for row in rows]
+    return fallback_scores_from_baseline()
 
 
 async def _score_variant(
@@ -305,29 +215,26 @@ async def _score_variant(
     settings: Optional[Settings],
     collector: Optional[RunMetadataCollector] = None,
 ) -> Any:
-    """Score one variant with the T3.2 predictor agent, using either the
-    shared stage-1 neighbors or this variant's own re-embedded neighbors
-    (see module docstring for the tradeoff)."""
+    """Score one variant with the T3.2 predictor agent."""
     if reembed_neighbors:
-        neighbors = await _fetch_variant_neighbors(
+        neighbors = await fetch_neighbors_for_text(
             item.variant_text,
-            settings,
+            settings,  # type: ignore[arg-type]
             collector=collector,
-            strategy_label=item.strategy_label,
+            label=item.strategy_label,
+            stage="variant",
         )
     else:
         neighbors = state.similar_posts
-    deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors, voice_profile=state.voice_profile)
-    safe_label = item.strategy_label.replace(" ", "_").lower()[:32]
-    return await run_agent_step(
-        collector,
-        step_id=f"variant.score.{safe_label}",
+    return await score_text_with_predictor(
+        item.variant_text,
+        predictor_agent=predictor_agent,
+        similar_posts=neighbors,
+        voice_profile=state.voice_profile,
+        collector=collector,
+        step_id=f"variant.score.{item.strategy_label.replace(' ', '_').lower()[:32]}",
         label=f"Score variant ({item.strategy_label})",
         stage="variant",
-        agent=predictor_agent,
-        prompt=build_evaluation_user_message(item.variant_text),
-        deps=deps,
-        model=pydantic_ai_gemini_model(),
     )
 
 
@@ -339,34 +246,17 @@ def build_variant_engine(
     settings: Optional[Settings] = None,
     collector: Optional[RunMetadataCollector] = None,
 ) -> Callable[[PostEvaluationState], Awaitable[None]]:
-    """Build the T3.4 finalize hook for run_evaluation_cycle().
-
-    Args:
-        predictor_agent: the same T3.2 predictor agent already built for
-            the concurrent evaluation stage — reused here to recalculate a
-            score for each generated variant (Decision: re-run the real
-            predictor rather than have the generation LLM guess a number).
-        model: PydanticAI model identifier for the variant-generation call.
-        strategy: which distinctness axis to use (see VariantStrategy) —
-            caller-selectable (API request field / dashboard control), not
-            fixed.
-        reembed_neighbors: if True, each variant re-embeds its own text and
-            fetches its own nearest neighbors for scoring, instead of
-            reusing the shared stage-1 neighbors (see module docstring).
-            Requires `settings` to be provided.
-        settings: required when reembed_neighbors=True (fails fast at build
-            time, before any request runs, if missing).
-    """
+    """Build the T3.4 finalize hook for run_evaluation_cycle()."""
     if reembed_neighbors and settings is None:
         raise ValueError("build_variant_engine: settings is required when reembed_neighbors=True")
 
     generation_agent = build_variant_generation_agent(model)
 
     async def _finalize(state: PostEvaluationState) -> None:
-        # Nothing at all to work from — skip entirely rather than ask the
-        # model to invent criticism out of thin air.
         if state.predictor_result is None and not state.diagnostics:
-            state.errors.append("variant_engine: skipped, no predictor or diagnostic output available")
+            state.errors.append(
+                "variant_engine: skipped, no predictor or diagnostic output available"
+            )
             return
 
         deps = EvaluationDeps(
@@ -376,7 +266,6 @@ def build_variant_engine(
         )
         prompt = build_variant_prompt(strategy, deps, state)
 
-        gen_result = None
         try:
             gen_result = await run_agent_step(
                 collector,
@@ -396,7 +285,9 @@ def build_variant_engine(
 
         rerun_results = await asyncio.gather(
             *(
-                _score_variant(item, state, predictor_agent, reembed_neighbors, settings, collector)
+                _score_variant(
+                    item, state, predictor_agent, reembed_neighbors, settings, collector
+                )
                 for item in draft_items
             ),
             return_exceptions=True,

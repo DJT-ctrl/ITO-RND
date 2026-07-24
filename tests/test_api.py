@@ -347,3 +347,74 @@ def test_critique_endpoint_returns_three_lenses(mock_run_audience_critic):
     assert body["peer"]["credibility_check"]
     mock_run_audience_critic.assert_called_once()
     assert "Unlock synergy" in mock_run_audience_critic.call_args.args[0]
+
+
+def test_optimise_endpoint_empty_content_rejected():
+    response = client.post("/api/v1/optimise", json={"content": ""})
+    assert response.status_code == 422
+
+
+@patch("api.main.run_synthesis")
+def test_optimise_endpoint_returns_synthesis_result(mock_run_synthesis):
+    """T7.14–T7.16: /optimise is independent of the evaluate orchestrator."""
+    from agents.synthesis.schemas import (
+        SynthesisRecommendation,
+        SynthesisResult,
+        SynthesisVariant,
+    )
+
+    mock_run_synthesis.return_value = SynthesisResult(
+        variants=[
+            SynthesisVariant(
+                agent_id="maximizer",
+                variant_name="Algorithmic Maximizer",
+                optimized_text="Hook-first rewrite.",
+                rationale="Stronger CTA.",
+                predicted_engagement_percentile=80.0,
+                predicted_total_engagement=120,
+                delta_percentile=10.0,
+            ),
+            SynthesisVariant(
+                agent_id="counter",
+                variant_name="Strategic Counter",
+                optimized_text="ROI-first rewrite.",
+                rationale="Addresses CFO objections.",
+                predicted_engagement_percentile=75.0,
+                predicted_total_engagement=100,
+                delta_percentile=5.0,
+            ),
+            SynthesisVariant(
+                agent_id="brand_purist",
+                variant_name="Brand Purist",
+                optimized_text="Measured rewrite.",
+                rationale="More credible tone.",
+                predicted_engagement_percentile=70.0,
+                predicted_total_engagement=90,
+                delta_percentile=0.0,
+            ),
+        ],
+        recommendation=SynthesisRecommendation(
+            agent_id="maximizer",
+            reason="Highest predicted engagement percentile (80).",
+        ),
+        baseline_percentile=70.0,
+        critic_objection_used="No ROI proof.",
+        errors=[],
+    )
+
+    response = client.post(
+        "/api/v1/optimise",
+        json={
+            "content": "Unlock synergy at scale.",
+            "primary_objection": "No ROI proof.",
+            "baseline_percentile": 70.0,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["variants"]) == 3
+    assert body["recommendation"]["agent_id"] == "maximizer"
+    assert body["critic_objection_used"] == "No ROI proof."
+    mock_run_synthesis.assert_called_once()
+    assert "Unlock synergy" in mock_run_synthesis.call_args.args[0]
