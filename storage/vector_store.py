@@ -6,23 +6,16 @@ talks to a database instead of the filesystem, so it gets its own module
 per the separation those two files already anticipate (see the comment at
 the top of processed_store.py).
 
-Six small functions:
-  get_connection()  — open a psycopg connection with the pgvector adapter
-                       registered so numpy arrays can be passed directly as
-                       `vector` column values.
-  create_schema()   — apply storage/schema.sql (CREATE EXTENSION/TABLE/INDEX,
-                       all IF NOT EXISTS so it's safe to call every run).
-  insert_posts()     — batched upsert of joined post records + embeddings.
-  find_similar()     — T2.2: cosine-distance nearest-neighbour retrieval
-                       against the halfvec(3072) HNSW index. Optionally
-                       tenant-scoped by user_id (personalization), with an
-                       automatic cold-start fallback to the global corpus.
-  get_user_voice_profile() — personalization: aggregate a subscriber's own
-                       top-performing posts into a lightweight "voice
-                       profile" (dominant hook/tone/style, avg length, CTA
-                       usage), purely from columns already in the table —
-                       no extra LLM call. Returns None below a minimum post
-                       count (cold start).
+Core functions:
+  get_connection()  — open a psycopg connection (adapter registered later)
+  create_schema()   — apply storage/schema.sql (IF NOT EXISTS)
+  insert_posts()    — batched upsert of joined post records + embeddings
+  get_user_voice_profile() — personalization aggregate (no extra LLM)
+
+Nearest-neighbour retrieval (T2.2 + T10.8 soft topic prefer) lives in
+``storage.similarity`` and is re-exported here for stable import paths::
+
+    from storage.vector_store import find_similar
 """
 
 from collections import Counter
@@ -34,6 +27,7 @@ import psycopg
 from pgvector.psycopg import register_vector
 
 from config.settings import Settings
+from storage.similarity import find_similar  # noqa: F401  — public re-export
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 _BATCH_SIZE = 100
@@ -164,30 +158,6 @@ def insert_posts(
     return len(rows)
 
 
-# Columns returned by find_similar(), in SELECT order (excluding the
-# computed cosine_distance, added separately below). follower_count/
-# engagement_rate/audience_adjusted_percentile are the optional T6 Point 1
-# follower-normalization fields (processors/run_pipeline.py's
-# --with-profile-enrichment) — NULL for any post that path never touched,
-# so callers (e.g. agents/predictor.py) must treat them as optional.
-_SIMILAR_COLUMNS = [
-    "post_id",
-    "content",
-    "likes",
-    "comments",
-    "shares",
-    "total_engagement",
-    "engagement_percentile",
-    "engagement_zscore",
-    "follower_count",
-    "engagement_rate",
-    "audience_adjusted_percentile",
-    "hashtag_count",
-    "word_count",
-    "topic",
-    "hook_type",
-]
-
 # Feature columns for Tier 1 corpus benchmarks — no embeddings.
 _ANALYSIS_COLUMNS = [
     "word_count",
@@ -207,67 +177,6 @@ _ANALYSIS_COLUMNS = [
     "audience_adjusted_percentile",
     "audience_adjusted_zscore",
 ]
-
-
-def find_similar(
-    conn: psycopg.Connection,
-    query_vector: np.ndarray,
-    limit: int = 10,
-    user_id: Optional[str] = None,
-    fallback_to_global: bool = True,
-    min_user_results: int = 3,
-) -> list[dict[str, Any]]:
-    """Return the `limit` posts whose embedding is closest (cosine distance)
-    to query_vector, ordered nearest-first.
-
-    Uses the halfvec(3072) HNSW index defined in storage/schema.sql — both
-    sides of the `<=>` comparison are cast to halfvec(3072) so the query
-    actually hits that index instead of doing a full scan (see
-    T1.4_DATABASE_PLAN.md).
-
-    Tenant scoping (personalization): if `user_id` is given, the search is
-    first restricted to that subscriber's own posts (`WHERE user_id = %s`).
-    If fewer than `min_user_results` rows come back (cold start — a new or
-    low-volume subscriber) and `fallback_to_global` is True (default), the
-    query is re-run unfiltered against the whole corpus instead, so callers
-    always get useful neighbors rather than a near-empty result.
-
-    Returns a list of dicts with post_id, content, engagement fields, and
-    the computed cosine_distance for each match.
-    """
-    rows = _find_similar_query(conn, query_vector, limit, user_id)
-    if user_id is not None and len(rows) < min_user_results and fallback_to_global:
-        rows = _find_similar_query(conn, query_vector, limit, user_id=None)
-    return rows
-
-
-def _find_similar_query(
-    conn: psycopg.Connection,
-    query_vector: np.ndarray,
-    limit: int,
-    user_id: Optional[str],
-) -> list[dict[str, Any]]:
-    """Run the actual cosine-distance query, optionally filtered by user_id."""
-    select_clause = ", ".join(_SIMILAR_COLUMNS)
-    where_clause = "WHERE user_id = %s " if user_id is not None else ""
-    sql = (
-        f"SELECT {select_clause}, "
-        f"embedding::halfvec(3072) <=> %s::halfvec(3072) AS cosine_distance "
-        f"FROM posts "
-        f"{where_clause}"
-        f"ORDER BY embedding::halfvec(3072) <=> %s::halfvec(3072) "
-        f"LIMIT %s"
-    )
-    params = (
-        (query_vector, user_id, query_vector, limit)
-        if user_id is not None
-        else (query_vector, query_vector, limit)
-    )
-    with conn.cursor() as cur:
-        cur.execute(sql, params)
-        columns = [col.name for col in cur.description]
-        rows = cur.fetchall()
-    return [dict(zip(columns, row)) for row in rows]
 
 
 def count_posts(conn: psycopg.Connection) -> int:

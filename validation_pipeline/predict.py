@@ -240,7 +240,9 @@ async def _predict_for_post_impl(
 ) -> PredictionOutput:
     """Inner predict implementation (retried by predict_for_post on 429/5xx)."""
     state = PostEvaluationState(draft_content=post.content)
-    await _gather_similar_posts(state, settings, user_id=None)
+    await _gather_similar_posts(
+        state, settings, user_id=None, prefer_niche=post.niche
+    )
 
     neighbor_prediction = compute_neighbor_prediction(
         state.similar_posts,

@@ -1,6 +1,6 @@
 # Phase 10 — Agentic Layer (Background Automation)
 
-**Status:** In progress (corpus refresh + proof + topic feedback buckets done; soft RAG / Pro digest next)  
+**Status:** In progress (corpus + topic learn/RAG prefer done; Pro digest / worker runbook next)  
 **Owner (sheet):** TBD (diagram: Erdal agentic layer)  
 **Folder:** [`phase_10/`](.)  
 **Models:**
@@ -88,12 +88,12 @@ flowchart TB
 | **T10.5.5** | Scrape Proof / Run Health | **Done** | T10.4, T10.5 | Multi-signal proof + Agentic panel (not a cron) |
 | **T10.6** | Topic Taxonomy + Tagging | **Done** | — | Enum + `posts.niche` + `user_niches` |
 | **T10.7** | Topic Dimension on Feedback Buckets | **Done** | T10.6 | Extend `feedback/routing.py` + fallback |
-| **T10.8** | Soft Topic Preference in RAG | Planning | T10.6 | Global `find_similar` only |
+| **T10.8** | Soft Topic Preference in RAG | **Done** | T10.6 | Global `find_similar` only |
 | **T10.9** | Cost Control Ledger | **Done** | — | Caps + gate + `agentic_cost_ledger` |
 | **T10.10** | Dev AI Workflow Critic (Pro) | Planning | T10.3, T10.9 | Replaces tick stub; can read proofs |
 | **T10.11** | Worker Wiring (validation + feedback) | Planning | T10.3 | Runbook cron/systemd; tick already calls workers |
 
-**Counts:** Planning 2 · Partial 1 · Done 9.
+**Counts:** Planning 1 · Partial 1 · Done 10.
 
 ---
 
@@ -109,7 +109,7 @@ flowchart TB
 | Phase 10 | **T10.5.5** | Scrape Proof / Run Health | TBD | Multi-signal proof artifact after each T10.4/T10.5 run (intent, yield, mix, freshness, cost, waste). Persist + show on Agentic Layer. **Not** a third cron. | Proof rows in DB; panel on Agentic tab; tick last_result one-liner. | Python / PostgreSQL / Streamlit | **Done** |
 | Phase 10 | **T10.6** | Topic Taxonomy + Tagging | TBD | Coarse topic set (~8–12: e.g. sports, saas_b2b, fintech, creator, finance, health, career, marketing, other). Tag posts at analyse/ingest; infer **user niche profile** from their posts for T10.2 weights. Reuse analyser `topic` where present. | Stable topic enum; posts tagged; `user_niches` (or similar) drives plan weights. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.7** | Topic Dimension on Feedback Buckets | TBD | Extend `feedback/routing.py` metadata cluster from `{length}_{format}_{followers}` → `{topic}_{length}_{format}_{followers}`. Fallback when N &lt; `validation_cluster_n_min`: topic+shape → shape-only → global. Update labels / centroid path so Phase H does not break. | New cluster ids in feedback store; sparse niches still get lessons via fallback; tests for routing + fallback. | Python / PostgreSQL | **Done** |
-| Phase 10 | **T10.8** | Soft Topic Preference in RAG | TBD | Keep **one global** `find_similar`. Optional re-rank / mix: prefer same-topic neighbors when available; **never** hard-filter to niche-only index (avoids cold-start / thin buckets). | Eval neighbors can bias to topic without separate niche vector DB; empty niche → pure global. | Python / pgvector | Planning |
+| Phase 10 | **T10.8** | Soft Topic Preference in RAG | TBD | Keep **one global** `find_similar`. Optional re-rank / mix: prefer same-topic neighbors when available; **never** hard-filter to niche-only index (avoids cold-start / thin buckets). | Eval neighbors can bias to topic without separate niche vector DB; empty niche → pure global. | Python / pgvector | **Done** |
 | Phase 10 | **T10.9** | Cost Control Ledger | TBD | Persist daily Apify + Gemini spend for agentic jobs; wire caps into T10.3. Reuse `telemetry/` pricing helpers; extend caps beyond feedback-LLM-only. | Dashboard shows spend vs cap; jobs no-op when over budget; warnings in digests. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.10** | Dev AI Workflow Critic (Pro) | TBD | Scheduled **daily** meta-agent: read telemetry, scrape-plan stats, validation MAE, feedback queue, errors. **Gemini Pro only**. Output: digest of what might need changing (config, keywords, caps, failing niches). Read-only first — no auto-mutate prompts/flags. | Digest stored + shown on Agentic Layer tab (and optional notify); uses Pro; Flash unchanged for product agents. | Python / Gemini Pro / PostgreSQL | Planning |
 | Phase 10 | **T10.11** | Worker Wiring (reuse validation + feedback) | TBD | Register existing `validation_pipeline` + `feedback` worker CLIs on the same scheduler so agentic layer is an automated working way of what we already have, not a parallel loop. | Cron / job runner invokes existing CLIs; runbook updated; no duplicated validate/learn logic. | Python / Linux Cron | Planning |
@@ -254,7 +254,14 @@ Target (when niche known):
 
 ### T10.8 — Soft Topic Preference in RAG
 
-Keep a single pgvector index / `find_similar`. Optionally mix or re-rank same-topic neighbors. **Do not** build a niche-only RAG store (cold start and sparse niches hurt more than they help).
+**Status:** Done
+
+Keep a single pgvector index / `find_similar`. Soft re-rank same-topic neighbors. **Do not** build a niche-only RAG store (cold start and sparse niches hurt more than they help).
+
+**Shipped:**
+- Retrieval extracted to [`storage/similarity.py`](../storage/similarity.py) (T2.2 + T10.8 labels); re-exported from [`vector_store.py`](../storage/vector_store.py)
+- Over-fetch ×3 (cap 50) + `apply_soft_topic_prefer` (same niche first, distance second); never hard-filters
+- `SimilarPost.niche`; orchestrator / predict pass `prefer_niche` when known
 
 ---
 
@@ -303,7 +310,7 @@ Document cron/systemd examples in the production runbook. No parallel validate/l
 1. **T10.2 + T10.6** — plan + topics (defines what scrapes) **(done)**  
 2. **T10.3 + T10.9** — schedule + budget (safe automation) **(done)**  
 3. **T10.4 + T10.5 + T10.5.5** — corpus refresh + scrape proof **(done)**  
-4. **T10.7 + T10.8** — topic in learn + soft RAG **(T10.7 done)**  
+4. **T10.7 + T10.8** — topic in learn + soft RAG **(done)**  
 5. **T10.1** — Agentic Layer tab to operate it (partial; digests remain)  
 6. **T10.10** — Pro digest last (needs logs + proofs from the above)  
 7. **T10.11** — production cron/systemd runbook polish  

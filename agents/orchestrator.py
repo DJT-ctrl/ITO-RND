@@ -77,6 +77,7 @@ async def _gather_similar_posts(
     state: PostEvaluationState,
     settings: Settings,
     user_id: Optional[str] = None,
+    prefer_niche: Optional[str] = None,
     collector: Optional[RunMetadataCollector] = None,
 ) -> None:
     """Populate state.similar_posts with the 10 nearest vector neighbors.
@@ -95,6 +96,9 @@ async def _gather_similar_posts(
     If `user_id` is given, retrieval is tenant-scoped to that subscriber's
     own posts, with an automatic fallback to the global corpus when they
     don't have enough of their own (see find_similar()'s docstring).
+
+    T10.8: optional ``prefer_niche`` soft-prefers same-niche neighbors
+    (re-rank only; never niche-only hard filter).
     """
 
     def _embed() -> tuple[Any, int]:
@@ -135,7 +139,13 @@ async def _gather_similar_posts(
         conn = get_connection(settings)
         try:
             register_vector(conn)
-            return find_similar(conn, query_vector, limit=10, user_id=user_id)
+            return find_similar(
+                conn,
+                query_vector,
+                limit=10,
+                user_id=user_id,
+                prefer_niche=prefer_niche,
+            )
         finally:
             conn.close()
 
@@ -279,6 +289,7 @@ async def run_evaluation_cycle(
     diagnostics: Optional[dict[str, EvaluationAgent]] = None,
     finalize: Optional[FinalizeHook] = None,
     user_id: Optional[str] = None,
+    prefer_niche: Optional[str] = None,
     use_voice_profile: bool = True,
     seo_mode: Optional[SeoDiscoverabilityMode] = None,
     use_google_trends: Optional[bool] = None,
@@ -312,6 +323,7 @@ async def run_evaluation_cycle(
             see find_similar()), and — if `use_voice_profile` is True — a
             derived voice profile is fetched and made available to every
             agent via `EvaluationDeps.voice_profile`.
+        prefer_niche: optional T10.8 soft topic prefer for neighbor ranking.
         use_voice_profile: whether to fetch/apply the subscriber's voice
             profile when `user_id` is given. Ignored if `user_id` is None.
             Default True — this is opt-in only in the sense that it does
@@ -348,7 +360,13 @@ async def run_evaluation_cycle(
 
     state = PostEvaluationState(draft_content=draft_content)
 
-    await _gather_similar_posts(state, settings, user_id=user_id, collector=collector)
+    await _gather_similar_posts(
+        state,
+        settings,
+        user_id=user_id,
+        prefer_niche=prefer_niche,
+        collector=collector,
+    )
     if user_id is not None and use_voice_profile:
         await _fetch_voice_profile(state, settings, user_id, collector=collector)
 
