@@ -310,6 +310,20 @@ CREATE TABLE IF NOT EXISTS agentic_job_runs (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- T10.5.5: per-scrape proof / run-health reports.
+CREATE TABLE IF NOT EXISTS agentic_scrape_proofs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id              TEXT NOT NULL,
+    niche               TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    payload             JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_created_idx
+    ON agentic_scrape_proofs (created_at DESC);
+CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_job_idx
+    ON agentic_scrape_proofs (job_id, created_at DESC);
+
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).
 --

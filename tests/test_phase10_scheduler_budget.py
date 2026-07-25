@@ -152,7 +152,7 @@ def test_tick_disabled_and_stubs(
     by_id = {r.job_id: r for r in result.results}
     assert by_id["general_refresh"].detail == "skipped: disabled"
     assert by_id["validation_worker"].detail == "skipped: disabled"
-    assert STUB_REASONS["niche_scrape"] in by_id["niche_scrape"].detail
+    assert "no handler" in by_id["niche_scrape"].detail
     assert STUB_REASONS["pro_digest"] in by_id["pro_digest"].detail
 
 

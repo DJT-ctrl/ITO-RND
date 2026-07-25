@@ -148,6 +148,11 @@ class Settings:
     agentic_pro_digest_interval_hours: float = 24.0
     agentic_validation_limit: int = 50
     agentic_feedback_limit: int = 20
+    # T10.4 / T10.5 corpus refresh.
+    agentic_general_max_posts: int = 20
+    agentic_niche_max_posts_total: int = 40
+    agentic_niche_stale_hours: float = 20.0
+    agentic_scrape_with_gemini: bool = False
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -258,6 +263,16 @@ def load_settings() -> Settings:
         ),
         agentic_validation_limit=int(os.getenv("AGENTIC_VALIDATION_LIMIT", "50")),
         agentic_feedback_limit=int(os.getenv("AGENTIC_FEEDBACK_LIMIT", "20")),
+        agentic_general_max_posts=int(os.getenv("AGENTIC_GENERAL_MAX_POSTS", "20")),
+        agentic_niche_max_posts_total=int(
+            os.getenv("AGENTIC_NICHE_MAX_POSTS_TOTAL", "40")
+        ),
+        agentic_niche_stale_hours=float(
+            os.getenv("AGENTIC_NICHE_STALE_HOURS", "20")
+        ),
+        agentic_scrape_with_gemini=_env_bool(
+            "AGENTIC_SCRAPE_WITH_GEMINI", default=False
+        ),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings

@@ -105,6 +105,19 @@ class BudgetDecision:
 
 
 @dataclass(frozen=True)
+class ScrapeProof:
+    """T10.5.5 multi-signal proof for one corpus refresh run."""
+
+    job_id: str
+    summary: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    niche: str | None = None
+    id: str | None = None
+    created_at: str | None = None
+    ok: bool = True
+
+
+@dataclass(frozen=True)
 class DigestRecord:
     id: str
     created_at: str

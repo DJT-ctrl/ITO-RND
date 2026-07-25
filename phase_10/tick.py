@@ -29,8 +29,6 @@ TICK_PRIORITY: tuple[str, ...] = (
 )
 
 STUB_REASONS: dict[str, str] = {
-    "general_refresh": "not implemented — T10.4",
-    "niche_scrape": "not implemented — T10.5",
     "pro_digest": "not implemented — T10.10",
 }
 
@@ -108,9 +106,23 @@ def _run_feedback(settings: Settings) -> str:
     )
 
 
+def _run_general_refresh(settings: Settings) -> str:
+    from phase_10.corpus_refresh import run_general_refresh
+
+    return run_general_refresh(settings).summary
+
+
+def _run_niche_scrape(settings: Settings) -> str:
+    from phase_10.corpus_refresh import run_niche_scrape
+
+    return run_niche_scrape(settings).summary
+
+
 HANDLERS: dict[str, Handler] = {
     "validation_worker": _run_validation,
     "feedback_worker": _run_feedback,
+    "general_refresh": _run_general_refresh,
+    "niche_scrape": _run_niche_scrape,
 }
 
 

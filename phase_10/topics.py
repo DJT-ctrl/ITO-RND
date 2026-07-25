@@ -99,6 +99,27 @@ def is_valid_niche(value: str | None) -> bool:
     return bool(value) and value in NICHES
 
 
+def queries_for_niche(niche: str, *, limit: int = 5) -> list[str]:
+    """LinkedIn search queries for a niche (niche id + taxonomy aliases)."""
+    if not is_valid_niche(niche) or niche == DEFAULT_NICHE:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    candidates = [niche.replace("_", " "), niche]
+    for alias, mapped in _ALIAS_TO_NICHE:
+        if mapped == niche:
+            candidates.append(alias)
+    for raw in candidates:
+        q = " ".join(str(raw).strip().lower().split())
+        if not q or q in seen:
+            continue
+        seen.add(q)
+        out.append(q)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def normalize_topic_to_niche(free_text: str | None) -> str:
     """Map a Gemini free-text topic (or similar) onto the coarse niche enum."""
     if free_text is None:
