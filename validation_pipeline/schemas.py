@@ -158,6 +158,7 @@ class CollectedPost(BaseModel):
     content: str
     posted_at: datetime
     follower_count: Optional[int] = None
+    niche: Optional[str] = None
     likes: int = 0
     comments: int = 0
     shares: int = 0

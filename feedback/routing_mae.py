@@ -22,6 +22,7 @@ class RoutingReplayRow(BaseModel):
     raw_percentile: float
     content: str = ""
     follower_count: Optional[int] = None
+    niche: Optional[str] = None
     embedding: Optional[list[float]] = None
 
 
@@ -130,7 +131,9 @@ def _evaluate_mode(
             with_embedding += 1
         cluster_id = _route(row, use_centroids=use_centroids, centroids=centroids)
         if use_centroids and row.embedding and centroids:
-            metadata_id = metadata_cluster_id(row.content, row.follower_count)
+            metadata_id = metadata_cluster_id(
+                row.content, row.follower_count, niche=row.niche
+            )
             if cluster_id != metadata_id:
                 via_centroid += 1
         deltas = cluster_deltas.get(cluster_id, [])
@@ -171,10 +174,11 @@ def _route(
         return assign_cluster_id(
             row.content,
             row.follower_count,
+            niche=row.niche,
             embedding=row.embedding,
             centroids=centroids,
         )
-    return metadata_cluster_id(row.content, row.follower_count)
+    return metadata_cluster_id(row.content, row.follower_count, niche=row.niche)
 
 
 def _stable_key(prediction_id: UUID) -> str:

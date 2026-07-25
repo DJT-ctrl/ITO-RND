@@ -17,15 +17,16 @@ from feedback.generate import (
 from feedback.hybrid import generate_hybrid_feedback
 from feedback.queue import enqueue_feedback_job
 from feedback.schemas import FeedbackPayload, FeedbackRecord
+from storage.vector_store import create_schema, get_connection
+from telemetry.pricing import cost_from_tokens
 from feedback.store import (
     count_auto_approved_feedback_today,
     count_llm_feedback_generated_today,
     fetch_validated_prediction_ids_missing_feedback,
     refresh_cluster_stats,
+    resolve_post_niche,
     upsert_prediction_feedback,
 )
-from storage.vector_store import create_schema, get_connection
-from telemetry.pricing import cost_from_tokens
 from validation_pipeline.schemas import PredictionRecord, ValidationScores
 from validation_pipeline.store import fetch_predictions_by_ids
 
@@ -90,16 +91,22 @@ def _store_feedback_for_prediction(
     conn = get_connection(settings)
     try:
         create_schema(conn)
+        niche = resolve_post_niche(
+            linkedin_post_id=prediction.linkedin_post_id,
+            conn=conn,
+        )
         if scores is not None:
             payload, latency_ms = _timed_template_generation(
                 generate_template_feedback_from_scores,
                 prediction,
                 scores,
+                niche=niche,
             )
         else:
             payload, latency_ms = _timed_template_generation(
                 generate_template_feedback_from_record,
                 prediction,
+                niche=niche,
             )
         record = upsert_prediction_feedback(
             conn,
@@ -123,7 +130,7 @@ def _store_feedback_for_prediction(
             return record
 
         started = time.perf_counter()
-        hybrid = generate_hybrid_feedback(prediction, settings)
+        hybrid = generate_hybrid_feedback(prediction, settings, niche=niche)
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
         if not hybrid.used_llm:
             return record

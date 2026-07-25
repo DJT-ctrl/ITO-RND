@@ -9,9 +9,10 @@ import psycopg
 
 from agents.prompt_safety import wrap_untrusted_text
 from feedback.generate import FEEDBACK_VERSION_V2
+from feedback.routing import cluster_fallback_ids
 from feedback.schemas import FeedbackRecord
-from feedback.store import _row_to_feedback_record
-from feedback.summarize import structured_bias_line
+from feedback.store import _row_to_feedback_record, fetch_cluster_stats
+from feedback.summarize import fetch_cluster_rollup, structured_bias_line
 
 
 DEFAULT_FEEDBACK_LIMIT = 5
@@ -92,6 +93,60 @@ def fetch_cluster_feedback(
     if feedback_version is None:
         records = _prefer_v2_records(records, limit=limit)
     return records
+
+
+def fetch_cluster_feedback_with_fallback(
+    conn: psycopg.Connection,
+    cluster_id: str,
+    *,
+    limit: int = DEFAULT_FEEDBACK_LIMIT,
+    exclude_prediction_id: Optional[UUID] = None,
+    feedback_version: Optional[str] = None,
+    approved_only: bool = True,
+    query_embedding: Optional[Sequence[float]] = None,
+    cluster_n_min: int = 50,
+) -> tuple[list[FeedbackRecord], str, Optional[str], Optional[float], int]:
+    """Fetch lessons with T10.7 topic → shape fallback.
+
+    Prefers the first candidate whose cluster ``sample_count >= cluster_n_min``.
+    If none meet the threshold, uses the first candidate that has any lessons.
+    Returns ``(records, resolved_cluster_id, rollup_summary, mean_delta, sample_count)``.
+    """
+    candidates = cluster_fallback_ids(cluster_id)
+    if not candidates:
+        return [], cluster_id, None, None, 0
+
+    fetch_kwargs = dict(
+        limit=limit,
+        exclude_prediction_id=exclude_prediction_id,
+        feedback_version=feedback_version,
+        approved_only=approved_only,
+        query_embedding=query_embedding,
+    )
+
+    for candidate_id in candidates:
+        stats = fetch_cluster_stats(conn, candidate_id)
+        if (
+            stats is not None
+            and stats.sample_count >= cluster_n_min
+        ):
+            records = fetch_cluster_feedback(conn, candidate_id, **fetch_kwargs)
+            rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(
+                conn, candidate_id
+            )
+            return records, candidate_id, rollup_summary, mean_delta, sample_count
+
+    for candidate_id in candidates:
+        records = fetch_cluster_feedback(conn, candidate_id, **fetch_kwargs)
+        if records:
+            rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(
+                conn, candidate_id
+            )
+            return records, candidate_id, rollup_summary, mean_delta, sample_count
+
+    primary = candidates[0]
+    rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(conn, primary)
+    return [], primary, rollup_summary, mean_delta, sample_count
 
 
 def _prefer_v2_records(

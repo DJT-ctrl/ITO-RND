@@ -1,6 +1,7 @@
 """Deterministic cluster routing (no LLM).
 
 Phase C: metadata buckets (length, format, follower band).
+T10.7: optional niche prefix on metadata buckets.
 Phase H: optional nearest-centroid routing when embeddings exist.
 Same inputs always produce the same cluster_id.
 """
@@ -10,6 +11,12 @@ from __future__ import annotations
 import math
 import re
 from typing import Optional, Sequence
+
+from phase_10.topics import is_valid_niche
+
+_SHAPE_LENGTHS = frozenset({"short", "medium", "long"})
+_SHAPE_FORMATS = frozenset({"list", "question", "prose"})
+_SHAPE_FOLLOWERS = frozenset({"unknown", "nano", "micro", "mid", "macro"})
 
 
 def content_length_bucket(content: str) -> str:
@@ -48,16 +55,81 @@ def follower_bucket(follower_count: Optional[int]) -> str:
     return "macro"
 
 
-def metadata_cluster_id(
+def shape_cluster_id(
     content: str,
     follower_count: Optional[int] = None,
 ) -> str:
-    """Stable metadata bucket id (Phase C)."""
+    """Shape-only bucket id (length_format_followers), legacy Phase C form."""
     return (
         f"{content_length_bucket(content)}_"
         f"{format_bucket(content)}_"
         f"{follower_bucket(follower_count)}"
     )
+
+
+def metadata_cluster_id(
+    content: str,
+    follower_count: Optional[int] = None,
+    *,
+    niche: Optional[str] = None,
+) -> str:
+    """Stable metadata bucket id (Phase C + optional T10.7 niche prefix).
+
+    When ``niche`` is a valid taxonomy id, returns ``{niche}_{shape}``.
+    Null/blank/invalid niche → shape-only id (unchanged from pre-T10.7).
+    """
+    shape = shape_cluster_id(content, follower_count)
+    if is_valid_niche(niche):
+        return f"{niche}_{shape}"
+    return shape
+
+
+def _parse_shape_suffix(cluster_id: str) -> tuple[Optional[str], str] | None:
+    """Return (topic_or_None, shape_id) when last three segments look like shape."""
+    if not cluster_id:
+        return None
+    parts = cluster_id.split("_")
+    if len(parts) < 3:
+        return None
+    length, fmt, followers = parts[-3], parts[-2], parts[-1]
+    if (
+        length not in _SHAPE_LENGTHS
+        or fmt not in _SHAPE_FORMATS
+        or followers not in _SHAPE_FOLLOWERS
+    ):
+        return None
+    shape = f"{length}_{fmt}_{followers}"
+    topic = "_".join(parts[:-3]) or None
+    return topic, shape
+
+
+def shape_cluster_id_from(cluster_id: str) -> str:
+    """Extract shape-only id from a topic-prefixed or legacy cluster id."""
+    parsed = _parse_shape_suffix(cluster_id)
+    if parsed is None:
+        return cluster_id
+    return parsed[1]
+
+
+def topic_from_cluster_id(cluster_id: str) -> Optional[str]:
+    """Extract niche prefix from a topic-prefixed cluster id, else None."""
+    parsed = _parse_shape_suffix(cluster_id)
+    if parsed is None:
+        return None
+    return parsed[0]
+
+
+def cluster_fallback_ids(cluster_id: str) -> list[str]:
+    """Ordered candidate ids: topic+shape (if any), then shape-only.
+
+    Deduplicates when ``cluster_id`` is already shape-only.
+    """
+    if not cluster_id:
+        return []
+    shape = shape_cluster_id_from(cluster_id)
+    if shape == cluster_id:
+        return [cluster_id]
+    return [cluster_id, shape]
 
 
 def cosine_distance(a: Sequence[float], b: Sequence[float]) -> float:
@@ -98,6 +170,7 @@ def assign_cluster_id(
     content: str,
     follower_count: Optional[int] = None,
     *,
+    niche: Optional[str] = None,
     embedding: Optional[Sequence[float]] = None,
     centroids: Optional[Sequence[tuple[str, Sequence[float]]]] = None,
 ) -> str:
@@ -105,7 +178,7 @@ def assign_cluster_id(
 
     Fallback chain: nearest centroid (when embedding + centroids) → metadata bucket.
     """
-    metadata_id = metadata_cluster_id(content, follower_count)
+    metadata_id = metadata_cluster_id(content, follower_count, niche=niche)
     if embedding and centroids:
         nearest = nearest_centroid_cluster_id(embedding, centroids)
         if nearest:
@@ -115,8 +188,12 @@ def assign_cluster_id(
 
 def cluster_label(cluster_id: str) -> str:
     """Human-readable label derived from the id parts."""
-    parts = cluster_id.split("_")
-    if len(parts) != 3:
+    parsed = _parse_shape_suffix(cluster_id)
+    if parsed is None:
         return cluster_id
-    length, fmt, followers = parts
-    return f"{length} {fmt} posts ({followers} followers)"
+    topic, shape = parsed
+    length, fmt, followers = shape.split("_")
+    base = f"{length} {fmt} posts ({followers} followers)"
+    if topic:
+        return f"{topic}: {base}"
+    return base

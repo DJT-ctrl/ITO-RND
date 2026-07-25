@@ -130,11 +130,9 @@ def test_load_feedback_context_disabled():
 @patch("validation_pipeline.predict.get_connection")
 @patch("validation_pipeline.predict.create_schema")
 @patch("validation_pipeline.predict.fetch_cluster_centroids")
-@patch("validation_pipeline.predict.fetch_cluster_rollup")
-@patch("validation_pipeline.predict.fetch_cluster_feedback")
+@patch("validation_pipeline.predict.fetch_cluster_feedback_with_fallback")
 def test_load_feedback_context_formats_records(
-    mock_fetch,
-    mock_rollup,
+    mock_fetch_fallback,
     mock_centroids,
     _mock_schema,
     mock_conn,
@@ -143,11 +141,16 @@ def test_load_feedback_context_formats_records(
     settings.validation_feedback_injection_enabled = True
     settings.validation_feedback_injection_limit = 5
     settings.validation_feedback_injection_format = "lessons"
+    settings.validation_cluster_n_min = 50
     mock_conn.return_value = MagicMock()
     mock_centroids.return_value = []
-    mock_rollup.return_value = (None, None, 0)
-    mock_fetch.return_value = [_record()]
-
+    mock_fetch_fallback.return_value = (
+        [_record()],
+        "short_prose_micro",
+        None,
+        None,
+        0,
+    )
     block, cluster_id, count = _load_feedback_context(
         settings,
         content="A calm product update with enough words here.",
@@ -220,3 +223,65 @@ def test_example_limit_for_format():
     assert example_limit_for_format("lessons", 5) == 5
     assert example_limit_for_format("rollup_top2", 5) == 2
     assert example_limit_for_format("rollup_contrastive", 5) == 8
+
+
+@patch("feedback.retrieve.fetch_cluster_rollup")
+@patch("feedback.retrieve.fetch_cluster_feedback")
+@patch("feedback.retrieve.fetch_cluster_stats")
+def test_fetch_with_fallback_prefers_topic_when_thick(
+    mock_stats, mock_fetch, mock_rollup
+):
+    from feedback.retrieve import fetch_cluster_feedback_with_fallback
+    from feedback.schemas import ClusterStats
+
+    topic_records = [_record(cluster_id="fintech_short_prose_micro")]
+    mock_stats.side_effect = lambda conn, cid: ClusterStats(
+        cluster_id=cid,
+        sample_count=60 if cid.startswith("fintech_") else 80,
+        mean_delta=-2.0,
+    )
+    mock_fetch.return_value = topic_records
+    mock_rollup.return_value = ("rollup", -2.0, 60)
+
+    records, resolved, summary, mean_delta, n = fetch_cluster_feedback_with_fallback(
+        MagicMock(),
+        "fintech_short_prose_micro",
+        cluster_n_min=50,
+    )
+    assert resolved == "fintech_short_prose_micro"
+    assert records == topic_records
+    assert n == 60
+    mock_fetch.assert_called_once()
+
+
+@patch("feedback.retrieve.fetch_cluster_rollup")
+@patch("feedback.retrieve.fetch_cluster_feedback")
+@patch("feedback.retrieve.fetch_cluster_stats")
+def test_fetch_with_fallback_uses_shape_when_topic_thin(
+    mock_stats, mock_fetch, mock_rollup
+):
+    from feedback.retrieve import fetch_cluster_feedback_with_fallback
+    from feedback.schemas import ClusterStats
+
+    shape_records = [_record(cluster_id="short_prose_micro")]
+
+    def _stats(conn, cid):
+        if cid.startswith("fintech_"):
+            return ClusterStats(cluster_id=cid, sample_count=3, mean_delta=-1.0)
+        return ClusterStats(cluster_id=cid, sample_count=55, mean_delta=-4.0)
+
+    mock_stats.side_effect = _stats
+    mock_fetch.return_value = shape_records
+    mock_rollup.return_value = ("shape rollup", -4.0, 55)
+
+    records, resolved, summary, mean_delta, n = fetch_cluster_feedback_with_fallback(
+        MagicMock(),
+        "fintech_short_prose_micro",
+        cluster_n_min=50,
+    )
+    assert resolved == "short_prose_micro"
+    assert records == shape_records
+    assert summary == "shape rollup"
+    assert mean_delta == -4.0
+    assert n == 55
+    assert mock_fetch.call_args[0][1] == "short_prose_micro"
