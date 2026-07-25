@@ -5,7 +5,7 @@ Run with:
 
 Page labels in the top navigation are set here via st.navigation — grouped into
 Corpus Pipeline (stages 1-5), Validation Pipeline (prediction feedback loop),
-and Evaluation (draft evaluation cycle).
+Evaluation (draft evaluation cycle), and Agentic (background automation ops).
 """
 
 import sys
@@ -79,6 +79,13 @@ pg = st.navigation(
                 str(_PAGES / "6_Evaluation_Cycle.py"),
                 title="Evaluation Cycle",
                 icon="✅",
+            ),
+        ],
+        "Agentic": [
+            st.Page(
+                str(_PAGES / "11_Agentic_Layer.py"),
+                title="Agentic Layer",
+                icon="⚙️",
             ),
         ],
     },
