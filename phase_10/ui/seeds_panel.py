@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from phase_10.search_plan import load_seeds, save_seeds
+from phase_10.search_plan import SearchPlanError, load_seeds, save_seeds
 
 
 def render_seeds_panel() -> None:
@@ -14,7 +14,12 @@ def render_seeds_panel() -> None:
         "Jobs will read these via the search plan service (T10.2)."
     )
 
-    seeds = load_seeds()
+    try:
+        seeds = load_seeds()
+    except SearchPlanError as exc:
+        st.warning(str(exc))
+        return
+
     terms_text = st.text_area(
         "Seed search terms (one per line)",
         value="\n".join(seeds.seed_terms),
@@ -33,7 +38,11 @@ def render_seeds_panel() -> None:
     col_save, col_meta = st.columns([1, 3])
     with col_save:
         if st.button("Save seeds", type="primary", key="agentic_save_seeds"):
-            saved = save_seeds(seed_terms=terms_text, seed_accounts=accounts_text)
+            try:
+                saved = save_seeds(seed_terms=terms_text, seed_accounts=accounts_text)
+            except SearchPlanError as exc:
+                st.error(str(exc))
+                return
             st.success(
                 f"Saved {len(saved.seed_terms)} term(s) and "
                 f"{len(saved.seed_accounts)} account(s)."

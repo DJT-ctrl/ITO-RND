@@ -70,6 +70,7 @@ _COLUMNS = [
     "hook_type",
     "tone",
     "topic",
+    "niche",
     "has_explicit_cta",
     "writing_style",
     "engagement_anomaly_flag",

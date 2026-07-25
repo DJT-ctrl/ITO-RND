@@ -80,19 +80,19 @@ flowchart TB
 
 | ID | Name | Status | Depends on | Notes |
 |----|------|--------|------------|-------|
-| **T10.1** | Agentic Layer Dashboard Tab | **Partial** | T10.2, T10.3, T10.9, T10.10 (partial OK earlier) | UI live; service stubs |
-| **T10.2** | Search Plan Service | Planning | T10.6 (for weights) | Source of truth for scrape queries |
+| **T10.1** | Agentic Layer Dashboard Tab | **Partial** | T10.2, T10.3, T10.9, T10.10 (partial OK earlier) | UI live; plan wired; schedule/budget/digests stub |
+| **T10.2** | Search Plan Service | **Done** | T10.6 (for weights) | Postgres `agentic_search_plan` + rebuild |
 | **T10.3** | Scheduler + Budget Gate | Planning | T10.9 | Cron/worker tick; not always-on |
 | **T10.4** | General Corpus Refresh Job | Planning | T10.2, T10.3 | Reuses `scrapers/` + processors |
 | **T10.5** | Niche Scrape Job (demand-driven) | Planning | T10.2, T10.3, T10.6 | Daily; skip idle niches |
-| **T10.6** | Topic Taxonomy + Tagging | Planning | — | Coarse ~8–12 topics |
+| **T10.6** | Topic Taxonomy + Tagging | **Done** | — | Enum + `posts.niche` + `user_niches` |
 | **T10.7** | Topic Dimension on Feedback Buckets | Planning | T10.6 | Extend `feedback/routing.py` + fallback |
 | **T10.8** | Soft Topic Preference in RAG | Planning | T10.6 | Global `find_similar` only |
 | **T10.9** | Cost Control Ledger | Planning | — | Apify + Gemini caps for agentic jobs |
 | **T10.10** | Dev AI Workflow Critic (Pro) | Planning | T10.3, T10.9 | Read-only digests first |
 | **T10.11** | Worker Wiring (validation + feedback) | Planning | T10.3 | Schedule existing CLIs |
 
-**Counts:** Planning 10 · Partial 1 · Done 0.
+**Counts:** Planning 8 · Partial 1 · Done 2.
 
 ---
 
@@ -101,11 +101,11 @@ flowchart TB
 | Phase | ID | Name | Owner | Description | Acceptance / outputs | Stack | Status |
 |-------|-----|------|-------|-------------|----------------------|-------|--------|
 | Phase 10 | **T10.1** | Agentic Layer Dashboard Tab | TBD | New Streamlit page **Agentic Layer**: configure seed search terms + seed accounts, view derived search plan / niche weights, budget used, last/next runs, start-stop flags, Pro digests. Ops UI only — no duplicated scrape/eval logic. | Tab live under dashboard; all actions call shared services/jobs; shows plan, runs, costs, digests. | Streamlit / Python | **Partial** |
-| Phase 10 | **T10.2** | Search Plan Service | TBD | Single source of truth for “what do we scrape?”. Layers: (1) operator **seed terms**, (2) optional **seed LinkedIn accounts** (bootstrap / simulate), (3) **user-derived niche weights** from signed-up users’ posts. If all users are fintech, sports weight → 0 (or absent). | Persisted `search_plan` (terms, weights, niche ids, updated_at); helpers to read plan for jobs; seed editable from T10.1. | Python / PostgreSQL | Planning |
+| Phase 10 | **T10.2** | Search Plan Service | TBD | Single source of truth for “what do we scrape?”. Layers: (1) operator **seed terms**, (2) optional **seed LinkedIn accounts** (bootstrap / simulate), (3) **user-derived niche weights** from signed-up users’ posts. If all users are fintech, sports weight → 0 (or absent). | Persisted `search_plan` (terms, weights, niche ids, updated_at); helpers to read plan for jobs; seed editable from T10.1. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.3** | Scheduler + Budget Gate | TBD | Cron/systemd (or worker tick): **~every 3h** general refresh; **daily** niche refresh for niches with demand / active users; optionally tick existing validation + feedback workers. **Not** always-on LLM. Before each paid step, enforce daily/monthly Apify + Gemini ceilings; priority: validation rescrape > niche (active) > general. | Jobs enqueue only when under budget; skipped runs logged with reason; schedule intervals configurable. | Python / Linux Cron / PostgreSQL | Planning |
 | Phase 10 | **T10.4** | General Corpus Refresh Job | TBD | Thin job: load search plan → call **existing** Apify post scrape + collection/analyse/embed path. Dedup / staleness so “newest” is incremental, not full re-scrape. | Posts land in shared corpus with topic tags; telemetry + Apify cost recorded; reuses `scrapers/` + processors (no fork). | Python / Apify / PostgreSQL | Planning |
 | Phase 10 | **T10.5** | Niche Scrape Job (demand-driven) | TBD | Daily: for each niche with user demand (or simulate weights), scrape niche keywords into shared corpus **tagged by topic**. Per active user = ensure their niche refreshed, **not** one AI process per user. | Niche-tagged posts ingested; idle niches skipped; cost attributable per niche in telemetry. | Python / Apify / PostgreSQL | Planning |
-| Phase 10 | **T10.6** | Topic Taxonomy + Tagging | TBD | Coarse topic set (~8–12: e.g. sports, saas_b2b, fintech, creator, finance, health, career, marketing, other). Tag posts at analyse/ingest; infer **user niche profile** from their posts for T10.2 weights. Reuse analyser `topic` where present. | Stable topic enum; posts tagged; `user_niches` (or similar) drives plan weights. | Python / PostgreSQL | Planning |
+| Phase 10 | **T10.6** | Topic Taxonomy + Tagging | TBD | Coarse topic set (~8–12: e.g. sports, saas_b2b, fintech, creator, finance, health, career, marketing, other). Tag posts at analyse/ingest; infer **user niche profile** from their posts for T10.2 weights. Reuse analyser `topic` where present. | Stable topic enum; posts tagged; `user_niches` (or similar) drives plan weights. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.7** | Topic Dimension on Feedback Buckets | TBD | Extend `feedback/routing.py` metadata cluster from `{length}_{format}_{followers}` → `{topic}_{length}_{format}_{followers}`. Fallback when N &lt; `validation_cluster_n_min`: topic+shape → shape-only → global. Update labels / centroid path so Phase H does not break. | New cluster ids in feedback store; sparse niches still get lessons via fallback; tests for routing + fallback. | Python / PostgreSQL | Planning |
 | Phase 10 | **T10.8** | Soft Topic Preference in RAG | TBD | Keep **one global** `find_similar`. Optional re-rank / mix: prefer same-topic neighbors when available; **never** hard-filter to niche-only index (avoids cold-start / thin buckets). | Eval neighbors can bias to topic without separate niche vector DB; empty niche → pure global. | Python / pgvector | Planning |
 | Phase 10 | **T10.9** | Cost Control Ledger | TBD | Persist daily Apify + Gemini spend for agentic jobs; wire caps into T10.3. Reuse `telemetry/` pricing helpers; extend caps beyond feedback-LLM-only. | Dashboard shows spend vs cap; jobs no-op when over budget; warnings in digests. | Python / PostgreSQL | Planning |
@@ -134,14 +134,16 @@ flowchart TB
 **Shipped (T10.1 stub slice):**
 - Nav: **Agentic → Agentic layer** via [`dashboard/app.py`](../dashboard/app.py) + [`dashboard/pages/11_Agentic_Layer.py`](../dashboard/pages/11_Agentic_Layer.py)
 - Package: [`phase_10/`](.) — small modules (`search_plan`, `job_flags`, `budget`, `schedule`, `digests`) + [`phase_10/ui/`](ui/) panels
-- Persist: `data/agentic_layer_seeds.json`, `data/agentic_job_flags.json` (atomic JSON; Postgres arrives with T10.2/T10.9)
-- Contracts: frozen dataclasses in [`models.py`](models.py) stay stable while stubs gain real bodies
+- Persist: seeds/weights in Postgres `agentic_search_plan` (JSON seeds migrated once); job flags still `data/agentic_job_flags.json`
+- Contracts: frozen dataclasses in [`models.py`](models.py)
 
-**Still stubbed:** niche weights (T10.2/T10.6), last/next runs (T10.3), ledger caps/attribution (T10.9), Pro digests (T10.10)
+**Still stubbed on tab:** last/next runs (T10.3), ledger caps/attribution (T10.9), Pro digests (T10.10)
 
 ---
 
 ### T10.2 — Search Plan Service
+
+**Status:** Done
 
 **What:** Answers “what should the scraper search?”
 
@@ -151,7 +153,13 @@ flowchart TB
 | 2. Seed accounts | Operator LinkedIn URLs | Simulate / warm corpus |
 | 3. User-derived | Signups + their posts → niches | Long-run mix; idle niches drop out |
 
-**Output shape (conceptual):** `{ terms[], weights_by_niche{}, seed_accounts[], updated_at }` persisted and readable by T10.4 / T10.5.
+**Shipped:**
+- Table `agentic_search_plan` (singleton) + [`search_plan_store.py`](search_plan_store.py) / [`search_plan.py`](search_plan.py)
+- `rebuild_search_plan()` → [`user_niches.refresh_user_niches`](user_niches.py) → global weights (primary niche per user)
+- Job helpers: `queries_for_general_refresh`, `active_niches`, `seed_profile_urls`
+- Agentic **Rebuild plan** button; empty weights when no subscriber-tagged posts
+
+**Output shape:** `{ terms[], weights_by_niche{}, seed_accounts[], updated_at }` with `stub=False`.
 
 ---
 
@@ -183,7 +191,9 @@ Daily job per niche with demand (or simulate weights from seed). Same scrape sta
 
 ### T10.6 — Topic Taxonomy + Tagging
 
-Coarse enum (~8–12 topics). Tag at ingest/analyse. Maintain per-user niche profile for plan weights. Prefer reusing existing analyser topic signals where present.
+**Status:** Done
+
+Coarse enum in [`topics.py`](topics.py) (~10 niches). Tag at analyse/finalize via [`tagging.apply_niche`](tagging.py) → `posts.niche` (free-text `topic` unchanged). Maintain `user_niches` for plan weights. Backfill: `python -m phase_10.backfill_niches`.
 
 ---
 
