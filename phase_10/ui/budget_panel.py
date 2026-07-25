@@ -1,4 +1,4 @@
-"""Budget used vs placeholder caps (T10.9 ledger later)."""
+"""Budget used vs configurable caps (T10.9 ledger)."""
 
 from __future__ import annotations
 
@@ -20,23 +20,31 @@ def render_budget_panel() -> None:
     snap = get_budget_snapshot(settings)
 
     a1, a2, g1, g2 = st.columns(4)
-    a1.metric("Apify used (USD)", f"{snap.apify_used_usd:.4f}")
+    a1.metric("Apify today (USD)", f"{snap.apify_used_usd:.4f}")
     a2.metric(
-        "Apify cap (USD)",
+        "Apify daily cap",
         f"{snap.apify_cap_usd:.2f}",
         delta=f"{_pct(snap.apify_used_usd, snap.apify_cap_usd)}% used",
         delta_color="off",
     )
-    g1.metric("Gemini used (USD)", f"{snap.gemini_used_usd:.4f}")
+    g1.metric("Gemini today (USD)", f"{snap.gemini_used_usd:.4f}")
     g2.metric(
-        "Gemini cap (USD)",
+        "Gemini daily cap",
         f"{snap.gemini_cap_usd:.2f}",
         delta=f"{_pct(snap.gemini_used_usd, snap.gemini_cap_usd)}% used",
         delta_color="off",
     )
 
-    if snap.stub_caps and snap.note:
-        st.caption(snap.note)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Apify month (USD)", f"{snap.apify_month_used_usd:.4f}")
+    m2.metric("Apify monthly cap", f"{snap.apify_month_cap_usd:.2f}")
+    m3.metric("Gemini month (USD)", f"{snap.gemini_month_used_usd:.4f}")
+    m4.metric("Gemini monthly cap", f"{snap.gemini_month_cap_usd:.2f}")
+
+    st.caption(
+        snap.note
+        or "Caps from AGENTIC_*_CAP_USD. Paid agentic jobs record spend to the ledger."
+    )
 
     with st.expander("Raw spend history (existing telemetry)", expanded=False):
         try:

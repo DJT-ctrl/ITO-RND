@@ -82,14 +82,26 @@ class ScheduleStatus:
 
 @dataclass(frozen=True)
 class BudgetSnapshot:
-    """Daily spend vs caps (T10.9 replaces placeholder caps + attribution)."""
+    """Daily/monthly agentic spend vs configurable caps (T10.9)."""
 
     apify_used_usd: float = 0.0
     apify_cap_usd: float = 25.0
     gemini_used_usd: float = 0.0
     gemini_cap_usd: float = 10.0
-    stub_caps: bool = True
+    apify_month_used_usd: float = 0.0
+    apify_month_cap_usd: float = 500.0
+    gemini_month_used_usd: float = 0.0
+    gemini_month_cap_usd: float = 200.0
+    stub_caps: bool = False
     note: str = ""
+
+
+@dataclass(frozen=True)
+class BudgetDecision:
+    """Result of allow_paid_step (T10.3 budget gate)."""
+
+    allowed: bool
+    reason: str | None = None
 
 
 @dataclass(frozen=True)

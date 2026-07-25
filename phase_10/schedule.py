@@ -1,22 +1,31 @@
-"""Schedule status stub (T10.3 fills last/next run timestamps)."""
+"""Schedule status (T10.3) — last/next runs from Postgres."""
 
 from __future__ import annotations
 
+from config.settings import Settings, load_settings
+from phase_10.db import AgenticDbError, agentic_connection
 from phase_10.job_flags import load_job_flags
-from phase_10.models import JOB_FLAG_LABELS, JOB_FLAG_KEYS, JobRunStatus, ScheduleStatus
+from phase_10.models import JOB_FLAG_KEYS, JOB_FLAG_LABELS, ScheduleStatus
+from phase_10 import schedule_store
 
 
-def get_schedule_status() -> ScheduleStatus:
+def get_schedule_status(settings: Settings | None = None) -> ScheduleStatus:
+    settings = settings or load_settings()
     flags = load_job_flags().to_dict()
+    rows: dict = {}
+    try:
+        with agentic_connection(settings) as conn:
+            rows = schedule_store.load_run_rows(conn)
+    except AgenticDbError:
+        pass
+
     jobs = tuple(
-        JobRunStatus(
-            job_id=key,
+        schedule_store.row_to_status(
+            key,
             label=JOB_FLAG_LABELS[key],
             enabled=bool(flags.get(key, True)),
-            last_run_at=None,
-            next_run_at=None,
-            last_result="not scheduled yet (T10.3)",
+            row=rows.get(key),
         )
         for key in JOB_FLAG_KEYS
     )
-    return ScheduleStatus(jobs=jobs, stub=True)
+    return ScheduleStatus(jobs=jobs, stub=False)

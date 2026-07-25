@@ -287,6 +287,28 @@ CREATE TABLE IF NOT EXISTS user_niches (
 
 CREATE INDEX IF NOT EXISTS user_niches_niche_idx ON user_niches (niche);
 
+-- T10.9: daily agentic spend rollup (Apify + Gemini), keyed by job.
+CREATE TABLE IF NOT EXISTS agentic_cost_ledger (
+    day                 DATE NOT NULL,
+    provider            TEXT NOT NULL,
+    job_id              TEXT NOT NULL,
+    cost_usd            DOUBLE PRECISION NOT NULL DEFAULT 0
+                        CHECK (cost_usd >= 0),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (day, provider, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS agentic_cost_ledger_day_provider_idx
+    ON agentic_cost_ledger (day, provider);
+
+-- T10.3: last/next run state per agentic job.
+CREATE TABLE IF NOT EXISTS agentic_job_runs (
+    job_id              TEXT PRIMARY KEY,
+    last_run_at         TIMESTAMPTZ,
+    next_run_at         TIMESTAMPTZ,
+    last_result         TEXT,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).

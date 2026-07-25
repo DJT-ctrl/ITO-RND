@@ -1,4 +1,4 @@
-"""Last / next run status (filled by T10.3)."""
+"""Last / next run status (T10.3 scheduler)."""
 
 from __future__ import annotations
 
@@ -11,11 +11,10 @@ def render_schedule_panel() -> None:
     st.subheader("Schedule")
     status = get_schedule_status()
 
-    if status.stub:
-        st.caption(
-            "No scheduler yet (T10.3). Rows show enable state from job flags; "
-            "last/next remain empty until jobs are wired."
-        )
+    st.caption(
+        "Driven by `python -m phase_10.jobs.run_agentic_tick` (cron). "
+        "Skips show disabled / not due / over budget / not implemented."
+    )
 
     rows = [
         {

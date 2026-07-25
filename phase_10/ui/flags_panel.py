@@ -11,8 +11,8 @@ from phase_10.models import JOB_FLAG_KEYS, JOB_FLAG_LABELS
 def render_flags_panel() -> None:
     st.subheader("Job flags")
     st.caption(
-        "Start/stop switches for background jobs. The scheduler (T10.3) will "
-        "skip disabled jobs; flags alone do not run scrapers."
+        "Start/stop switches for background jobs. Honored by "
+        "`python -m phase_10.jobs.run_agentic_tick`; flags alone do not run scrapers."
     )
 
     current = load_job_flags().to_dict()
