@@ -296,3 +296,54 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
 
     assert response.status_code == 200
     assert mock_find_similar.call_args.kwargs["user_id"] == "user-42"
+
+
+def test_critique_endpoint_empty_content_rejected():
+    response = client.post("/api/v1/critique", json={"content": ""})
+    assert response.status_code == 422
+
+
+@patch("api.main.run_audience_critic")
+def test_critique_endpoint_returns_three_lenses(mock_run_audience_critic):
+    """T7.11–T7.13: /critique is independent of the evaluate orchestrator."""
+    from agents.audience_critic import (
+        AudienceCriticOutput,
+        CSuiteLens,
+        PeerLens,
+        PractitionerLens,
+    )
+
+    mock_run_audience_critic.return_value = AudienceCriticOutput(
+        overall_verdict="Thin ROI case; weak tactics.",
+        score=3.5,
+        c_suite=CSuiteLens(
+            reaction="Not convinced",
+            primary_objection="No business outcome stated.",
+            roi_notes="Buzzwords without numbers.",
+        ),
+        practitioner=PractitionerLens(
+            reaction="Can't use this Monday",
+            perceived_value="Low — no playbook.",
+            tactical_gaps="Missing steps and owners.",
+        ),
+        peer=PeerLens(
+            reaction="Familiar framing",
+            credibility_check="Sounds like every other agency post.",
+            originality_notes="No distinctive POV.",
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/critique",
+        json={"content": "Unlock synergy to drive digital transformation at scale."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["overall_verdict"].startswith("Thin ROI")
+    assert body["score"] == 3.5
+    assert body["c_suite"]["primary_objection"]
+    assert body["practitioner"]["perceived_value"]
+    assert body["peer"]["credibility_check"]
+    mock_run_audience_critic.assert_called_once()
+    assert "Unlock synergy" in mock_run_audience_critic.call_args.args[0]
