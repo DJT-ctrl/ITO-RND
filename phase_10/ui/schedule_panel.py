@@ -12,8 +12,9 @@ def render_schedule_panel() -> None:
     status = get_schedule_status()
 
     st.caption(
-        "Driven by `python -m phase_10.jobs.run_agentic_tick` (cron). "
-        "Skips show disabled / not due / over budget / not implemented."
+        "Driven by `python -m phase_10.jobs.run_agentic_tick` "
+        "(systemd timer `ito-agentic-tick.timer` or cron every 15m). "
+        "See production runbook Phase 10. Skips: disabled / not due / over budget."
     )
 
     rows = [

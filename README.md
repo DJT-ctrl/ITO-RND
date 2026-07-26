@@ -348,7 +348,17 @@ validation window (`VALIDATION_WINDOW_HOURS`, default 48h, or the dev override).
 
 ### Process due validations
 
-Run periodically (cron, systemd timer, or manually):
+**Production:** prefer the agentic tick (every 15 minutes via systemd timer
+`ito-agentic-tick.timer` or cron) so validation, feedback, and scrapes share one
+budget-gated scheduler — see
+[current md/10_PRODUCTION_RUNBOOK.md](current%20md/10_PRODUCTION_RUNBOOK.md)
+(*Phase 10 — Agentic Layer*) and [deploy/README.md](deploy/README.md).
+
+```bash
+python -m phase_10.jobs.run_agentic_tick
+```
+
+**Manual / ad hoc** (do not also cron this in parallel with the agentic tick):
 
 ```bash
 python -m validation_pipeline.jobs.run_validation_worker --limit 50

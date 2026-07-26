@@ -1,0 +1,18 @@
+# systemd timer: fire ito-agentic-tick.service every 15 minutes (T10.11).
+#
+# Install with ito-agentic-tick.service — see that unit's header comments.
+#
+#   sudo systemctl enable --now ito-agentic-tick.timer
+#   systemctl list-timers | grep agentic
+
+[Unit]
+Description=Run ITO agentic tick every 15 minutes
+Requires=ito-agentic-tick.service
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=ito-agentic-tick.service
+
+[Install]
+WantedBy=timers.target

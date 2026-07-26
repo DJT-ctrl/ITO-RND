@@ -1,8 +1,16 @@
-"""CLI: one agentic scheduler tick (cron-friendly; T10.3).
+"""CLI: one agentic scheduler tick (cron / systemd friendly; T10.3 / T10.11).
 
-Example::
+Production (preferred)::
+
+    # deploy/ito-agentic-tick.timer → every 15 minutes
+    sudo systemctl enable --now ito-agentic-tick.timer
+
+Cron fallback::
 
     */15 * * * * cd /path/to/repo && .venv/bin/python -m phase_10.jobs.run_agentic_tick
+
+See ``current md/10_PRODUCTION_RUNBOOK.md`` (Phase 10 — Agentic Layer).
+Do not also cron ``run_validation_worker`` / ``run_feedback_worker`` in parallel.
 """
 
 from __future__ import annotations

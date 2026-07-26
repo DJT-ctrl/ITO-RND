@@ -1,6 +1,6 @@
 # Phase 10 — Agentic Layer (Background Automation)
 
-**Status:** In progress (T10.10 Pro digest done; T10.11 worker runbook next)  
+**Status:** Complete (T10.1–T10.11)  
 **Owner (sheet):** TBD (diagram: Erdal agentic layer)  
 **Folder:** [`phase_10/`](.)  
 **Models:**
@@ -91,9 +91,9 @@ flowchart TB
 | **T10.8** | Soft Topic Preference in RAG | **Done** | T10.6 | Global `find_similar` only |
 | **T10.9** | Cost Control Ledger | **Done** | — | Caps + gate + `agentic_cost_ledger` |
 | **T10.10** | Dev AI Workflow Critic (Pro) | **Done** | T10.3, T10.9 | Structured digests + tick handler |
-| **T10.11** | Worker Wiring (validation + feedback) | Planning | T10.3 | Runbook cron/systemd; tick already calls workers |
+| **T10.11** | Worker Wiring (validation + feedback) | **Done** | T10.3 | Cron/systemd runbook; tick is the hub |
 
-**Counts:** Planning 1 · Partial 0 · Done 11.
+**Counts:** Planning 0 · Partial 0 · Done 12.
 
 ---
 
@@ -112,7 +112,7 @@ flowchart TB
 | Phase 10 | **T10.8** | Soft Topic Preference in RAG | TBD | Keep **one global** `find_similar`. Optional re-rank / mix: prefer same-topic neighbors when available; **never** hard-filter to niche-only index (avoids cold-start / thin buckets). | Eval neighbors can bias to topic without separate niche vector DB; empty niche → pure global. | Python / pgvector | **Done** |
 | Phase 10 | **T10.9** | Cost Control Ledger | TBD | Persist daily Apify + Gemini spend for agentic jobs; wire caps into T10.3. Reuse `telemetry/` pricing helpers; extend caps beyond feedback-LLM-only. | Dashboard shows spend vs cap; jobs no-op when over budget; warnings in digests. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.10** | Dev AI Workflow Critic (Pro) | TBD | Scheduled **daily** meta-agent: read telemetry, scrape-plan stats, validation MAE, feedback queue, errors. **Gemini 3.1 Pro only**. Output: structured digest of what might need changing (config, keywords, caps, failing niches). Read-only first — no auto-mutate prompts/flags. | Digest stored + shown on Agentic Layer tab; uses Pro; Flash unchanged for product agents. | Python / Gemini Pro / PostgreSQL | **Done** |
-| Phase 10 | **T10.11** | Worker Wiring (reuse validation + feedback) | TBD | Register existing `validation_pipeline` + `feedback` worker CLIs on the same scheduler so agentic layer is an automated working way of what we already have, not a parallel loop. | Cron / job runner invokes existing CLIs; runbook updated; no duplicated validate/learn logic. | Python / Linux Cron | Planning |
+| Phase 10 | **T10.11** | Worker Wiring (reuse validation + feedback) | TBD | Register existing `validation_pipeline` + `feedback` worker CLIs on the same scheduler so agentic layer is an automated working way of what we already have, not a parallel loop. | Cron / systemd timer invokes tick hub; runbook updated; no duplicated validate/learn logic. | Python / Linux Cron | **Done** |
 
 ---
 
@@ -192,7 +192,7 @@ Skip + log when over daily/monthly Apify or Gemini ceilings (T10.9).
 */15 * * * * cd /path/to/repo && .venv/bin/python -m phase_10.jobs.run_agentic_tick
 ```
 
-(Full production cron/systemd examples → T10.11 / runbook.)
+Production cron/systemd: [`deploy/ito-agentic-tick.timer`](../deploy/ito-agentic-tick.timer) + [production runbook Phase 10](../current%20md/10_PRODUCTION_RUNBOOK.md).
 
 ---
 
@@ -301,14 +301,17 @@ Track agentic Apify + Gemini spend per day/month. Caps feed T10.3. Surface on T1
 
 ### T10.11 — Worker Wiring
 
-Point the same scheduler at existing:
+**Status:** Done
 
-- `validation_pipeline/jobs/run_validation_worker.py` (and collect/predict as needed)
-- `feedback/jobs/run_feedback_worker.py` (and related jobs)
+Point production scheduling at the existing tick hub (validation + feedback already
+invoked by T10.3 when flags are on). No parallel validate/learn loop.
 
-**Note:** T10.3 tick already invokes validation + feedback workers when flags are on. This task owns production runbook cron/systemd examples and any collect/predict extras — not a parallel loop.
-
-Document cron/systemd examples in the production runbook. No parallel validate/learn implementation.
+**Shipped:**
+- systemd: [`deploy/ito-agentic-tick.service`](../deploy/ito-agentic-tick.service) +
+  [`deploy/ito-agentic-tick.timer`](../deploy/ito-agentic-tick.timer) (every 15m)
+- Install notes: [`deploy/README.md`](../deploy/README.md)
+- Ops section: [production runbook — Phase 10](../current%20md/10_PRODUCTION_RUNBOOK.md)
+- Manual collect/predict / rollup CLIs documented as bootstrap-only (not on the timer)
 
 ---
 
@@ -320,7 +323,7 @@ Document cron/systemd examples in the production runbook. No parallel validate/l
 4. **T10.7 + T10.8** — topic in learn + soft RAG **(done)**  
 5. **T10.1** — Agentic Layer tab to operate it **(done)**  
 6. **T10.10** — Pro digest **(done)**  
-7. **T10.11** — production cron/systemd runbook polish  
+7. **T10.11** — production cron/systemd runbook polish **(done)**  
 
 ---
 

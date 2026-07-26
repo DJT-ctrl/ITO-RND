@@ -16,6 +16,120 @@ shadow MAE ≉ better than live (delta −0.0004). Keep `hard_lock`; shadow mode
 for more data is OK. Do not confuse `global_mean_delta` (~5) with MAE lift %.
 Feedback Loop UI shows Phase F gate metrics from the latest `eval_feedback_*.json`.
 
+## Phase 10 — Agentic Layer (scheduled workers)
+
+The agentic layer is the **automated production path** for validation, feedback
+drain, corpus scrapes, and the daily Pro digest. One hub command owns the
+schedule — do **not** run parallel validation/feedback crons alongside it.
+
+### Hub command
+
+```bash
+cd /opt/ito-rnd   # or your repo path
+.venv/bin/python -m phase_10.jobs.run_agentic_tick
+```
+
+Each invocation evaluates job flags, cadence, and Apify/Gemini budget, then runs
+or skips. Priority order:
+
+1. Validation rescrape (due predictions)
+2. Niche scrape (daily, demand-driven)
+3. General corpus refresh (~every 3h)
+4. Feedback queue worker
+5. Pro workflow digest (daily; default flag **off**)
+
+Job flags live in `data/agentic_job_flags.json` (editable on **Agentic → Agentic
+layer**). Caps and intervals come from env (see below).
+
+### Recommended schedule
+
+**Preferred (EC2): systemd timer** — units in [`deploy/`](../deploy/):
+
+```bash
+sudo cp deploy/ito-agentic-tick.service deploy/ito-agentic-tick.timer /etc/systemd/system/
+# edit WorkingDirectory / EnvironmentFile if not /opt/ito-rnd
+sudo systemctl daemon-reload
+sudo systemctl enable --now ito-agentic-tick.timer
+systemctl list-timers | grep agentic
+journalctl -u ito-agentic-tick -n 50
+```
+
+Manual one-shot: `sudo systemctl start ito-agentic-tick.service`.
+
+**Cron fallback:**
+
+```cron
+*/15 * * * * cd /opt/ito-rnd && .venv/bin/python -m phase_10.jobs.run_agentic_tick >> /var/log/ito-agentic-tick.log 2>&1
+```
+
+Also documented in [`deploy/README.md`](../deploy/README.md).
+
+### Required env
+
+At minimum (repo `.env`, loaded by the systemd unit via `EnvironmentFile`):
+
+| Variable | Role |
+|----------|------|
+| `DATABASE_URL` | Postgres (agentic tables + validation/feedback) |
+| `APIFY_API_TOKEN` / `APIFY_ACTOR_ID` | Corpus + validation scrapes |
+| `GEMINI_API_KEY` | Feedback LLM path + Pro digest |
+
+Useful agentic knobs (defaults are fine for MVP):
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `AGENTIC_APIFY_DAILY_CAP_USD` | 25 | Daily Apify ceiling |
+| `AGENTIC_GEMINI_DAILY_CAP_USD` | 10 | Daily Gemini ceiling |
+| `AGENTIC_GENERAL_REFRESH_INTERVAL_HOURS` | 3 | General scrape cadence |
+| `AGENTIC_NICHE_SCRAPE_INTERVAL_HOURS` | 24 | Niche scrape cadence |
+| `AGENTIC_PRO_DIGEST_INTERVAL_HOURS` | 24 | Pro digest cadence |
+| `AGENTIC_PRO_DIGEST_MODEL` | `gemini-3.1-pro-preview` | Digest model |
+| `AGENTIC_PRO_DIGEST_DRY_RUN` | false | Template digest, no Pro spend |
+
+### Safe flag defaults
+
+| Flag | Suggested prod start |
+|------|----------------------|
+| `validation_worker` | **on** |
+| `feedback_worker` | **on** |
+| `general_refresh` / `niche_scrape` | on when you want corpus refresh |
+| `pro_digest` | **off** until you have reviewed a few digests |
+
+### Verify (operator checklist)
+
+1. Enable the timer (or cron) and wait for one fire (~15 min), or run the hub
+   command once by hand.
+2. Dashboard → **Agentic → Agentic layer** → **Schedule**: `last_run_at` /
+   `last_result` updated (not “not implemented”).
+3. **Budget** panel moves when Apify/Gemini jobs actually spent.
+4. Logs: `journalctl -u ito-agentic-tick -n 50` (or cron log file).
+5. Optional: turn on `pro_digest`, run once (or use dry-run), confirm a row under
+   **Pro digests**.
+
+### Do not
+
+- Cron `python -m validation_pipeline.jobs.run_validation_worker` **and** the
+  agentic tick together — double Apify spend.
+- Cron `python -m feedback.jobs.run_feedback_worker` in parallel with the tick
+  for the same reason.
+- Expect flags alone to scrape — the timer/cron must be running.
+
+Standalone CLIs remain valid for **manual / dashboard** use when the tick is
+stopped.
+
+### Manual extras (bootstrap only — not on the timer)
+
+| CLI | When |
+|-----|------|
+| `python -m validation_pipeline.jobs.run_collect_predict ...` | Seed predictions / schedule validations |
+| `python -m feedback.jobs.run_cluster_rollups` | Refresh template roll-ups |
+| `python -m feedback.jobs.run_cluster_centroids` | After enough embeddings |
+| `python -m feedback.jobs.run_embedding_backfill --limit N` | Backfill pre-H embeddings |
+| `python -m feedback.jobs.run_routing_mae_report ...` | Offline routing MAE |
+| `python -m phase_10.backfill_niches` | One-shot niche backfill |
+
+See Phase 10 task brief: [`phase_10/Phase_10.md`](../phase_10/Phase_10.md) (T10.11).
+
 ## Phase I — async feedback + roll-ups
 
 After validate, the worker **enqueues** a `feedback_jobs` row (fail-open). Drain with:

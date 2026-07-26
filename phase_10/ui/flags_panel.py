@@ -12,7 +12,9 @@ def render_flags_panel() -> None:
     st.subheader("Job flags")
     st.caption(
         "Start/stop switches for background jobs. Honored by "
-        "`python -m phase_10.jobs.run_agentic_tick`; flags alone do not run scrapers."
+        "`python -m phase_10.jobs.run_agentic_tick` "
+        "(timer `ito-agentic-tick.timer`); flags alone do not run scrapers. "
+        "Runbook: Phase 10 — Agentic Layer."
     )
 
     current = load_job_flags().to_dict()
