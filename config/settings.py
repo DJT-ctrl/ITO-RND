@@ -153,6 +153,9 @@ class Settings:
     agentic_niche_max_posts_total: int = 40
     agentic_niche_stale_hours: float = 20.0
     agentic_scrape_with_gemini: bool = False
+    # T10.10: Dev AI workflow critic (Gemini Pro).
+    agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
+    agentic_pro_digest_dry_run: bool = False
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -272,6 +275,12 @@ def load_settings() -> Settings:
         ),
         agentic_scrape_with_gemini=_env_bool(
             "AGENTIC_SCRAPE_WITH_GEMINI", default=False
+        ),
+        agentic_pro_digest_model=os.getenv(
+            "AGENTIC_PRO_DIGEST_MODEL", "gemini-3.1-pro-preview"
+        ),
+        agentic_pro_digest_dry_run=_env_bool(
+            "AGENTIC_PRO_DIGEST_DRY_RUN", default=False
         ),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).

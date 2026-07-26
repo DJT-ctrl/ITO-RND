@@ -28,9 +28,7 @@ TICK_PRIORITY: tuple[str, ...] = (
     "pro_digest",
 )
 
-STUB_REASONS: dict[str, str] = {
-    "pro_digest": "not implemented — T10.10",
-}
+STUB_REASONS: dict[str, str] = {}
 
 _INTERVAL_ATTR = {
     "general_refresh": "agentic_general_refresh_interval_hours",
@@ -118,11 +116,18 @@ def _run_niche_scrape(settings: Settings) -> str:
     return run_niche_scrape(settings).summary
 
 
+def _run_pro_digest(settings: Settings) -> str:
+    from phase_10.digests import run_pro_digest
+
+    return run_pro_digest(settings)
+
+
 HANDLERS: dict[str, Handler] = {
     "validation_worker": _run_validation,
     "feedback_worker": _run_feedback,
     "general_refresh": _run_general_refresh,
     "niche_scrape": _run_niche_scrape,
+    "pro_digest": _run_pro_digest,
 }
 
 

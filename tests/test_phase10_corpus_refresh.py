@@ -194,9 +194,10 @@ def test_corpus_refresh_new_vs_existing(
 def test_tick_handlers_include_scrape_jobs() -> None:
     assert "general_refresh" in HANDLERS
     assert "niche_scrape" in HANDLERS
+    assert "pro_digest" in HANDLERS
     assert "general_refresh" not in STUB_REASONS
     assert "niche_scrape" not in STUB_REASONS
-    assert "pro_digest" in STUB_REASONS
+    assert "pro_digest" not in STUB_REASONS
 
 
 @patch("phase_10.corpus_refresh.newest_niche_posted_at")

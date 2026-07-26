@@ -1,11 +1,11 @@
 # Phase 10 — Agentic Layer (Background Automation)
 
-**Status:** In progress (corpus + topic learn/RAG prefer done; Pro digest / worker runbook next)  
+**Status:** In progress (T10.10 Pro digest done; T10.11 worker runbook next)  
 **Owner (sheet):** TBD (diagram: Erdal agentic layer)  
 **Folder:** [`phase_10/`](.)  
 **Models:**
 - Product path (eval, diagnostics, variants, hybrid feedback): Gemini Flash / `gemini-2.5-flash-lite` via `AGENT_GEMINI_MODEL`
-- Meta “dev AI” digest only: **Gemini Pro**
+- Meta “dev AI” digest only: **Gemini 3.1 Pro** (`gemini-3.1-pro-preview` via `AGENTIC_PRO_DIGEST_MODEL`)
 
 **Principle:** Do **not** remake scrape / analyse / embed / validate / feedback / eval. New code is thin: **search plan + scheduler + budget gate + topic routing + Pro digest + Agentic Layer tab** that **calls** existing modules.
 
@@ -67,7 +67,7 @@ flowchart TB
 |----------|--------|
 | Always-on LLM | **No** — scheduled jobs only |
 | Cadence | General **~every 3 hours**; niche **daily**; Pro digest **daily** |
-| Models | Flash = product path; **Pro = T10.10 only** |
+| Models | Flash = product path; **Gemini 3.1 Pro = T10.10 only** |
 | Niche RAG | **No** separate niche index; soft topic prefer (T10.8) |
 | What dictates search | Seed terms/accounts **then** user-derived plan (T10.2) |
 | Multi-instance per user type | **No** — one worker pool, niche-keyed jobs |
@@ -80,7 +80,7 @@ flowchart TB
 
 | ID | Name | Status | Depends on | Notes |
 |----|------|--------|------------|-------|
-| **T10.1** | Agentic Layer Dashboard Tab | **Partial** | T10.2, T10.3, T10.9, T10.10 (partial OK earlier) | UI live; plan/schedule/budget/proof; digests stub |
+| **T10.1** | Agentic Layer Dashboard Tab | **Done** | T10.2, T10.3, T10.9, T10.10 | UI live; plan/schedule/budget/proof/digests |
 | **T10.2** | Search Plan Service | **Done** | T10.6 (for weights) | Postgres `agentic_search_plan` + rebuild |
 | **T10.3** | Scheduler + Budget Gate | **Done** | T10.9 | Tick CLI + run state |
 | **T10.4** | General Corpus Refresh Job | **Done** | T10.2, T10.3 | Shared spine; seed terms |
@@ -90,10 +90,10 @@ flowchart TB
 | **T10.7** | Topic Dimension on Feedback Buckets | **Done** | T10.6 | Extend `feedback/routing.py` + fallback |
 | **T10.8** | Soft Topic Preference in RAG | **Done** | T10.6 | Global `find_similar` only |
 | **T10.9** | Cost Control Ledger | **Done** | — | Caps + gate + `agentic_cost_ledger` |
-| **T10.10** | Dev AI Workflow Critic (Pro) | Planning | T10.3, T10.9 | Replaces tick stub; can read proofs |
+| **T10.10** | Dev AI Workflow Critic (Pro) | **Done** | T10.3, T10.9 | Structured digests + tick handler |
 | **T10.11** | Worker Wiring (validation + feedback) | Planning | T10.3 | Runbook cron/systemd; tick already calls workers |
 
-**Counts:** Planning 1 · Partial 1 · Done 10.
+**Counts:** Planning 1 · Partial 0 · Done 11.
 
 ---
 
@@ -101,7 +101,7 @@ flowchart TB
 
 | Phase | ID | Name | Owner | Description | Acceptance / outputs | Stack | Status |
 |-------|-----|------|-------|-------------|----------------------|-------|--------|
-| Phase 10 | **T10.1** | Agentic Layer Dashboard Tab | TBD | New Streamlit page **Agentic Layer**: configure seed search terms + seed accounts, view derived search plan / niche weights, budget used, last/next runs, start-stop flags, Pro digests. Ops UI only — no duplicated scrape/eval logic. | Tab live under dashboard; all actions call shared services/jobs; shows plan, runs, costs, digests. | Streamlit / Python | **Partial** |
+| Phase 10 | **T10.1** | Agentic Layer Dashboard Tab | TBD | New Streamlit page **Agentic Layer**: configure seed search terms + seed accounts, view derived search plan / niche weights, budget used, last/next runs, start-stop flags, Pro digests. Ops UI only — no duplicated scrape/eval logic. | Tab live under dashboard; all actions call shared services/jobs; shows plan, runs, costs, digests. | Streamlit / Python | **Done** |
 | Phase 10 | **T10.2** | Search Plan Service | TBD | Single source of truth for “what do we scrape?”. Layers: (1) operator **seed terms**, (2) optional **seed LinkedIn accounts** (bootstrap / simulate), (3) **user-derived niche weights** from signed-up users’ posts. If all users are fintech, sports weight → 0 (or absent). | Persisted `search_plan` (terms, weights, niche ids, updated_at); helpers to read plan for jobs; seed editable from T10.1. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.3** | Scheduler + Budget Gate | TBD | Cron/systemd (or worker tick): **~every 3h** general refresh; **daily** niche refresh for niches with demand / active users; optionally tick existing validation + feedback workers. **Not** always-on LLM. Before each paid step, enforce daily/monthly Apify + Gemini ceilings; priority: validation rescrape > niche (active) > general. | Jobs enqueue only when under budget; skipped runs logged with reason; schedule intervals configurable. | Python / Linux Cron / PostgreSQL | **Done** |
 | Phase 10 | **T10.4** | General Corpus Refresh Job | TBD | Thin job: load search plan → call **existing** Apify post scrape + collection/analyse/embed path. Dedup / staleness so “newest” is incremental, not full re-scrape. | Posts land in shared corpus with topic tags; telemetry + Apify cost recorded; reuses `scrapers/` + processors (no fork). | Python / Apify / PostgreSQL | **Done** |
@@ -111,7 +111,7 @@ flowchart TB
 | Phase 10 | **T10.7** | Topic Dimension on Feedback Buckets | TBD | Extend `feedback/routing.py` metadata cluster from `{length}_{format}_{followers}` → `{topic}_{length}_{format}_{followers}`. Fallback when N &lt; `validation_cluster_n_min`: topic+shape → shape-only → global. Update labels / centroid path so Phase H does not break. | New cluster ids in feedback store; sparse niches still get lessons via fallback; tests for routing + fallback. | Python / PostgreSQL | **Done** |
 | Phase 10 | **T10.8** | Soft Topic Preference in RAG | TBD | Keep **one global** `find_similar`. Optional re-rank / mix: prefer same-topic neighbors when available; **never** hard-filter to niche-only index (avoids cold-start / thin buckets). | Eval neighbors can bias to topic without separate niche vector DB; empty niche → pure global. | Python / pgvector | **Done** |
 | Phase 10 | **T10.9** | Cost Control Ledger | TBD | Persist daily Apify + Gemini spend for agentic jobs; wire caps into T10.3. Reuse `telemetry/` pricing helpers; extend caps beyond feedback-LLM-only. | Dashboard shows spend vs cap; jobs no-op when over budget; warnings in digests. | Python / PostgreSQL | **Done** |
-| Phase 10 | **T10.10** | Dev AI Workflow Critic (Pro) | TBD | Scheduled **daily** meta-agent: read telemetry, scrape-plan stats, validation MAE, feedback queue, errors. **Gemini Pro only**. Output: digest of what might need changing (config, keywords, caps, failing niches). Read-only first — no auto-mutate prompts/flags. | Digest stored + shown on Agentic Layer tab (and optional notify); uses Pro; Flash unchanged for product agents. | Python / Gemini Pro / PostgreSQL | Planning |
+| Phase 10 | **T10.10** | Dev AI Workflow Critic (Pro) | TBD | Scheduled **daily** meta-agent: read telemetry, scrape-plan stats, validation MAE, feedback queue, errors. **Gemini 3.1 Pro only**. Output: structured digest of what might need changing (config, keywords, caps, failing niches). Read-only first — no auto-mutate prompts/flags. | Digest stored + shown on Agentic Layer tab; uses Pro; Flash unchanged for product agents. | Python / Gemini Pro / PostgreSQL | **Done** |
 | Phase 10 | **T10.11** | Worker Wiring (reuse validation + feedback) | TBD | Register existing `validation_pipeline` + `feedback` worker CLIs on the same scheduler so agentic layer is an automated working way of what we already have, not a parallel loop. | Cron / job runner invokes existing CLIs; runbook updated; no duplicated validate/learn logic. | Python / Linux Cron | Planning |
 
 ---
@@ -120,7 +120,7 @@ flowchart TB
 
 ### T10.1 — Agentic Layer Dashboard Tab
 
-**Status:** Partial (UI live; schedule + budget live; digests stub)
+**Status:** Done
 
 **What:** New Streamlit page named **Agentic Layer**. Control and observe the background system; do not reimplement scrapers or eval.
 
@@ -129,19 +129,22 @@ flowchart TB
 - View derived search plan (terms, niche weights, last updated)
 - Budget used vs caps; last/next scheduled runs
 - Start/stop or enable/disable job flags
-- Latest Pro digests (T10.10)
+- Latest Pro digests (T10.10) + **Run digest now**
 
 **Do not:** Duplicate Scraper Stage / Evaluation Cycle logic — call shared services and job entrypoints.
 
-**Shipped (T10.1 stub slice):**
+**Shipped:**
 - Nav: **Agentic → Agentic layer** via [`dashboard/app.py`](../dashboard/app.py) + [`dashboard/pages/11_Agentic_Layer.py`](../dashboard/pages/11_Agentic_Layer.py)
 - Package: [`phase_10/`](.) — small modules (`search_plan`, `job_flags`, `budget`, `schedule`, `digests`) + [`phase_10/ui/`](ui/) panels
 - Persist: seeds/weights in Postgres `agentic_search_plan` (JSON seeds migrated once); job flags still `data/agentic_job_flags.json`
 - Contracts: frozen dataclasses in [`models.py`](models.py)
-- Schedule + budget panels backed by T10.3 / T10.9 (no longer stub captions)
+- Schedule + budget panels backed by T10.3 / T10.9
 - Scrape proof panel (T10.5.5)
+- Pro digests panel (T10.10): list + structured findings + manual run
 
-**Still stubbed on tab:** Pro digests (T10.10)
+---
+
+### T10.2 — Search Plan Service
 
 **Status:** Done
 
@@ -181,8 +184,7 @@ Skip + log when over daily/monthly Apify or Gemini ceilings (T10.9).
 - Tick: `python -m phase_10.jobs.run_agentic_tick` ([`tick.py`](tick.py), [`jobs/run_agentic_tick.py`](jobs/run_agentic_tick.py))
 - Run state: Postgres `agentic_job_runs` + [`schedule_store.py`](schedule_store.py); schedule panel live
 - Honors [`job_flags`](job_flags.py); intervals via `AGENTIC_*_INTERVAL_HOURS`
-- Real handlers: validation + feedback + general/niche corpus refresh
-- Stub skips: `pro_digest` → T10.10
+- Real handlers: validation + feedback + general/niche corpus refresh + Pro digest
 
 **Minimal cron example:**
 
@@ -281,14 +283,19 @@ Track agentic Apify + Gemini spend per day/month. Caps feed T10.3. Surface on T1
 
 ### T10.10 — Dev AI Workflow Critic (Pro)
 
-**Inputs:** eval/scrape telemetry, search-plan stats, validation accuracy, feedback queue depth, error rates, budget usage.  
-**Output:** stored digest — what might need changing (keywords, caps, failing niches, worker health).  
-**Model:** Gemini Pro only.  
-**Policy:** read-only first (no auto-edits to prompts or feature flags).
+**Status:** Done
 
-This is the diagram node “Ai feedback in detail” / cross-reference path — meta-ops, not user-facing rewrite.
+**Inputs:** budget, job runs, search plan (terms + weights; seed account **count** only), scrape proofs, validation MAE aggregates, feedback queue backlog, Apify telemetry, synthesized errors.  
+**Output:** Postgres `agentic_digests` — structured findings + markdown summary (severity, category, evidence, suggested_action).  
+**Model:** `gemini-3.1-pro-preview` (`AGENTIC_PRO_DIGEST_MODEL`); dry-run via `AGENTIC_PRO_DIGEST_DRY_RUN`.  
+**Policy:** read-only — no auto-edits to prompts or feature flags. Dashboard only (no notify).
 
-**Owns:** replace tick stub for `pro_digest`; record Gemini Pro spend via T10.9 ledger.
+**Shipped:**
+- Snapshot: [`digest_snapshot.py`](digest_snapshot.py)
+- Critic: [`digest_critic.py`](digest_critic.py) (JSON mime + parse/normalize)
+- Store: [`digest_store.py`](digest_store.py) + [`digests.py`](digests.py)
+- Tick handler `pro_digest`; spend via `record_agentic_spend(..., provider="gemini")`
+- Agentic digests panel: list findings + **Run digest now**
 
 ---
 
@@ -311,8 +318,8 @@ Document cron/systemd examples in the production runbook. No parallel validate/l
 2. **T10.3 + T10.9** — schedule + budget (safe automation) **(done)**  
 3. **T10.4 + T10.5 + T10.5.5** — corpus refresh + scrape proof **(done)**  
 4. **T10.7 + T10.8** — topic in learn + soft RAG **(done)**  
-5. **T10.1** — Agentic Layer tab to operate it (partial; digests remain)  
-6. **T10.10** — Pro digest last (needs logs + proofs from the above)  
+5. **T10.1** — Agentic Layer tab to operate it **(done)**  
+6. **T10.10** — Pro digest **(done)**  
 7. **T10.11** — production cron/systemd runbook polish  
 
 ---

@@ -324,6 +324,19 @@ CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_created_idx
 CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_job_idx
     ON agentic_scrape_proofs (job_id, created_at DESC);
 
+-- T10.10: daily Gemini Pro workflow digests (read-only critic).
+CREATE TABLE IF NOT EXISTS agentic_digests (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    model               TEXT NOT NULL,
+    summary             TEXT NOT NULL,
+    severity            TEXT NOT NULL DEFAULT 'info',
+    payload             JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS agentic_digests_created_idx
+    ON agentic_digests (created_at DESC);
+
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).
 --

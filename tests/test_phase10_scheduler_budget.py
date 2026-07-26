@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from phase_10.budget import allow_paid_step, get_budget_snapshot
 from phase_10.cost_ledger_store import record_spend, sum_spend, sum_spend_month
 from phase_10.models import BudgetDecision, JobFlags
-from phase_10.tick import STUB_REASONS, TickJobResult, run_agentic_tick
+from phase_10.tick import TickJobResult, run_agentic_tick
 
 
 def _settings(**overrides):
@@ -153,7 +153,7 @@ def test_tick_disabled_and_stubs(
     assert by_id["general_refresh"].detail == "skipped: disabled"
     assert by_id["validation_worker"].detail == "skipped: disabled"
     assert "no handler" in by_id["niche_scrape"].detail
-    assert STUB_REASONS["pro_digest"] in by_id["pro_digest"].detail
+    assert "no handler" in by_id["pro_digest"].detail
 
 
 @patch("phase_10.tick.allow_paid_step")

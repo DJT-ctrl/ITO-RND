@@ -122,4 +122,6 @@ class DigestRecord:
     id: str
     created_at: str
     summary: str
-    model: str = "gemini-pro"
+    model: str = "gemini-3.1-pro-preview"
+    severity: str = "info"
+    payload: dict[str, Any] = field(default_factory=dict)

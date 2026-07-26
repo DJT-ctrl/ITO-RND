@@ -12,6 +12,7 @@ from typing import Any, Optional
 _DEFAULT_RATES: dict[str, dict[str, float]] = {
     "gemini-2.5-flash": {"input_per_1m": 0.30, "output_per_1m": 2.50},
     "gemini-2.5-flash-lite": {"input_per_1m": 0.10, "output_per_1m": 0.40},
+    "gemini-3.1-pro-preview": {"input_per_1m": 2.0, "output_per_1m": 12.0},
     "gemini-embedding-001": {"input_per_1m": 0.025, "output_per_1m": 0.0},
 }
 
