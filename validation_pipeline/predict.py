@@ -98,6 +98,7 @@ def _apply_calibration_to_neighbor_prediction(
                 conn,
                 cluster_id=cluster_id,
                 cluster_n_min=settings.validation_cluster_n_min,
+                age_aware_enabled=settings.validation_age_aware_enabled,
             )
         finally:
             conn.close()
@@ -202,6 +203,7 @@ def _load_feedback_context(
                 approved_only=True,
                 query_embedding=embedding,
                 cluster_n_min=settings.validation_cluster_n_min,
+                age_aware_enabled=settings.validation_age_aware_enabled,
             )
         finally:
             conn.close()

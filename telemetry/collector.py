@@ -33,6 +33,7 @@ class RunMetadataCollector:
         variant_strategy: Optional[str] = None,
         reembed_variant_neighbors: bool = False,
         seo_mode: Optional[str] = None,
+        neighbor_limit: int = 10,
     ) -> None:
         self._settings = settings
         self._run_id = str(uuid4())
@@ -43,6 +44,7 @@ class RunMetadataCollector:
         self._variant_strategy = variant_strategy
         self._reembed_variant_neighbors = reembed_variant_neighbors
         self._seo_mode = seo_mode
+        self._neighbor_limit = neighbor_limit
         self._steps: list[StepTelemetry] = []
 
     @property
@@ -212,6 +214,7 @@ class RunMetadataCollector:
             agent_model=self._agent_model,
             variant_strategy=self._variant_strategy,
             reembed_variant_neighbors=self._reembed_variant_neighbors,
+            neighbor_limit=self._neighbor_limit,
             seo_mode=self._seo_mode,
             steps=self._steps,
         )

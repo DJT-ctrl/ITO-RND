@@ -172,7 +172,19 @@ def try_enqueue_feedback_after_validation(
     settings: Settings,
 ) -> bool:
     """Enqueue async feedback job after validate (fail open). Returns True if enqueued."""
+    from validation_pipeline.age_aware import is_learning_eligible
+
     if not settings.validation_feedback_enabled:
+        return False
+    if not is_learning_eligible(
+        prediction.validation_mode,
+        age_aware_enabled=settings.validation_age_aware_enabled,
+    ):
+        logger.info(
+            "Skipping feedback enqueue for %s (mode=%s, age-aware filter ON)",
+            prediction.prediction_id,
+            prediction.validation_mode,
+        )
         return False
     try:
         conn = get_connection(settings)
@@ -200,7 +212,19 @@ def try_store_feedback_after_validation(
     Prefer ``try_enqueue_feedback_after_validation`` from the validation worker;
     keep this for manual/backfill paths.
     """
+    from validation_pipeline.age_aware import is_learning_eligible
+
     if not settings.validation_feedback_enabled:
+        return None
+    if not is_learning_eligible(
+        prediction.validation_mode,
+        age_aware_enabled=settings.validation_age_aware_enabled,
+    ):
+        logger.info(
+            "Skipping feedback store for %s (mode=%s, age-aware filter ON)",
+            prediction.prediction_id,
+            prediction.validation_mode,
+        )
         return None
     try:
         record = _store_feedback_for_prediction(prediction, settings, scores=scores)
@@ -208,7 +232,10 @@ def try_store_feedback_after_validation(
             conn = get_connection(settings)
             try:
                 create_schema(conn)
-                refresh_cluster_stats(conn)
+                refresh_cluster_stats(
+                    conn,
+                    age_aware_enabled=settings.validation_age_aware_enabled,
+                )
             finally:
                 conn.close()
         except Exception:
@@ -225,8 +252,14 @@ def try_store_feedback_after_validation(
 def process_feedback_job(
     prediction_id: UUID,
     settings: Settings,
-) -> FeedbackRecord:
-    """Generate feedback for one queued prediction (raises on failure)."""
+) -> FeedbackRecord | None:
+    """Generate feedback for one queued prediction (raises on failure).
+
+    Returns None when age-aware filtering excludes the row (caller should
+    still mark the job done).
+    """
+    from validation_pipeline.age_aware import is_learning_eligible
+
     conn = get_connection(settings)
     try:
         create_schema(conn)
@@ -239,6 +272,16 @@ def process_feedback_job(
                 f"Prediction {prediction_id} status is {prediction.status!r}, "
                 "expected validated"
             )
+        if not is_learning_eligible(
+            prediction.validation_mode,
+            age_aware_enabled=settings.validation_age_aware_enabled,
+        ):
+            logger.info(
+                "Skipping feedback job for %s (mode=%s, age-aware filter ON)",
+                prediction_id,
+                prediction.validation_mode,
+            )
+            return None
     finally:
         conn.close()
 
@@ -247,7 +290,10 @@ def process_feedback_job(
         conn = get_connection(settings)
         try:
             create_schema(conn)
-            refresh_cluster_stats(conn)
+            refresh_cluster_stats(
+                conn,
+                age_aware_enabled=settings.validation_age_aware_enabled,
+            )
         finally:
             conn.close()
     except Exception:
@@ -324,7 +370,10 @@ def run_feedback_batch(
     try:
         create_schema(conn)
         missing_ids = fetch_validated_prediction_ids_missing_feedback(
-            conn, limit=limit, feedback_version=FEEDBACK_VERSION
+            conn,
+            limit=limit,
+            feedback_version=FEEDBACK_VERSION,
+            age_aware_enabled=settings.validation_age_aware_enabled,
         )
         if not missing_ids:
             return batch
@@ -353,7 +402,10 @@ def run_feedback_batch(
             conn = get_connection(settings)
             try:
                 create_schema(conn)
-                refresh_cluster_stats(conn)
+                refresh_cluster_stats(
+                    conn,
+                    age_aware_enabled=settings.validation_age_aware_enabled,
+                )
             finally:
                 conn.close()
         except Exception:

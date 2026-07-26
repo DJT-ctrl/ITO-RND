@@ -22,6 +22,8 @@ async def _predict_posts(
     settings: Settings,
     *,
     due_immediately: bool = False,
+    is_backtest: bool = False,
+    validation_window_hours: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     result = CollectPredictResult()
@@ -46,6 +48,8 @@ async def _predict_posts(
                 prediction,
                 settings,
                 validation_due_at=due_at,
+                is_backtest=is_backtest,
+                validation_window_hours=validation_window_hours,
             )
             result.predicted += 1
             result.predictions.append(saved)
@@ -63,6 +67,9 @@ async def run_collect_and_predict(
     *,
     settings: Settings | None = None,
     profile_url_limit: int | None = None,
+    due_immediately: bool = False,
+    is_backtest: bool = False,
+    validation_window_hours: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     """Scrape posts, predict each, and schedule validation."""
@@ -73,7 +80,14 @@ async def run_collect_and_predict(
         profile_url_limit=profile_url_limit,
         on_progress=on_progress,
     )
-    return await _predict_posts(posts, settings, on_progress=on_progress)
+    return await _predict_posts(
+        posts,
+        settings,
+        due_immediately=due_immediately,
+        is_backtest=is_backtest,
+        validation_window_hours=validation_window_hours,
+        on_progress=on_progress,
+    )
 
 
 async def run_predict_on_posts(
@@ -81,6 +95,8 @@ async def run_predict_on_posts(
     *,
     settings: Settings | None = None,
     due_immediately: bool = False,
+    is_backtest: bool = False,
+    validation_window_hours: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     """Predict and schedule validation for already-loaded posts (no Apify scrape)."""
@@ -89,6 +105,8 @@ async def run_predict_on_posts(
         posts,
         settings,
         due_immediately=due_immediately,
+        is_backtest=is_backtest,
+        validation_window_hours=validation_window_hours,
         on_progress=on_progress,
     )
 
@@ -98,6 +116,9 @@ def run_collect_and_predict_sync(
     *,
     settings: Settings | None = None,
     profile_url_limit: int | None = None,
+    due_immediately: bool = False,
+    is_backtest: bool = False,
+    validation_window_hours: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
     return asyncio.run(
@@ -105,6 +126,9 @@ def run_collect_and_predict_sync(
             search_params,
             settings=settings,
             profile_url_limit=profile_url_limit,
+            due_immediately=due_immediately,
+            is_backtest=is_backtest,
+            validation_window_hours=validation_window_hours,
             on_progress=on_progress,
         )
     )

@@ -8,6 +8,12 @@ from pydantic import BaseModel, Field
 
 PredictionStatus = Literal["scheduled", "validating", "validated", "failed", "skipped"]
 CalibrationSource = Literal["cluster", "global", "none"]
+ValidationMode = Literal[
+    "live_48h",
+    "backtest_mature",
+    "forced_early",
+    "live_out_of_window",
+]
 
 
 class PredictionTelemetry(BaseModel):
@@ -70,6 +76,10 @@ class PredictionRecord(BaseModel):
     status: PredictionStatus = "scheduled"
     validation_due_at: datetime
     validated_at: Optional[datetime] = None
+    is_backtest: bool = False
+    prediction_horizon_hours: Optional[float] = None
+    validation_age_hours: Optional[float] = None
+    validation_mode: Optional[ValidationMode] = None
 
     actual_likes: Optional[int] = None
     actual_comments: Optional[int] = None
@@ -108,6 +118,8 @@ class NewPrediction(BaseModel):
     embedding: Optional[list[float]] = None
     embedding_model_version: Optional[str] = None
     validation_due_at: datetime
+    is_backtest: bool = False
+    prediction_horizon_hours: Optional[float] = None
 
 
 class EngagementActuals(BaseModel):

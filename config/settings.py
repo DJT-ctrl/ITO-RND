@@ -90,6 +90,8 @@ class Settings:
     google_trends_enabled: bool = False
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
+    # T7.9 + T7.10: Gemini multimodal visual diagnostics (opt-in; off by default).
+    visual_diagnostics_enabled: bool = False
     # T6.6: re-scrape cached author profiles after this many days.
     profile_cache_staleness_days: int = 30
     # Prediction validation pipeline (validation_pipeline/).
@@ -130,6 +132,11 @@ class Settings:
     validation_feedback_auto_approve_enabled: bool = False
     validation_feedback_auto_approve_max_per_day: int = 20
     validation_feedback_auto_approve_delta_max: float = 40.0
+    # Age-aware learning filter (default off): record age/mode always; when ON,
+    # exclude forced_early from calibration / feedback learning.
+    validation_age_aware_enabled: bool = False
+    validation_age_window_tolerance_hours: float = 6.0
+    validation_backtest_mature_min_hours: int = 72
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -184,6 +191,7 @@ def load_settings() -> Settings:
         google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=False),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
+        visual_diagnostics_enabled=_env_bool("VISUAL_DIAGNOSTICS_ENABLED", default=False),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
         validation_window_hours=int(os.getenv("VALIDATION_WINDOW_HOURS", "48")),
         validation_dev_window_minutes=_env_optional_int("VALIDATION_DEV_WINDOW_MINUTES"),
@@ -238,6 +246,15 @@ def load_settings() -> Settings:
         ),
         validation_feedback_auto_approve_delta_max=float(
             os.getenv("VALIDATION_FEEDBACK_AUTO_APPROVE_DELTA_MAX", "40")
+        ),
+        validation_age_aware_enabled=_env_bool(
+            "VALIDATION_AGE_AWARE_ENABLED", default=False
+        ),
+        validation_age_window_tolerance_hours=float(
+            os.getenv("VALIDATION_AGE_WINDOW_TOLERANCE_HOURS", "6")
+        ),
+        validation_backtest_mature_min_hours=int(
+            os.getenv("VALIDATION_BACKTEST_MATURE_MIN_HOURS", "72")
         ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),

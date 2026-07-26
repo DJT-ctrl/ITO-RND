@@ -71,6 +71,19 @@ def test_fetch_calibration_stats_with_bias():
     assert stats.source == "global"
 
 
+def test_fetch_calibration_stats_age_aware_filters_forced_early():
+    conn = MagicMock()
+    cursor = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    cursor.fetchone.return_value = (10, -2.0)
+
+    stats = fetch_calibration_stats(conn, age_aware_enabled=True)
+    assert stats.n_validated == 10
+    sql = cursor.execute.call_args[0][0]
+    assert "validation_mode" in sql
+    assert cursor.execute.call_args[0][1] == ("forced_early",)
+
+
 def _neighbor() -> dict:
     return {
         "percentile": 72.0,

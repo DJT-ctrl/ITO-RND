@@ -34,7 +34,10 @@ def main() -> int:
     try:
         create_schema(conn)
         if not args.skip_stats:
-            n_stats = refresh_cluster_stats(conn)
+            n_stats = refresh_cluster_stats(
+                conn,
+                age_aware_enabled=settings.validation_age_aware_enabled,
+            )
             print(f"Refreshed cluster stats for {n_stats} clusters")
         n_rollups = refresh_cluster_rollups(conn)
         print(f"Wrote rollup_summary for {n_rollups} clusters")

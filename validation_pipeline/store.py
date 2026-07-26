@@ -52,6 +52,10 @@ _PREDICTION_COLUMNS = [
     "total_engagement_delta",
     "validation_error",
     "created_at",
+    "is_backtest",
+    "prediction_horizon_hours",
+    "validation_age_hours",
+    "validation_mode",
 ]
 
 
@@ -77,9 +81,9 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
             predicted_likes, predicted_comments, predicted_shares,
             baseline_likes, baseline_comments, baseline_shares, baseline_total_engagement,
             prediction_method, neighbor_count, prediction_telemetry, validation_due_at,
-            embedding, embedding_model_version
+            embedding, embedding_model_version, is_backtest, prediction_horizon_hours
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         RETURNING prediction_id, created_at
     """
@@ -107,6 +111,8 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
                 prediction.validation_due_at,
                 prediction.embedding,
                 prediction.embedding_model_version,
+                prediction.is_backtest,
+                prediction.prediction_horizon_hours,
             ),
         )
         row = cur.fetchone()
@@ -208,7 +214,12 @@ def mark_validated(
     prediction_id: UUID,
     actuals: EngagementActuals,
     scores: ValidationScores,
+    *,
+    validation_age_hours: float | None = None,
+    validation_mode: str | None = None,
+    validated_at: datetime | None = None,
 ) -> None:
+    validated_at = validated_at or datetime.now(timezone.utc)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -226,11 +237,13 @@ def mark_validated(
                 comments_delta = %s,
                 shares_delta = %s,
                 total_engagement_delta = %s,
+                validation_age_hours = %s,
+                validation_mode = %s,
                 validation_error = NULL
             WHERE prediction_id = %s
             """,
             (
-                datetime.now(timezone.utc),
+                validated_at,
                 actuals.likes,
                 actuals.comments,
                 actuals.shares,
@@ -242,6 +255,8 @@ def mark_validated(
                 scores.comments_delta,
                 scores.shares_delta,
                 scores.total_engagement_delta,
+                validation_age_hours,
+                validation_mode,
                 prediction_id,
             ),
         )

@@ -3,3 +3,17 @@ base = "light"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+headless = true
+address = "localhost"
+port = 8501
+enableCORS = false
+# Required for Streamlit websockets behind Vercel / reverse proxies.
+enableXsrfProtection = true
+# Polling is more stable than watchdog on macOS when many files change.
+fileWatcherType = "poll"
+
+[runner]
+# Avoid killing the process on script exceptions; show errors in-app instead.
+fastReruns = true

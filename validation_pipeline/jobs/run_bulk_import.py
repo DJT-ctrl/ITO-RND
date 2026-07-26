@@ -229,7 +229,10 @@ def main() -> int:
         conn = get_connection(settings)
         try:
             create_schema(conn)
-            clusters = refresh_cluster_stats(conn)
+            clusters = refresh_cluster_stats(
+                conn,
+                age_aware_enabled=settings.validation_age_aware_enabled,
+            )
         finally:
             conn.close()
         print(

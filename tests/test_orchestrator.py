@@ -262,6 +262,33 @@ def test_similar_posts_populated_before_agents_run():
     assert state.diagnostics["capture"] == {"seen": 3}
 
 
+def test_neighbor_limit_passed_to_find_similar():
+    """Optional neighbor_limit (10–100) is forwarded to find_similar."""
+    rows = [fake_row(str(i)) for i in range(25)]
+    with (
+        patch(
+            "agents.orchestrator.embed_query",
+            return_value=(np.zeros(3072, dtype=np.float32), 10),
+        ),
+        patch("agents.orchestrator.find_similar", return_value=rows) as mock_find,
+        patch("agents.orchestrator.get_connection", return_value=MagicMock()),
+        patch("agents.orchestrator.register_vector"),
+    ):
+        state = asyncio.run(
+            run_evaluation_cycle("draft text", fake_settings(), neighbor_limit=25)
+        )
+
+    assert mock_find.call_args.kwargs["limit"] == 25
+    assert len(state.similar_posts) == 25
+
+
+def test_neighbor_limit_out_of_range_raises():
+    with pytest.raises(ValueError, match="neighbor_limit"):
+        asyncio.run(run_evaluation_cycle("draft text", fake_settings(), neighbor_limit=5))
+    with pytest.raises(ValueError, match="neighbor_limit"):
+        asyncio.run(run_evaluation_cycle("draft text", fake_settings(), neighbor_limit=101))
+
+
 def test_no_agents_supplied_returns_empty_placeholders():
     """No predictor/diagnostics registered (T3.2/T3.3 don't exist yet) —
     the cycle should still complete end-to-end with empty placeholder
@@ -361,3 +388,75 @@ def test_use_voice_profile_false_skips_profile_even_with_user_id():
 
     mock_voice.assert_not_called()
     assert state.voice_profile is None
+
+
+def test_visual_diagnostics_skipped_when_enabled_without_image():
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"seo": _SleepyAgent({"score": 7.0}, sleep_s=0.0)},
+                use_visual_diagnostics=True,
+            )
+        )
+
+    assert state.visual_diagnostics_requested is True
+    assert state.visual_image_provided is False
+    assert "visual" not in state.diagnostics
+    assert any("skipped" in err for err in state.errors)
+    assert state.diagnostics["seo"] == {"score": 7.0}
+
+
+def test_visual_diagnostics_runs_when_enabled_with_image_bytes():
+    visual_output = {
+        "score": 8.0,
+        "flaws": [],
+        "advantages": ["clear focal point"],
+        "improvements": [],
+        "contrast_pass": True,
+        "visual_clutter": "low",
+        "hierarchy_critique": "ok",
+        "extracted_text": "Launch",
+        "copy_alignment_score": 9.0,
+        "alignment_notes": "",
+    }
+
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4, patch(
+        "agents.orchestrator.build_visual_agent",
+        return_value=_SleepyAgent(visual_output, sleep_s=0.0),
+    ):
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"seo": _SleepyAgent({"score": 7.0}, sleep_s=0.0)},
+                use_visual_diagnostics=True,
+                image_bytes=b"\x89PNG\r\n\x1a\nfake",
+                image_media_type="image/png",
+            )
+        )
+
+    assert state.visual_diagnostics_requested is True
+    assert state.visual_image_provided is True
+    assert state.diagnostics["visual"] == visual_output
+    assert not any(err.startswith("visual: skipped") for err in state.errors)
+
+
+def test_visual_diagnostics_off_by_default_even_with_image():
+    p1, p2, p3, p4 = _patch_neighbor_fetch([fake_row("1")])
+    with p1, p2, p3, p4, patch("agents.orchestrator.build_visual_agent") as mock_build:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                image_bytes=b"\x89PNG\r\n\x1a\nfake",
+                image_media_type="image/png",
+            )
+        )
+
+    mock_build.assert_not_called()
+    assert state.visual_diagnostics_requested is False
+    assert "visual" not in state.diagnostics

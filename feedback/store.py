@@ -12,7 +12,8 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from feedback.generate import FEEDBACK_VERSION
-from feedback.routing import cluster_fallback_ids, cluster_label
+from feedback.routing import cluster_label
+from phase_10.topics import is_valid_niche
 from feedback.schemas import (
     CalibrationStats,
     ClusterStats,
@@ -21,17 +22,8 @@ from feedback.schemas import (
     FeedbackReviewStatus,
     GenerationMethod,
 )
-from phase_10.topics import is_valid_niche
 
 logger = logging.getLogger(__name__)
-
-
-_FEEDBACK_SELECT = """
-    feedback_id, prediction_id, cluster_id, feedback_json,
-    feedback_version, generated_at, generation_method,
-    generation_latency_ms, input_tokens, output_tokens, cost_usd,
-    feedback_review_status, reviewed_at, reviewed_by
-"""
 
 
 def lookup_post_niche(
@@ -73,22 +65,70 @@ def resolve_post_niche(
     return None
 
 
-def fetch_calibration_stats(conn: psycopg.Connection) -> CalibrationStats:
+
+def embedding_to_float_list(embedding: object) -> list[float]:
+    """Convert a DB embedding (list, pgvector Vector, ndarray, …) to floats.
+
+    Newer pgvector returns a non-iterable ``Vector``; older adapters and
+    ``register_vector`` may return a plain ``list``. Prefer ``to_list()`` /
+    ``tolist()`` when present.
+    """
+    if embedding is None:
+        raise TypeError("embedding is None")
+    if isinstance(embedding, list):
+        return [float(x) for x in embedding]
+    to_list = getattr(embedding, "to_list", None)
+    if callable(to_list):
+        return [float(x) for x in to_list()]
+    tolist = getattr(embedding, "tolist", None)
+    if callable(tolist):
+        return [float(x) for x in tolist()]
+    if isinstance(embedding, tuple):
+        return [float(x) for x in embedding]
+    try:
+        return [float(x) for x in embedding]  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise TypeError(
+            f"Unsupported embedding type {type(embedding)!r}"
+        ) from exc
+
+
+_FEEDBACK_SELECT = """
+    feedback_id, prediction_id, cluster_id, feedback_json,
+    feedback_version, generated_at, generation_method,
+    generation_latency_ms, input_tokens, output_tokens, cost_usd,
+    feedback_review_status, reviewed_at, reviewed_by
+"""
+
+
+def fetch_calibration_stats(
+    conn: psycopg.Connection,
+    *,
+    age_aware_enabled: bool = False,
+) -> CalibrationStats:
     """Return global signed mean prediction_delta and validated count.
 
     prediction_delta = actual_percentile − predicted_percentile.
     Empty validated set → n_validated=0, mean_delta=0.0.
+    When age_aware_enabled, excludes forced_early rows from the average.
     """
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="predictions"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS n_validated,
                 AVG(prediction_delta) AS mean_delta
             FROM predictions
             WHERE status = 'validated'
               AND prediction_delta IS NOT NULL
-            """
+              {age_clause}
+            """,
+            tuple(age_params),
         )
         row = cur.fetchone()
 
@@ -137,29 +177,29 @@ def resolve_calibration_stats(
     *,
     cluster_id: Optional[str] = None,
     cluster_n_min: int = 50,
+    age_aware_enabled: bool = False,
 ) -> CalibrationStats:
     """Prefer cluster mean_delta when sample_count >= cluster_n_min; else global.
 
-    Fallback chain (T10.7): topic+shape → shape-only → global → none.
-    ``cluster_id`` on the result is the bucket that supplied the mean_delta
-    when source is ``cluster``; otherwise the primary (requested) id.
+    Fallback chain: cluster → global → none.
     """
     if cluster_id:
-        for candidate_id in cluster_fallback_ids(cluster_id):
-            cluster = fetch_cluster_stats(conn, candidate_id)
-            if (
-                cluster is not None
-                and cluster.sample_count >= cluster_n_min
-                and cluster.mean_delta is not None
-            ):
-                return CalibrationStats(
-                    n_validated=cluster.sample_count,
-                    mean_delta=round(float(cluster.mean_delta), 4),
-                    cluster_id=candidate_id,
-                    source="cluster",
-                )
+        cluster = fetch_cluster_stats(conn, cluster_id)
+        if (
+            cluster is not None
+            and cluster.sample_count >= cluster_n_min
+            and cluster.mean_delta is not None
+        ):
+            return CalibrationStats(
+                n_validated=cluster.sample_count,
+                mean_delta=round(float(cluster.mean_delta), 4),
+                cluster_id=cluster_id,
+                source="cluster",
+            )
 
-    global_stats = fetch_calibration_stats(conn)
+    global_stats = fetch_calibration_stats(
+        conn, age_aware_enabled=age_aware_enabled
+    )
     if cluster_id:
         return CalibrationStats(
             n_validated=global_stats.n_validated,
@@ -170,15 +210,24 @@ def resolve_calibration_stats(
     return global_stats
 
 
-def refresh_cluster_stats(conn: psycopg.Connection) -> int:
+def refresh_cluster_stats(
+    conn: psycopg.Connection,
+    *,
+    age_aware_enabled: bool = False,
+) -> int:
     """Recompute prediction_clusters sample stats from validated feedback rows.
 
     Preserves existing centroid_embedding when present.
     Returns number of clusters upserted.
     """
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="p"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT
                 f.cluster_id,
                 COUNT(*)::INTEGER AS sample_count,
@@ -189,8 +238,10 @@ def refresh_cluster_stats(conn: psycopg.Connection) -> int:
             WHERE f.cluster_id IS NOT NULL
               AND p.status = 'validated'
               AND p.prediction_delta IS NOT NULL
+              {age_clause}
             GROUP BY f.cluster_id
-            """
+            """,
+            tuple(age_params),
         )
         rows = cur.fetchall()
 
@@ -408,8 +459,7 @@ def fetch_cluster_centroids(
     for cluster_id, embedding in rows:
         if embedding is None:
             continue
-        vector = list(embedding) if not isinstance(embedding, list) else embedding
-        results.append((cluster_id, [float(x) for x in vector]))
+        results.append((cluster_id, embedding_to_float_list(embedding)))
     return results
 
 
@@ -467,8 +517,7 @@ def fetch_validated_embeddings_by_metadata_cluster(
     for cluster_id, embedding in rows:
         if embedding is None:
             continue
-        vector = [float(x) for x in (list(embedding) if not isinstance(embedding, list) else embedding)]
-        grouped.setdefault(str(cluster_id), []).append(vector)
+        grouped.setdefault(str(cluster_id), []).append(embedding_to_float_list(embedding))
     return grouped
 
 
@@ -544,11 +593,17 @@ def fetch_validated_prediction_ids_missing_feedback(
     *,
     limit: int = 100,
     feedback_version: str = FEEDBACK_VERSION,
+    age_aware_enabled: bool = False,
 ) -> list[UUID]:
     """Validated predictions that do not yet have feedback for this version."""
+    from validation_pipeline.age_aware import age_aware_learning_sql
+
+    age_clause, age_params = age_aware_learning_sql(
+        enabled=age_aware_enabled, alias="p"
+    )
     with conn.cursor() as cur:
         cur.execute(
-            """
+            f"""
             SELECT p.prediction_id
             FROM predictions p
             LEFT JOIN prediction_feedback f
@@ -558,10 +613,11 @@ def fetch_validated_prediction_ids_missing_feedback(
               AND p.prediction_delta IS NOT NULL
               AND p.actual_engagement_percentile IS NOT NULL
               AND f.feedback_id IS NULL
+              {age_clause}
             ORDER BY p.validated_at ASC NULLS LAST
             LIMIT %s
             """,
-            (feedback_version, limit),
+            (feedback_version, *age_params, limit),
         )
         rows = cur.fetchall()
     return [row[0] for row in rows]

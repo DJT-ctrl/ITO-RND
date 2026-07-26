@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-07-22T14:42:31.214988+00:00",
+  "sample_size": 300,
+  "target_metric": "audience_adjusted_zscore",
+  "uses_audience_adjusted": true,
+  "optimal_hashtag_range": [
+    3,
+    5
+  ],
+  "optimal_word_count_range": [
+    77,
+    143
+  ],
+  "high_performer_median_hashtags": 4.0,
+  "high_performer_median_words": 110.0,
+  "correlations": {
+    "hashtag_count": -0.131,
+    "word_count": -0.156,
+    "emoji_count": -0.05
+  },
+  "top_topics": []
+}

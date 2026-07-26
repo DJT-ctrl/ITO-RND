@@ -1,0 +1,2 @@
+# Extra deps for the invite-only Vercel demo (not required for local API work).
+firebase-admin>=6.5.0

@@ -1,0 +1,64 @@
+{
+  "bundles": [
+    {
+      "bundle_id": "2026-07-22_144231Z",
+      "created_at": "2026-07-22T14:42:31.206628+00:00",
+      "source_scans": [
+        "linkedin_20260704T132814Z.json",
+        "linkedin_20260704T125343Z.json",
+        "linkedin_20260703T180738Z.json",
+        "linkedin_20260703T162118Z.json",
+        "linkedin_2026-07-16_142623Z.json",
+        "linkedin_2026-07-14_122250Z.json"
+      ],
+      "source_profiles": [
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_2026-07-16_142623Z.json",
+        "linkedin_profiles_2026-07-14_122250Z.json"
+      ],
+      "enriched_csv": null,
+      "analysed_jsonl": "linkedin_python_2026-07-22_144231Z.jsonl",
+      "analysed_csv": "linkedin_python_2026-07-22_144231Z.csv",
+      "flagged_jsonl": null,
+      "with_gemini": false,
+      "post_count": 300,
+      "embeddings_npy": null,
+      "embedding_post_ids": [],
+      "ingested_at": null,
+      "ingested_count": null
+    },
+    {
+      "bundle_id": "2026-07-22_144225Z",
+      "created_at": "2026-07-22T14:42:25.818966+00:00",
+      "source_scans": [
+        "linkedin_20260704T132814Z.json",
+        "linkedin_20260704T125343Z.json",
+        "linkedin_20260703T180738Z.json",
+        "linkedin_20260703T162118Z.json",
+        "linkedin_2026-07-16_142623Z.json",
+        "linkedin_2026-07-14_122250Z.json"
+      ],
+      "source_profiles": [
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_20260710T000442Z.json",
+        "linkedin_profiles_2026-07-16_142623Z.json",
+        "linkedin_profiles_2026-07-14_122250Z.json"
+      ],
+      "enriched_csv": null,
+      "analysed_jsonl": "linkedin_python_2026-07-22_144225Z.jsonl",
+      "analysed_csv": "linkedin_python_2026-07-22_144225Z.csv",
+      "flagged_jsonl": "linkedin_python_flagged_2026-07-22_144225Z.jsonl",
+      "with_gemini": false,
+      "post_count": 9,
+      "embeddings_npy": null,
+      "embedding_post_ids": [],
+      "ingested_at": null,
+      "ingested_count": null
+    }
+  ]
+}

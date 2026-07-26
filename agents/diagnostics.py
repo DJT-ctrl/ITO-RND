@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from agents.clarity_metrics import format_clarity_context_section
 from agents.discoverability import format_discoverability_context_section
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
@@ -49,7 +50,8 @@ _DIAGNOSTIC_SPECS = {
         "title": "Clear messaging",
         "focus": (
             "Evaluate whether the main point is immediately understandable, whether "
-            "the structure is easy to scan, and whether the CTA is unambiguous."
+            "the structure is easy to scan on mobile, cognitive load / jargon, "
+            "and whether the CTA is unambiguous."
         ),
     },
     "tone": {
@@ -103,12 +105,21 @@ def build_seo_prompt(deps: EvaluationDeps) -> str:
     return f"{section}\n\n{base}"
 
 
+def build_clarity_prompt(deps: EvaluationDeps) -> str:
+    """Build the clarity worker prompt — metrics-grounded when available."""
+    base = build_diagnostic_prompt("clarity", deps)
+    section = format_clarity_context_section(deps.clarity_context)
+    if not section:
+        return base
+    return f"{section}\n\n{base}"
+
+
 def build_seo_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
     return _build_seo_agent(pydantic_ai_gemini_model() if model is None else model)
 
 
 def build_clarity_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
-    return _build_diagnostic_agent("clarity", pydantic_ai_gemini_model() if model is None else model)
+    return _build_clarity_agent(pydantic_ai_gemini_model() if model is None else model)
 
 
 def build_tone_agent(model: Any = None) -> Agent[EvaluationDeps, DiagnosticOutput]:
@@ -135,6 +146,21 @@ def _build_seo_agent(model: Any) -> Agent[EvaluationDeps, DiagnosticOutput]:
     @agent.system_prompt
     def seo_system_prompt(ctx: RunContext[EvaluationDeps]) -> str:
         return build_seo_prompt(ctx.deps)
+
+    return agent
+
+
+def _build_clarity_agent(model: Any) -> Agent[EvaluationDeps, DiagnosticOutput]:
+    agent: Agent[EvaluationDeps, DiagnosticOutput] = Agent(
+        model,
+        deps_type=EvaluationDeps,
+        output_type=agent_structured_output(DiagnosticOutput, model),
+        retries=2,
+    )
+
+    @agent.system_prompt
+    def clarity_system_prompt(ctx: RunContext[EvaluationDeps]) -> str:
+        return build_clarity_prompt(ctx.deps)
 
     return agent
 

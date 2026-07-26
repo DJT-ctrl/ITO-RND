@@ -150,6 +150,8 @@ def render_validation_comparison_table(
             if p.actual_engagement_percentile is not None
             else None,
             "% delta": round(p.prediction_delta, 1) if p.prediction_delta is not None else None,
+            "age_h": round(p.validation_age_hours, 1) if p.validation_age_hours is not None else None,
+            "mode": p.validation_mode or ("backtest" if p.is_backtest else ""),
             "due_at": p.validation_due_at.strftime("%Y-%m-%d %H:%M") if p.validation_due_at else "",
             "validated_at": p.validated_at.strftime("%Y-%m-%d %H:%M") if p.validated_at else "",
             "_prediction_id": str(p.prediction_id),
@@ -161,7 +163,8 @@ def render_validation_comparison_table(
     df = pd.DataFrame(rows)
     st.caption(
         "**T0** = engagement at collect/import · **Pred** = model forecast · "
-        "**Actual** = fresh URL re-scrape (48h window or manual validate)"
+        "**Actual** = fresh URL re-scrape · **age_h/mode** = post age at grade "
+        "(forced_early excluded from AI learning when age-aware is ON)"
     )
     display_df = df.drop(columns=["_prediction_id"])
     if selectable:
@@ -207,6 +210,9 @@ def render_predictions_table(predictions: list[PredictionRecord]) -> None:
                 "comments Δ": round(p.comments_delta, 1) if p.comments_delta is not None else None,
                 "shares Δ": round(p.shares_delta, 1) if p.shares_delta is not None else None,
                 "total Δ": round(p.total_engagement_delta, 1) if p.total_engagement_delta is not None else None,
+                "age_h": round(p.validation_age_hours, 1) if p.validation_age_hours is not None else None,
+                "mode": p.validation_mode,
+                "backtest": p.is_backtest,
                 "due_at": p.validation_due_at.isoformat() if p.validation_due_at else None,
                 "validated_at": p.validated_at.isoformat() if p.validated_at else None,
             }
