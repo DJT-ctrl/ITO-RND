@@ -39,6 +39,7 @@ from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+from dashboard.chrome import page_header, section_header  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
 from processors.benchmark import compute_neighbor_prediction  # noqa: E402
 from telemetry.collector import RunMetadataCollector  # noqa: E402
@@ -146,11 +147,23 @@ async def _run_concurrent_eval(
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Post Evaluator", layout="wide")
-st.title("LinkedIn Post Evaluator")
-st.caption(
-    "Enter a draft post, then click **Evaluate Post** to get an engagement "
-    "prediction, diagnostic analysis, and 3 AI-generated rewrites."
+st.set_page_config(page_title="Draft evaluator", layout="wide")
+page_header(
+    "Draft evaluator",
+    "Paste a LinkedIn draft and run the full evaluation cycle: find similar "
+    "posts, predict engagement + diagnostics, then suggest three rewrites.",
+    step_hint="Uses the same retrieval + agents as the product-shaped path",
+)
+section_header(
+    "What happens when you click Evaluate",
+    """
+1. **Retrieve neighbors** — embed the draft and fetch similar historical posts.
+2. **Score the draft** — predictor + diagnostic agents run together.
+3. **Suggest rewrites** — three variant posts along the strategy you pick.
+
+This is the closest page to an end-user experience; corpus/validation pages are
+operator tools that feed the data behind it.
+""",
 )
 
 settings = load_settings()

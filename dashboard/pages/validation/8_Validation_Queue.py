@@ -9,19 +9,34 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, render_phase_badges, section_header  # noqa: E402
 from validation_pipeline.ui import (  # noqa: E402
     load_predictions,
     render_validation_comparison_table,
 )
 from validation_pipeline.worker import run_due_validations, run_validations_for_ids  # noqa: E402
 
-st.set_page_config(page_title="Validation Queue", layout="wide")
-st.title("Validation Pipeline — Queue")
-st.caption(
-    "Compare baseline (T0), predicted, and actual engagement. "
-    "Re-scrape uses direct LinkedIn post URLs in one batched Apify call. "
-    "After validate, template feedback is stored automatically — manage it on "
-    "**Feedback Loop**."
+st.set_page_config(page_title="Validation queue", layout="wide")
+page_header(
+    "Validation queue",
+    "Compare what we predicted against what actually happened (likes, comments, "
+    "shares). Re-scrape LinkedIn when due, or force-validate for backtests. "
+    "After grading, lessons are written automatically — manage them on "
+    "**Feedback loop**.",
+    step_hint="Validation step 2 of 4 · Previous: Collect and predict · Next: Accuracy over time",
+)
+pipeline_flow_strip("validation", "queue")
+render_phase_badges(["0", "B"])
+
+section_header(
+    "How grading works",
+    """
+**Baseline (T0)** = engagement when we first saw the post.
+**Predicted** = model forecast.
+**Actual** = engagement after re-scrape (or known actuals in backtest).
+
+Use the sidebar to run due validations or force-validate selected rows.
+""",
 )
 
 settings = load_settings()

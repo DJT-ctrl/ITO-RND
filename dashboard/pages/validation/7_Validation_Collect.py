@@ -13,6 +13,12 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+from dashboard.chrome import (  # noqa: E402
+    page_header,
+    pipeline_flow_strip,
+    render_phase_badges,
+    section_header,
+)
 from telemetry.apify import load_apify_runs  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.corpus_import import (  # noqa: E402
@@ -29,24 +35,31 @@ from validation_pipeline.vectorized_corpus import (  # noqa: E402
     load_all_vectorized_collected_posts,
 )
 
-st.set_page_config(page_title="Validation Collect", layout="wide")
-st.title("Validation Pipeline — Collect & Predict")
-st.caption(
-    "Scrape fresh posts or bulk-load **vectorized LinkedIn analysed CSVs** from the "
-    "Corpus Pipeline, run gemini-2.5-flash-lite predictions, and schedule validation."
+st.set_page_config(page_title="Collect and predict", layout="wide")
+page_header(
+    "Collect and predict",
+    "Create predictions to grade later: import an already-vectorized corpus, "
+    "scrape fresh posts, or load a saved collection. Each run writes predicted "
+    "engagement and schedules a validation check.",
+    step_hint="Validation step 1 of 4 · Next: Validation queue",
 )
+pipeline_flow_strip("validation", "predict")
+render_phase_badges(["0"])
 
 settings = load_settings()
 
 # ── Step 1: reset + vectorized corpus import ─────────────────────────────────
 
-st.subheader("1. Reset and import vectorized corpus")
-st.markdown(
+section_header(
+    "1. Reset and import vectorized corpus",
     """
-Use analysed LinkedIn **CSV/JSONL bundles that already have matching `.npy` embeddings**
-from **Corpus Pipeline → Vectorisation** (not raw scraper JSON). Posts are merged and
-deduped by `post_id`, then predicted with **flash-lite**.
-    """
+Use analysed LinkedIn **CSV/JSONL bundles that already have matching `.npy`
+embeddings** from **Make embeddings** (not raw scraper JSON). Posts are merged
+and deduped by `post_id`, then predicted with the flash-lite model.
+
+**Backtest tip:** aged posts can be predicted “blind” and graded immediately
+in the queue (no 48h wait).
+""",
 )
 st.caption(f"Predictor model: `{pydantic_ai_gemini_model()}`")
 
@@ -56,8 +69,8 @@ if vectorized_datasets:
         st.markdown(f"- `{dataset.label}`")
 else:
     st.warning(
-        "No vectorized LinkedIn datasets found. Complete **Post Analyser** then "
-        "**Vectorisation** in the Corpus Pipeline first."
+        "No vectorized LinkedIn datasets found. Complete **Analyse posts** then "
+        "**Make embeddings** under Build the corpus first."
     )
 
 posts_ready, _ = (
@@ -156,8 +169,8 @@ st.subheader("2. Single run (live scrape or one saved collection)")
 with st.sidebar:
     source_mode = st.radio(
         "Source",
-        ["Live Apify scrape", "Saved collection (Scraper Stage)"],
-        help="Saved collections are the linkedin_*.json files from Scraper Stage.",
+        ["Live Apify scrape", "Saved collection (Collect samples)"],
+        help="Saved collections are the linkedin_*.json files from Collect samples.",
     )
 
     st.subheader("Predict")
@@ -221,7 +234,7 @@ with st.sidebar:
             selected_scan = st.selectbox(
                 "Saved collections",
                 scan_options,
-                help="Same files as Scraper Stage → Load Previous Collection.",
+                help="Same files as Collect samples → Load Previous Collection.",
             )
         else:
             selected_scan = "-- Select a saved collection --"

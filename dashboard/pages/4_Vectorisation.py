@@ -18,6 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from dashboard.pipeline_ui import (  # noqa: E402
     analysed_filenames_for_bundles,
     render_bundle_multiselect,
@@ -30,12 +31,23 @@ _MIN_WORD_COUNT = 10
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Vectorisation Test Harness", layout="wide")
-st.title("Step 3: Vectorise Posts — Embedding Generation")
-st.caption(
-    "Throwaway visual tool for the T1.3 embedding step. Select analysed "
-    "pipeline bundle(s) from Step 2 — content is re-joined only from those "
-    "bundles' source scraper files."
+st.set_page_config(page_title="Make embeddings", layout="wide")
+page_header(
+    "Make embeddings",
+    "Turn analysed post text into vectors (Gemini embeddings) so we can find "
+    "similar posts later. This is paid and rate-limited — use the sidebar batch "
+    "size to stay in control.",
+    step_hint="Corpus step 4 of 5 · Previous: Find patterns · Next: Search similar",
+)
+pipeline_flow_strip("corpus", "embed")
+
+section_header(
+    "What this page does",
+    """
+Select analysed bundle(s) from **Analyse posts**. We re-join raw text from those
+bundles' scraper files, embed a **manual batch**, and save `.npy` + registry
+metadata for ingest / similarity search.
+""",
 )
 
 settings = load_settings()

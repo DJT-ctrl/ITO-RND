@@ -22,6 +22,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path, utc_artifact_stamp  # noqa: E402
 from config.settings import GEMINI_MODEL, load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from processors.corpus_benchmarks import build_snapshot, save_snapshot  # noqa: E402
 from processors.dedup import dedupe_posts  # noqa: E402
 from processors.finalize_records import analysed_dataset_label, finalize_analysed_records  # noqa: E402
@@ -103,9 +104,27 @@ def _strip_join_keys(records: list[dict]) -> list[dict]:
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Post Analysis Test Harness", layout="wide")
-st.title("Step 2: Make Sense of Samples — Analysis Pipeline")
-st.caption("Throwaway visual tool for testing the analysis pipeline. Not the product UI.")
+st.set_page_config(page_title="Analyse posts", layout="wide")
+page_header(
+    "Analyse posts",
+    "Turn raw scraped JSON into structured features. "
+    "**Stage 1** is free Python (fast). **Stage 2** calls Gemini per post "
+    "(paid and slow) — keep “Max posts” small while testing.",
+    step_hint="Corpus step 2 of 5 · Previous: Collect samples · Next: Find patterns",
+)
+pipeline_flow_strip("corpus", "analyse")
+
+section_header(
+    "How to test without burning budget",
+    """
+1. Load one saved collection from the sidebar.
+2. Set **Max posts** low (e.g. 5–20) while iterating.
+3. Prefer **Stage 1 only** until the free features look right.
+4. Run **Stage 1 + 2** only when you need Gemini tags (hook type, etc.).
+
+Stage 2 is the slow/expensive step — that is expected, not a UI bug.
+""",
+)
 
 settings = load_settings()
 
@@ -174,7 +193,7 @@ with st.sidebar:
             else:
                 st.caption("No paired profile data for these collections.")
     else:
-        st.warning("No saved collections. Run Scraper Stage first.")
+        st.warning("No saved collections. Run **Collect samples** first.")
 
     st.markdown("---")
     st.header("2. Run analysis")
@@ -193,19 +212,23 @@ with st.sidebar:
             st.error(message)
             _append_log("ERROR", message)
     st.caption("Restart Streamlit after code changes (Ctrl+C, then re-run).")
+    default_max = min(10, len(posts)) if posts else 1
     max_posts = st.number_input(
-        "Max posts to analyse",
+        "Max posts to analyse (keep small for Stage 2 tests)",
         min_value=1,
-        value=len(posts) if posts else 1,
-        help="Limits Gemini calls. Stage 1 is always instant.",
+        value=default_max,
+        help=(
+            "Caps how many posts run. Stage 1 is free/fast; Stage 2 = one "
+            "Gemini call per post. Use a low number while testing."
+        ),
     )
-    run_python = st.button("▶ Stage 1 only (Python, free)", disabled=not posts)
+    run_python = st.button("▶ Stage 1 only (Python, free / fast)", disabled=not posts)
     run_full = st.button(
-        "▶ Stage 1 + 2 (Python + Gemini)",
+        "▶ Stage 1 + 2 (Python + Gemini — slow / paid)",
         disabled=not posts or not settings.gemini_api_key,
     )
     if not settings.gemini_api_key:
-        st.caption("⚠️ GEMINI_API_KEY not set — Stage 2 disabled.")
+        st.caption("GEMINI_API_KEY not set — Stage 2 disabled.")
 
     _render_pipeline_log(expanded=bool(st.session_state.get("terminal_log")))
 
