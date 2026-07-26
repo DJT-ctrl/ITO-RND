@@ -27,7 +27,7 @@ flowchart LR
 | **2. Diagnostics (Text)** | T7.3–T7.8 | T7.3 skipped; T7.4–T7.5 Partial; T7.6–T7.8 later |
 | **3. Diagnostics (Visual)** | T7.9–T7.10 | Combined multimodal agent; **off by default** |
 | **4. Synthetic Audience** | T7.11–T7.13 | Combined independent critic; **not in evaluate loop** |
-| **5. Synthesis (Optimise)** | T7.14–T7.16 | On hold; closest today is the variant engine |
+| **5. Synthesis (Optimise)** | T7.14–T7.16 | Hybrid: evaluate variants remain; Stage 5 **opt-in** `/optimise` |
 
 ---
 
@@ -48,11 +48,11 @@ flowchart LR
 | **T7.11** | C-Suite / Enterprise Persona | **Partial** (opt-in side-step) | 4. Synthetic Audience | `{reaction, primary_objection}` | Gemini | Combined with T7.12–T7.13; independent of evaluate loop — see [explainer](#t711--t712--t713--synthetic-audience-critic-combined-independent) |
 | **T7.12** | End-User / Practitioner Persona | **Partial** (opt-in side-step) | 4. Synthetic Audience | `{reaction, perceived_value}` | Gemini | Same agent as T7.11 |
 | **T7.13** | Industry Peer / Competitor Persona | **Partial** (opt-in side-step) | 4. Synthetic Audience | `{reaction, credibility_check}` | Gemini | Same agent as T7.11 |
-| **T7.14** | Algorithmic Maximizer Agent | **Partial** | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | Closest: [`agents/variant_engine.py`](agents/variant_engine.py) strategies — not Hook+SEO+Clarity-driven maximizer |
-| **T7.15** | Strategic Counter-Agent | Not started | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | On hold; needs T7.11 objections |
-| **T7.16** | Brand Purist Agent | Not started | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | On hold; needs T7.6 / T7.7 |
+| **T7.14** | Algorithmic Maximizer Agent | **Partial** (opt-in side-step) | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | Combined with T7.15–T7.16 via `/optimise`; evaluate variants still T3.4 — see [explainer](#t714--t715--t716--synthesis-optimisation-combined-opt-in) |
+| **T7.15** | Strategic Counter-Agent | **Partial** (opt-in side-step) | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | Same package; uses critic objection when available |
+| **T7.16** | Brand Purist Agent | **Partial** (opt-in side-step) | 5. Synthesis (Optimise) | `{variant_name, optimized_text}` | Gemini | Same package; soft voice_profile (full T7.6/7 later) |
 
-**Counts:** Done 2 · Partial 8 · Skipped 1 · Later 3 · Not started 2.
+**Counts:** Done 2 · Partial 11 · Skipped 1 · Later 3 · Not started 0.
 
 ---
 
@@ -265,16 +265,34 @@ Shared module: [`processors/trend_signals/google_trends.py`](processors/trend_si
 
 ---
 
+## T7.14 + T7.15 + T7.16 — Synthesis Optimisation (combined, opt-in)
+
+**What the sheet means:**
+
+| ID | Job | Sheet shape |
+|----|-----|-------------|
+| **T7.14** | Growth rewrite for CTR / reach / virality | `{variant_name, optimized_text}` |
+| **T7.15** | Closer rewrite that pre-empts C-suite objections | `{variant_name, optimized_text}` |
+| **T7.16** | Prestige / brand-safe rewrite over raw virality | `{variant_name, optimized_text}` |
+
+**Decision: hybrid.** Evaluate-loop T3.4 variants (`dimension` / `narrative` / `tiered`) stay as-is. Stage 5 ships as an **independent side-step**.
+
+| Piece | Where |
+|-------|--------|
+| Package | [`agents/synthesis/`](agents/synthesis/) — schemas, prompts, generator, scoring, recommend, runner |
+| Shared scoring | [`agents/variant_scoring.py`](agents/variant_scoring.py) (also used by variant engine) |
+| API | `POST /api/v1/optimise` — draft (+ optional objection / baseline / voice) |
+| UI | Evaluation Cycle **Run optimisation** + recommendation / performance panel |
+
+**How it works:** One Gemini call returns maximizer + counter + brand_purist drafts. Predictor re-scores each (shared neighbors). Deterministic recommender picks a winner (highest percentile; soft preference for counter when a critic objection was supplied and scores are close). Does **not** replace or mutate evaluate finalize variants.
+
+**Inputs:** Critic objection optional (from `/critique` or session). Voice profile soft-used for brand_purist when `user_id` / prior eval provides it. Full T7.6/T7.7 brand-safety still Later.
+
+---
+
 ## Agent briefs (remaining)
 
-### T7.14 — Algorithmic Maximizer Agent
-“Growth hacker” rewrite from Hook + SEO + Clarity for max CTR / reach. **Partial:** variant engine already produces scored rewrites.
-
-### T7.15 — Strategic Counter-Agent
-“Closer” rewrite that pre-empts C-Suite objections (depends on T7.11 — can read `c_suite.primary_objection` from the critic).
-
-### T7.16 — Brand Purist Agent
-“PR executive” rewrite prioritizing voice + safety over virality (depends on T7.6 / T7.7).
+_(none — Stage 5 synthesis shipped as Partial opt-in; deepen T7.6/T7.7 when clients need guidelines/safety.)_
 
 ---
 
@@ -286,7 +304,7 @@ Shared module: [`processors/trend_signals/google_trends.py`](processors/trend_si
 4. **T7.6 / T7.7 / T7.8** deferred — tone/guidelines, brand safety, and cliché only when clients ask or data shows the gap.
 5. **T7.9–T7.10** Partial — combined visual agent shipped **opt-in / off by default**; leave off for text-first usage.
 6. Synthetic audience (**T7.11–T7.13**) Partial — combined independent critic via `/critique` + **Run critic**; keep off the evaluate loop.
-7. Synthesis (**T7.14–T7.16**) either specializes the variant engine or adds new finalize agents that consume diagnostics/personas.
+7. Synthesis (**T7.14–T7.16**) Partial — hybrid: keep T3.4 evaluate variants; Stage 5 via `/optimise` + **Run optimisation**.
 
 ---
 

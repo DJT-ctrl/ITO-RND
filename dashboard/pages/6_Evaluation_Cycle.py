@@ -1,18 +1,11 @@
 """LinkedIn Post Evaluator — Phase 4 production interface (T4.1-T4.4).
 
-Runs the full Phase 3 pipeline end-to-end:
+Runs the full Phase 3 pipeline end-to-end, plus optional independent side-steps:
+  - Synthetic audience critic (T7.11–T7.13)
+  - Synthesis optimisation (T7.14–T7.16)
 
-  Stage 1 (sequential): embed the draft and retrieve 10 nearest historical
-      neighbors via pgvector cosine search (T2 retrieval layer).
-  Stage 2 (concurrent): Predictor Agent (T3.2) estimates engagement
-      percentile; Diagnostic Worker Agents (T3.3) check SEO, clarity, and
-      tone in parallel via asyncio.gather().
-  Stage 3 (sequential): Variant Optimisation Engine (T3.4) produces 3
-      ranked rewrites using the collected diagnostic output.
-
-T4.2 — each stage surfaces its own progress indicator as it completes.
-T4.3 — top scorecard + per-diagnostic progress bars.
-T4.4 — any variant can be applied back to the draft input with one click.
+Heavy UI panels live in dashboard/*_ui.py helpers where available; chrome,
+visual diagnostics, and trend signals from the integrate stack are kept.
 """
 
 import asyncio
@@ -26,22 +19,23 @@ from pydantic import BaseModel
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from agents.audience_critic import (  # noqa: E402
-    AudienceCriticOutput,
     build_audience_critic_agent,
     run_audience_critic,
 )
 from agents.diagnostics import build_diagnostic_agents  # noqa: E402
-# _gather_similar_posts is the stage-1 coroutine from the orchestrator;
-# imported directly here so we can run each stage separately for T4.2.
 from agents.orchestrator import (  # noqa: E402
     _fetch_draft_follower_count,
     _fetch_voice_profile,
     _gather_discoverability_context,
     _gather_similar_posts,
 )
-from agents.predictor import build_predictor_agent  # noqa: E402
+from agents.predictor import (  # noqa: E402
+    apply_deterministic_prediction,
+    build_predictor_agent,
+)
 from agents.prompt_safety import build_evaluation_user_message  # noqa: E402
 from agents.schemas import EvaluationDeps, PostEvaluationState  # noqa: E402
+from agents.synthesis import run_synthesis  # noqa: E402
 from agents.variant_engine import build_variant_engine  # noqa: E402
 from agents.visual_diagnostics import (  # noqa: E402
     build_visual_agent,
@@ -50,8 +44,17 @@ from agents.visual_diagnostics import (  # noqa: E402
     resolve_use_visual_diagnostics,
 )
 from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+from dashboard.audience_critic_ui import (  # noqa: E402
+    extract_primary_objection,
+    render_critic_results_panel,
+    render_critic_sidebar_controls,
+)
 from dashboard.chrome import page_header, section_header  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
+from dashboard.synthesis_ui import (  # noqa: E402
+    render_synthesis_results_panel,
+    render_synthesis_sidebar_controls,
+)
 from dashboard.trend_signals_ui import render_trend_signals_panel  # noqa: E402
 from processors.benchmark import compute_neighbor_prediction  # noqa: E402
 from telemetry.collector import RunMetadataCollector  # noqa: E402
@@ -204,6 +207,10 @@ if "critic_result" not in st.session_state:
     st.session_state.critic_result = None
 if "critic_error" not in st.session_state:
     st.session_state.critic_error = None
+if "synthesis_result" not in st.session_state:
+    st.session_state.synthesis_result = None
+if "synthesis_error" not in st.session_state:
+    st.session_state.synthesis_error = None
 
 missing_config = []
 if not settings.gemini_api_key:
@@ -310,24 +317,11 @@ with st.sidebar:
     if missing_config:
         st.warning(f"Missing config: {', '.join(missing_config)}")
 
-    st.divider()
-    st.subheader("Synthetic audience critic")
-    with st.expander("What this does", expanded=False):
-        st.markdown(
-            "Optional **independent** critique (T7.11–T7.13) — not part of the "
-            "evaluate loop. One Gemini call role-plays three skeptical readers:\n\n"
-            "- **C-Suite** — ROI holes, fluff, executive objections\n"
-            "- **Practitioner** — tactical value for daily operators\n"
-            "- **Industry peer** — credibility and originality in-market\n\n"
-            "Does **not** change predicted scores, diagnostics, or variants."
-        )
-    critic_clicked = st.button(
-        "Run critic",
-        type="secondary",
-        disabled=bool(missing_config) or not draft_content.strip(),
-        use_container_width=True,
-        key="run_audience_critic",
-        help="Independent synthetic-audience pass. Uses the current draft only.",
+    critic_clicked = render_critic_sidebar_controls(
+        missing_config=bool(missing_config), draft_content=draft_content
+    )
+    optimise_clicked = render_synthesis_sidebar_controls(
+        missing_config=bool(missing_config), draft_content=draft_content
     )
 
 # ── Evaluation (T4.2 — staged progress) ───────────────────────────────────────
@@ -518,6 +512,39 @@ if critic_clicked and draft_content.strip():
         st.session_state.critic_result = None
     st.rerun()
 
+# ── Independent synthesis optimisation (T7.14–T7.16) ─────────────────────────
+
+if optimise_clicked and draft_content.strip():
+    st.session_state.synthesis_error = None
+    eval_state = st.session_state.eval_result
+    predictor = (eval_state.predictor_result or {}) if eval_state else {}
+    baseline_pct = predictor.get("predicted_engagement_percentile")
+    baseline_eng = predictor.get("predicted_total_engagement")
+    objection = extract_primary_objection(st.session_state.critic_result)
+    voice = eval_state.voice_profile if eval_state else None
+    neighbors = eval_state.similar_posts if eval_state else None
+    try:
+        with st.spinner("Running synthesis optimisation…"):
+            st.session_state.synthesis_result = asyncio.run(
+                run_synthesis(
+                    draft_content.strip(),
+                    settings,
+                    primary_objection=objection,
+                    baseline_percentile=baseline_pct,
+                    baseline_total_engagement=baseline_eng,
+                    voice_profile=voice,
+                    similar_posts=neighbors,
+                    user_id=user_id,
+                    predictor_agent=predictor_agent,
+                    model=_eval_model,
+                )
+            )
+        st.session_state.draft_text = draft_content.strip()
+    except Exception as exc:  # noqa: BLE001
+        st.session_state.synthesis_error = str(exc)
+        st.session_state.synthesis_result = None
+    st.rerun()
+
 # ── Results + Accuracy History ───────────────────────────────────────────────
 
 st.divider()
@@ -543,49 +570,12 @@ with gemini_cost_tab:
 
 
 with results_tab:
-    if st.session_state.critic_error:
-        st.error(f"Audience critic failed: {st.session_state.critic_error}")
-
-    critic = st.session_state.critic_result
-    if critic is not None:
-        st.subheader("Synthetic audience critic")
-        st.caption(
-            "Independent side-step (T7.11–T7.13) — does not affect scores or variants."
-        )
-        if isinstance(critic, AudienceCriticOutput):
-            critic_data = critic.model_dump()
-        elif isinstance(critic, BaseModel):
-            critic_data = critic.model_dump()
-        else:
-            critic_data = dict(critic)
-
-        score = critic_data.get("score", 0)
-        st.metric("Critic score", f"{score:.1f}/10")
-        st.markdown(f"**Overall verdict:** {critic_data.get('overall_verdict', '')}")
-
-        c_suite = critic_data.get("c_suite") or {}
-        practitioner = critic_data.get("practitioner") or {}
-        peer = critic_data.get("peer") or {}
-        lens_cols = st.columns(3)
-        with lens_cols[0]:
-            with st.expander("C-Suite", expanded=True):
-                st.markdown(f"**Reaction:** {c_suite.get('reaction', '')}")
-                st.markdown(f"**Primary objection:** {c_suite.get('primary_objection', '')}")
-                if c_suite.get("roi_notes"):
-                    st.markdown(f"**ROI notes:** {c_suite['roi_notes']}")
-        with lens_cols[1]:
-            with st.expander("Practitioner", expanded=True):
-                st.markdown(f"**Reaction:** {practitioner.get('reaction', '')}")
-                st.markdown(f"**Perceived value:** {practitioner.get('perceived_value', '')}")
-                if practitioner.get("tactical_gaps"):
-                    st.markdown(f"**Tactical gaps:** {practitioner['tactical_gaps']}")
-        with lens_cols[2]:
-            with st.expander("Industry peer", expanded=True):
-                st.markdown(f"**Reaction:** {peer.get('reaction', '')}")
-                st.markdown(f"**Credibility:** {peer.get('credibility_check', '')}")
-                if peer.get("originality_notes"):
-                    st.markdown(f"**Originality:** {peer['originality_notes']}")
-        st.divider()
+    render_critic_results_panel(
+        st.session_state.critic_result, st.session_state.critic_error
+    )
+    render_synthesis_results_panel(
+        st.session_state.synthesis_result, st.session_state.synthesis_error
+    )
 
     if st.session_state.eval_result is not None:
         state = st.session_state.eval_result
@@ -785,7 +775,13 @@ with results_tab:
                     st.divider()
 
     else:
-        if st.session_state.critic_result is None and not st.session_state.critic_error:
+        if (
+            st.session_state.critic_result is None
+            and not st.session_state.critic_error
+            and st.session_state.synthesis_result is None
+            and not st.session_state.synthesis_error
+        ):
             st.info(
-                "Enter your draft in the sidebar, then **Evaluate Post** and/or **Run critic**."
+                "Enter your draft in the sidebar, then **Evaluate Post**, "
+                "**Run critic**, and/or **Run optimisation**."
             )
