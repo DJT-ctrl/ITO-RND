@@ -1,0 +1,44 @@
+{
+  "mode": "simulate",
+  "ok": true,
+  "missing_runbook_phrases": [],
+  "scripts_present": {
+    "deploy_release.py": true,
+    "rollback_release.py": true
+  },
+  "steps": [
+    {
+      "step": "pre_smoke",
+      "seconds": 5
+    },
+    {
+      "step": "record_last_good",
+      "seconds": 1
+    },
+    {
+      "step": "git_sync",
+      "seconds": 15
+    },
+    {
+      "step": "compose_rebuild_api",
+      "seconds": 180
+    },
+    {
+      "step": "post_smoke",
+      "seconds": 10
+    },
+    {
+      "step": "rollback_rebuild",
+      "seconds": 150
+    },
+    {
+      "step": "rollback_smoke",
+      "seconds": 10
+    }
+  ],
+  "total_seconds": 371,
+  "max_window_minutes": 10,
+  "within_downtime_budget": true,
+  "finished_at": "2026-07-17T17:37:42Z",
+  "note": "Simulated wall times; run --live against staging for measured evidence."
+}

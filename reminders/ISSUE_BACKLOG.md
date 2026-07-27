@@ -202,6 +202,38 @@ Post-launch instance and volume sizes should match real workload patterns to con
 
 ---
 
+## Issue #20 — requirements (Deploy and rollback runbook)
+
+**Issue:** [intotheopen/intotheopen-backend#20](https://github.com/intotheopen/intotheopen-backend/issues/20)
+**Branch:** `feature/issue-20-deploy-rollback-runbook`
+**Docs:** [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md)
+
+### Why
+
+Single-instance deployments need a deterministic release and rollback procedure before production cutovers.
+
+### Scope
+
+- Define pre-deploy checks and controlled rollout steps
+- Document rollback triggers, steps, and decision points
+- Automate drill execution and evidence capture
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Runbook documents strategy and downtime budget | `docs/ops/DEPLOY_ROLLBACK.md` |
+| Deploy and rollback scripts support dry-run safety | `scripts/deploy_release.py` + `scripts/rollback_release.py` |
+| Drill output is recorded | `docs/ops/DEPLOY_DRILL_LATEST.json` |
+
+### Execution order
+
+- Depends on runtime model from **#11**
+- Depends on infra baseline from **#12**
+- Feeds operational readiness before go-live
+
+---
+
 ## Issue #21 — requirements (Load baseline)
 
 **Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)
