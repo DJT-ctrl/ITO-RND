@@ -154,6 +154,37 @@ Environment secrets in plain files are not safe for cloud production.
 
 ---
 
+## Issue #19 — requirements (EC2/EBS rightsizing)
+
+**Issue:** [intotheopen/intotheopen-backend#19](https://github.com/intotheopen/intotheopen-backend/issues/19)  
+**Branch:** `feature/issue-19-ec2-ebs-rightsizing`  
+**Docs:** [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md)
+
+### Why
+
+Cloud spend can drift from idle resources and oversized instance/storage choices.
+
+### Scope
+
+- Right-size EC2 and EBS for baseline traffic.
+- Add stop/start and cleanup policy for non-production environments.
+- Document periodic rightsizing review checklist.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline instance/storage class selected with rationale | `baseline.json` + runbook table (`t3.small` / gp3) |
+| Non-prod idle resource policy implemented | `idle_policy.json` + `apply_nonprod_idle_policy.py` |
+| Monthly rightsizing review cadence in place | `run_rightsizing_review.py` + `docs/ops/rightsizing-reviews/` |
+
+### Execution order
+
+- Post-launch hardening; pairs with **#18** monthly cost review.
+- Uses host defaults from **#12**.
+
+---
+
 ## Issue #15 — requirements (backup / DR)
 
 **Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)  
