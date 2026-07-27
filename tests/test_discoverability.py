@@ -185,6 +185,66 @@ def test_get_or_refresh_benchmarks_without_db_or_cache_returns_none():
     assert warnings
 
 
+def _settings_with_database_url():
+    from config.settings import Settings
+
+    return Settings(
+        apify_api_token="",
+        apify_actor_id="",
+        apify_profile_actor_id="",
+        linkedin_cookies=[],
+        gemini_api_key="",
+        raw_data_dir="data/raw",
+        default_search_limit=20,
+        database_url="postgresql://unreachable.invalid:5432/ito",
+    )
+
+
+def test_get_or_refresh_benchmarks_db_unavailable_uses_stale_cache(tmp_path, monkeypatch):
+    """DB/network failure during refresh must fall back to cached snapshot."""
+    import psycopg
+
+    path = tmp_path / "corpus_benchmarks.json"
+    save_snapshot(build_snapshot(_sample_records()), path)
+    settings = _settings_with_database_url()
+
+    def _raise_operational_error(*_args, **_kwargs):
+        raise psycopg.OperationalError("failed to resolve host")
+
+    monkeypatch.setattr(
+        "processors.corpus_benchmarks.refresh_snapshot_from_db",
+        _raise_operational_error,
+    )
+
+    snapshot, warnings = get_or_refresh_benchmarks(settings, force=True, path=path)
+
+    assert snapshot is not None
+    assert snapshot["sample_size"] == 20
+    assert any("failed to resolve host" in w for w in warnings)
+    assert any("stale corpus benchmark cache" in w for w in warnings)
+
+
+def test_get_or_refresh_benchmarks_db_unavailable_no_cache_returns_none(tmp_path, monkeypatch):
+    """DB/network failure with no cache must return None + warning, not raise."""
+    import psycopg
+
+    path = tmp_path / "missing_benchmarks.json"
+    settings = _settings_with_database_url()
+
+    def _raise_operational_error(*_args, **_kwargs):
+        raise psycopg.OperationalError("failed to resolve host")
+
+    monkeypatch.setattr(
+        "processors.corpus_benchmarks.refresh_snapshot_from_db",
+        _raise_operational_error,
+    )
+
+    snapshot, warnings = get_or_refresh_benchmarks(settings, force=True, path=path)
+
+    assert snapshot is None
+    assert any("failed to resolve host" in w for w in warnings)
+
+
 def test_format_discoverability_context_section_includes_evidence():
     section = format_discoverability_context_section(
         {

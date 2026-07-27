@@ -41,6 +41,13 @@ Grafana opens with the Prometheus datasource and an **ITO Stack Overview**
 dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
+**Secrets (issue #13):** production credentials come from AWS Secrets Manager —
+see [`SECRETS.md`](SECRETS.md). Local dev still uses a gitignored `.env`.
+
+**Load testing (issue #21):** reproducible scenarios in
+[`scripts/load/`](../scripts/load/) and the published baseline in
+[`docs/ops/LOAD_BASELINE.md`](../docs/ops/LOAD_BASELINE.md).
+
 > Only the API (`:8000`) and Grafana (`:3000`) publish beyond localhost.
 > Postgres and the raw telemetry ports bind to `127.0.0.1`. On EC2, restrict
 > even `:8000`/`:3000` via the security group and/or front them with the Nginx
@@ -92,6 +99,8 @@ Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
 ## Common operations
 
+See [CI.md](CI.md) for pipeline jobs, merge gates, and flaky-test policy.
+
 ```bash
 docker compose logs -f api      # tail the API logs
 docker compose up -d --build    # rebuild + restart after a code change
@@ -104,6 +113,10 @@ docker compose down -v          # stop AND wipe telemetry volumes
 - **Data persistence:** Postgres data lives in `DB_DATA_PATH` (default
   `./data/pgdata`; point at the mounted EBS volume on EC2). Prometheus and
   Grafana use named volumes (`prometheus_data`, `grafana_data`).
+- **Data retention & secrets:** see [DATA_GOVERNANCE.md](DATA_GOVERNANCE.md).
+  Business data is kept indefinitely by default. Prometheus retention defaults
+  to unlimited (`PROMETHEUS_RETENTION_TIME=0`); set e.g. `90d` in `.env` on
+  small disks.
 - **cAdvisor / node-exporter** rely on Linux host mounts (`/sys`, `/proc`,
   `/var/lib/docker`). They are intended for the Linux EC2 host; on macOS/
   colima their host-level metrics may be partial, but the stack still starts.

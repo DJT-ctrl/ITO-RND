@@ -82,9 +82,10 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    # Secrets (GEMINI_API_KEY, APIFY_*, LINKEDIN_COOKIES) come from .env.
+    # Secrets come from ITO_ENV_FILE (default .env for local; on EC2 use
+    # /run/ito/runtime.env materialized from AWS Secrets Manager — issue #13).
     env_file:
-      - path: .env
+      - path: ${ITO_ENV_FILE:-.env}
         required: false
     environment:
       # Override the .env DATABASE_URL (which points at localhost for
@@ -112,8 +113,10 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
-      # Cap retention so the TSDB can't slowly fill the disk on a small box.
-      - --storage.tsdb.retention.time=15d
+      # Default 0 = no time-based expiry (keep metrics as long as disk allows).
+      # Override via PROMETHEUS_RETENTION_TIME in .env (e.g. 90d) on small boxes.
+      # See deploy/DATA_GOVERNANCE.md.
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-0}
     ports:
       - "127.0.0.1:9090:9090"
 
