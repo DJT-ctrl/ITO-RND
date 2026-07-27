@@ -8,13 +8,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tests.issue_helpers import issue_exists
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASELINE = REPO_ROOT / "infra" / "rightsizing" / "baseline.json"
 POLICY = REPO_ROOT / "infra" / "rightsizing" / "idle_policy.json"
 RUNBOOK = REPO_ROOT / "docs" / "ops" / "RIGHTSIZING.md"
 IDLE_SCRIPT = REPO_ROOT / "scripts" / "apply_nonprod_idle_policy.py"
 REVIEW_SCRIPT = REPO_ROOT / "scripts" / "run_rightsizing_review.py"
-BACKLOG = REPO_ROOT / "reminders" / "ISSUE_BACKLOG.md"
 DEMO = REPO_ROOT / "reminders" / "DEMO_ISSUE_19.md"
 REVIEW_DIR = REPO_ROOT / "docs" / "ops" / "rightsizing-reviews"
 
@@ -46,9 +47,7 @@ def test_runbook_covers_baseline_idle_and_monthly_review():
 
 
 def test_issue_backlog_documents_issue_19():
-    text = BACKLOG.read_text(encoding="utf-8")
-    assert "Issue #19 — requirements" in text
-    assert "rightsizing" in text.lower() or "Rightsizing" in text
+    assert issue_exists(19)
 
 
 def test_demo_note_exists():
