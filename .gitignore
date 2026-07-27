@@ -60,10 +60,10 @@ T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
 
-# OpenAPI client tooling
+# OpenAPI client tooling (package.json / lockfile are tracked; install locally)
 node_modules/
 
-# Ephemeral AWS-injected env (issue #13) — never commit
+# Ephemeral AWS-injected env (issue #13) - never commit
 runtime.env
 .runtime.env
 **/runtime.env

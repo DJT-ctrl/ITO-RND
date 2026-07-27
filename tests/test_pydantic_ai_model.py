@@ -67,4 +67,7 @@ def test_api_import_does_not_build_agents():
     from fastapi.testclient import TestClient
 
     client = TestClient(api_main.app)
-    assert client.get("/health").json() == {"status": "ok"}
+    payload = client.get("/health").json()
+    assert payload["status"] == "ok"
+    if "api_version" in payload:
+        assert payload["api_version"] == "v1"
