@@ -89,6 +89,42 @@ contention patterns not seen in local tests.
 
 ---
 
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator latency spikes can degrade reliability under concurrent usage.
+
+### Scope
+
+- Analyze slow orchestration stages and timeouts.
+- Define Timeout/fallback policy for slow or failed steps.
+- Preserve partial results when possible.
+
+---
+
+## Issue #13 — requirements (AWS secrets)
+
+**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
+**Branch:** `feature/issue-13-aws-secrets`  
+**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
+
+### Why
+
+Production credentials must come from Secrets Manager, not durable `.env` files.
+
+### Scope
+
+- Store runtime secrets in AWS Secrets Manager.
+- Inject runtime env values ephemerally.
+- Define credential rotation and validation flow.
+
+---
+
 ## Issue #16 — requirements (CloudWatch logs & alarms)
 
 **Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)  
