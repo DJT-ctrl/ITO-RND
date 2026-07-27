@@ -89,6 +89,39 @@ contention patterns not seen in local tests.
 
 ---
 
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After usage data arrives, optimize evaluation reliability and latency under
+concurrent usage (post-launch hardening).
+
+### Scope
+
+- Review async orchestration hotspots and slow-step telemetry.
+- Add timeouts/fallbacks for long-running agent steps.
+- Reduce tail latency and improve partial-result behavior on step failures.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Documented latency profile for orchestration stages | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy implemented for slow steps | `AGENT_STEP_TIMEOUT_S` / `FINALIZE_TIMEOUT_S` + orchestrator partials |
+| Error rate and p95 latency improve versus baseline | Caps + partial 200s vs #21 baseline; re-check with load scripts |
+
+### Execution order (from issue comment)
+
+- Run after **#21** baseline report is ready.
+- Use telemetry from **#8** / **#16** to validate improvements.
+- Keep explicitly post-launch unless critical issues emerge.
+
+---
+
 ## Issue #13 — requirements (AWS secrets)
 
 **Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
