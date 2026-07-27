@@ -219,6 +219,38 @@ provisioned declaratively.
 
 ---
 
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator response times and fallback behaviour under load need
+to be measured and tuned to meet user-facing SLOs.
+
+### Scope
+
+- Profile end-to-end latency for `/api/v1/similar-posts` and `/api/v1/evaluate`.
+- Identify top bottlenecks in provider initialisation and corpus lookup.
+- Define and enforce timeout/fallback policy.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline latency measured and documented | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy defined and enforced in code | `config/settings.py` + orchestrator guard |
+| Regression test prevents silent regressions | `tests/test_orchestrator_latency.py` |
+
+### Execution order (from issue comment)
+
+- Start after **#21** load baseline is available.
+- Feeds SLO definitions in **#8**.
+
+---
+
 ## Progress summary
 
 | Priority | Count | Closed |

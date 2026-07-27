@@ -72,3 +72,7 @@ infra/terraform/backend.hcl
 infra/terraform/backend.tf
 infra/envs/*.tfvars
 !infra/envs/*.tfvars.example
+
+# Runtime secrets (ephemeral, never committed)
+/run/ito/runtime.env
+runtime.env
