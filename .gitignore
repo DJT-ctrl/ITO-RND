@@ -42,8 +42,6 @@ htmlcov/
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
 data/pgdata/
-data/db_backups/*.dump
-data/telemetry/backup_status.json
 data/feedback_loop_overrides.json
 
 # Logs
@@ -53,13 +51,13 @@ data/feedback_loop_overrides.json
 # OpenAPI / local tooling
 node_modules/
 
-# Terraform — AWS WAF (issue #17)
-infra/waf/.terraform/
-infra/waf/*.tfstate
-infra/waf/*.tfstate.*
-infra/waf/tfplan
-infra/waf/terraform.tfvars
-!infra/waf/terraform.tfvars.example
+# Terraform — CloudWatch observability (issue #16)
+infra/observability/.terraform/
+infra/observability/*.tfstate
+infra/observability/*.tfstate.*
+infra/observability/tfplan
+infra/observability/terraform.tfvars
+!infra/observability/terraform.tfvars.example
 
 # Local planning notes (kept on disk, excluded from repo)
 planning/
@@ -73,8 +71,19 @@ T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
 
+# OpenAPI / local tooling
 node_modules/
 
-# Runtime secrets (ephemeral)
+# Terraform (issue #12)
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/tfplan
+infra/terraform/backend.hcl
+infra/terraform/backend.tf
+infra/envs/*.tfvars
+!infra/envs/*.tfvars.example
+
+# Runtime secrets (ephemeral, never committed)
 /run/ito/runtime.env
 runtime.env

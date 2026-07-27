@@ -32,33 +32,6 @@ This folder is the source of truth for how we fix bugs and ship PRs on
 | 5 | **Branch naming** — `fix/issue-N-slug`, `feature/issue-N-slug`, `infra/…`, `chore/…` | Org + this folder |
 | 6 | **Small focused PRs** — one concern; use org PR template checklist | Org + [`08_BUILD_PRACTICES`](../planning/validation-feedback-loop/08_BUILD_PRACTICES.md) |
 | 7 | **No Cursor watermark in PRs** — never append `Made with Cursor` (or similar) to PR bodies or issue comments | Team request |
-| 8 | **Don't create more issues by accident** — before implementing, check whether the planned fix would create new bugs, deficits, or follow-on work; if yes, stop and ask the user | Team request |
-
----
-
-## Side-effect check (do this before coding)
-
-Before branching/implementing the current issue, briefly look for whether solving it
-could **create more issues** (new bugs, missing follow-ups, broken assumptions,
-new ops debt, or work that is not already in [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md)).
-
-Ask yourself:
-
-- Does this change leave a half-finished dependency (e.g. infra without runbook)?
-- Could it break an existing path or invalidate another open issue's assumptions?
-- Are we introducing a capability that needs a new GitHub issue to be safe/complete?
-- Is the “missing piece” already covered by an open backlog issue? Prefer linking that over inventing more.
-
-**If you find one (or more):**
-
-1. **Do not** open new GitHub issues, expand scope, or keep implementing past the stop point.
-2. End your reply with a **bold** callout after the main answer, then ask permission:
-
-> **Possible new issue if we proceed:** \<one-line description\>.  
-> Already covered by backlog #N? yes/no.  
-> May I proceed with the current issue only, or do you want to adjust scope first?
-
-3. Wait for the user's explicit permission before continuing.
 
 ---
 
@@ -79,11 +52,7 @@ When fetching issues: `gh issue view N --repo intotheopen/intotheopen-backend`
 | Item | Status |
 | ---- | ------ |
 | Issue #1 | PR open → https://github.com/intotheopen/intotheopen-backend/pull/29 (`Closes #1`) |
-| Issue #14 | PR → HTTPS + strict SGs (WAF deferred) |
-| Issue #17 | Branch `feature/issue-17-aws-waf` — WAFv2 + exception runbook |
-| Issue #16 | PR → CloudWatch logs/alarms MVP |
-| Issue #18 | PR → AWS Budgets + cost playbook |
-| Issue #20 | PR → deploy/rollback runbook |
+| Issue #16 | Branch `feature/issue-16-cloudwatch-logs-alarms` — CloudWatch logs/alarms MVP |
 | Issues #2–#27 | Still open — see [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) |
 | Next suggested | After #1 merges: next **P0** (#3 auth/rate-limit, or #13/#15 AWS) |
 
@@ -95,13 +64,11 @@ Update [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) when issues close.
 
 ```
 1. Confirm or create GitHub issue on intotheopen/intotheopen-backend
-2. Side-effect check — if solving this could create more issues, bold callout + ask user before coding
-3. Branch from main: fix/issue-N-short-slug
-4. Implement + pytest
-5. PR to intotheopen/intotheopen-backend with Closes #N + clear test plan
-6. Request review (Tech Lead / CTO) — merge after 1 approval
-7. Tick ISSUE_BACKLOG.md
+2. Branch from main: fix/issue-N-short-slug
+3. Implement + pytest
+4. PR to intotheopen/intotheopen-backend with Closes #N + clear test plan
+5. Request review (Tech Lead / CTO) — merge after 1 approval
+6. Tick ISSUE_BACKLOG.md
 ```
 
 Do **not** batch unrelated issues into one PR.
-Do **not** open extra GitHub issues without the user's permission.
