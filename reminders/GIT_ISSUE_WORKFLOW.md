@@ -130,6 +130,44 @@ proactively open extra issues “just in case.”
 
 ---
 
+## Merge conflicts — check before and after
+
+**Be wary:** many backlog PRs touch the same paths. Fixing a conflict on one PR
+can surface (or hide) conflicts on others. GitHub’s “mergeable” flag can also lag
+or look wrong when a PR is **stacked** on another feature branch instead of `main`.
+
+### When working a conflict
+
+1. **Identify the real base** — `gh pr view N --json baseRefName,mergeable`. If
+   `baseRefName` is not `main`, sync with that base branch too (not only `main`).
+2. **Resolve without compromises** — keep both sides’ intent (e.g. lazy agent init
+   *and* CI stubs; Streamlit tracked config *and* CI artifact ignores). Prefer
+   combining over picking a winner.
+3. **Do not merge to `main`** just to “test” — merge `main` (and stacked bases)
+   *into the PR branch*, push the branch, leave `main` alone.
+4. **Recheck every open PR** after you push:
+
+```bash
+gh pr list --repo intotheopen/intotheopen-backend --state open --limit 50 \
+  --json number,title,mergeable,mergeStateStatus,baseRefName \
+  --jq 'sort_by(.number) | .[] | "\(.number)\t\(.mergeable)\t\(.baseRefName)\t\(.title)"'
+```
+
+5. **Confirm siblings you already fixed** (e.g. #31, #33) are still `MERGEABLE`
+   after the latest push — fixing one must not break another.
+
+### Red flags
+
+| Signal | What to do |
+| ------ | ---------- |
+| Conflict only vs stacked base, clean vs `main` | Merge/rebase onto the updated base branch, or confirm with the team before retargeting to `main` |
+| Another PR flips to `CONFLICTING` after your push | Investigate immediately; do not assume it is unrelated |
+| Docstring-only / trivial marker conflicts | Still recheck the full PR list — shared history may hide larger stack issues |
+
+Also listed in [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) and rule **9** in [`FOR_AI.md`](FOR_AI.md).
+
+---
+
 ## Commit messages
 
 Follow conventional commits and reference issues where helpful:

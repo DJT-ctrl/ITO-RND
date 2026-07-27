@@ -104,19 +104,15 @@ Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACK
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
-## AWS deploy & rollback (issue #20)
+## Rightsizing & idle non-prod (issue #19)
 
-Single-instance **controlled rolling restart** (not a second blue/green host).
-Full runbook: [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md).
+Baseline `t3.small` + gp3 volumes, non-prod office-hours stop/start, monthly
+review: [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md).
 
 ```bash
-python scripts/deploy_release.py --ref <sha-or-tag> --dry-run
-python scripts/deploy_release.py --ref <sha-or-tag>
-python scripts/rollback_release.py          # uses data/deploy/LAST_GOOD.json
-python scripts/run_deploy_drill.py --simulate
+python scripts/apply_nonprod_idle_policy.py --action auto --simulate
+python scripts/run_rightsizing_review.py --month YYYY-MM --simulate
 ```
-
-Downtime expectation: **≤ 10 minutes** for API recreate on one node.
 
 ## Common operations
 
