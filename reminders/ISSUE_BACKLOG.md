@@ -68,6 +68,38 @@ siblings so fixing one does not silently break another. Full checklist:
 
 ---
 
+## Issue #13 — requirements (AWS secrets)
+
+**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
+**Branch:** `feature/issue-13-aws-secrets`  
+**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
+
+### Why
+
+Environment secrets in plain files are not safe for cloud production.
+
+### Scope
+
+- Move runtime secrets to AWS Secrets Manager (JSON secret).
+- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
+- Define rotation policy for DB/API credentials.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
+| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
+| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
+
+### Execution order (from issue comment)
+
+- Prioritize early once **#12** exists.
+- Should be complete before production deploy runbook (**#20**).
+- Feeds security sign-off in **#27**.
+
+---
+
 ## Issue #21 — requirements (load baseline)
 
 **Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)  
@@ -219,7 +251,39 @@ Public APIs require TLS termination, controlled ingress, and baseline edge prote
 | Criterion | Deliverable |
 | --------- | ----------- |
 | API is reachable only over HTTPS | `deploy/nginx/ito-api.conf` TLS → `127.0.0.1:8000` |
-| HTTP is redirected or blocked | `return 301 https://…` on port 80 |
+| HIssue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator response times and fallback behaviour under load need
+to be measured and tuned to meet user-facing SLOs.
+
+### Scope
+
+- Profile end-to-end latency for `/api/v1/similar-posts` and `/api/v1/evaluate`.
+- Identify top bottlenecks in provider initialisation and corpus lookup.
+- Define and enforce timeout/fallback policy.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline latency measured and documented | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy defined and enforced in code | `config/settings.py` + orchestrator guard |
+| Regression test prevents silent regressions | `tests/test_orchestrator_latency.py` |
+
+### Execution order (from issue comment)
+
+- Start after **#21** load baseline is available.
+- Feeds SLO definitions in **#8**.
+
+---
+
+## TTP is redirected or blocked | `return 301 https://…` on port 80 |
 | WAF and security group rules are documented and tested | WAF → #17 in runbook; `sg_allowlist.json` + hardening tests |
 
 ### Execution order
