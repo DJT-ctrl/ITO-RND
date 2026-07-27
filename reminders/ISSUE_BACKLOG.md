@@ -97,31 +97,15 @@ contention patterns not seen in local tests.
 
 ### Why
 
-After usage data arrives, optimize evaluation reliability and latency under
-concurrent usage (post-launch hardening).
+After launch, orchestrator latency spikes can degrade reliability under concurrent usage.
 
 ### Scope
 
-- Review async orchestration hotspots and slow-step telemetry.
-- Add timeouts/fallbacks for long-running agent steps.
-- Reduce tail latency and improve partial-result behavior on step failures.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| Documented latency profile for orchestration stages | `docs/ops/ORCHESTRATOR_LATENCY.md` |
-| Timeout/fallback policy implemented for slow steps | `AGENT_STEP_TIMEOUT_S` / `FINALIZE_TIMEOUT_S` + orchestrator partials |
-| Error rate and p95 latency improve versus baseline | Caps + partial 200s vs #21 baseline; re-check with load scripts |
-
-### Execution order (from issue comment)
-
-- Run after **#21** baseline report is ready.
-- Use telemetry from **#8** / **#16** to validate improvements.
-- Keep explicitly post-launch unless critical issues emerge.
+- Analyze slow orchestration stages and timeouts.
+- Define Timeout/fallback policy for slow or failed steps.
+- Preserve partial results when possible.
 
 ---
-
 ## Issue #13 — requirements (AWS secrets)
 
 **Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
@@ -130,27 +114,13 @@ concurrent usage (post-launch hardening).
 
 ### Why
 
-Environment secrets in plain files are not safe for cloud production.
+Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ### Scope
 
-- Move runtime secrets to AWS Secrets Manager (JSON secret).
-- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
-- Define rotation policy for DB/API credentials.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
-| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
-| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
-
-### Execution order (from issue comment)
-
-- Prioritize early once **#12** exists.
-- Should be complete before production deploy runbook (**#20**).
-- Feeds security sign-off in **#27**.
+- Store runtime secrets in AWS Secrets Manager.
+- Inject runtime env values ephemerally.
+- Define credential rotation and validation flow.
 
 ---
 
@@ -193,27 +163,144 @@ Cloud spend can drift from idle resources and oversized instance/storage choices
 
 ### Why
 
-Stateful data on AWS needs backup/restore guarantees before frontend traffic begins.
+Stateful services need explicit backup and restore guarantees before production traffic.
 
 ### Scope
 
-- Define backup strategy (EBS snapshots + logical pg dumps to S3).
-- Set retention and restore-time objectives (RPO/RTO).
-- Run and document a restore drill.
+- Document RPO and RTO targets.
+- Ensure scheduled backup jobs and restore drill workflow are defined.
+- Keep DR validation in the release readiness path.
+
+---
+
+## Issue #16 — requirements (CloudWatch logs & alarms)
+
+**Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)  
+**Branch:** `feature/issue-16-cloudwatch-logs-alarms`  
+**Docs:** [`docs/ops/CLOUDWATCH.md`](../docs/ops/CLOUDWATCH.md) · Terraform: [`infra/observability/`](../infra/observability/)
+
+### Why
+
+Cloud operations need first-class observability and alerting integrated with
+AWS-native tooling.
+
+### Scope
+
+- Ship app/system logs to CloudWatch with retention policy.
+- Define CloudWatch alarms for API error rate, latency, host health, and disk pressure.
+- Connect alert destinations (SNS / Slack / PagerDuty).
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Automated backup jobs scheduled and monitored | `ito-db-backup.timer` + textfile metrics + `backup.yml` alerts |
-| Restore drill succeeds in non-prod with timings | `scripts/run_restore_drill.py` + `RESTORE_DRILL_LATEST.json` |
-| RPO/RTO targets agreed and published | RPO ≤ 24h, RTO ≤ 4h in `BACKUP_DR.md` |
+| Critical alerts fire in a controlled test | `scripts/test_cloudwatch_alarms.py` (+ `--live` SNS check) |
+| Dashboards include API and host health | `infra/observability/dashboard.tf` |
+| On-call runbook links alarm → diagnosis → mitigation | `docs/ops/CLOUDWATCH.md` |
 
 ### Execution order (from issue comment)
 
-- Prioritize before launch cut.
-- Backup/restore drill outcome should be included in **#27** release gate.
-- Can run in parallel with **#16** and **#18** after **#12**.
+- After **#12** (Compose host instance id / IAM role).
+- Can run in parallel with **#15** and **#18**.
+- Feeds go-live observability sign-off in **#27**.
+
+---
+
+## Issue #11 — requirements (AWS runtime ADR)
+
+**Issue:** [intotheopen/intotheopen-backend#11](https://github.com/intotheopen/intotheopen-backend/issues/11)  
+**Branch:** `feature/issue-11-aws-runtime-adr`  
+**Docs:** [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md)
+
+### Why
+
+Before go-live, the team should align on a concrete AWS architecture to avoid
+rework and unclear ownership.
+
+### Scope
+
+- Decide target runtime (single EC2 Docker Compose vs ECS Fargate).
+- Define networking boundary, ingress path, and trust boundaries.
+- Produce an ADR with trade-offs, migration path, and operational owner model.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| ADR approved with chosen target architecture | ADR-001 **Accepted (MVP): EC2 + Docker Compose** |
+| Deployment and rollback path documented | ADR sections + detailed runbook in **#20** |
+| Security assumptions and constraints listed | ADR “Security assumptions & constraints” |
+
+### Execution order (from issue comment)
+
+- Start cloud track here first (architecture decision).
+- Blocks: **#12** and **#20** design assumptions.
+- Keep lightweight for low-budget MVP path.
+
+---
+
+## Issue #12 — requirements (AWS IaC)
+
+**Issue:** [intotheopen/intotheopen-backend#12](https://github.com/intotheopen/intotheopen-backend/issues/12)  
+**Branch:** `feature/issue-12-aws-iac`  
+**Docs:** [`infra/README.md`](../infra/README.md)
+
+### Why
+
+Manual AWS setup is error-prone and hard to reproduce. Infrastructure should be
+provisioned declaratively.
+
+### Scope
+
+- Provision VPC, subnets, routes, security groups, IAM, instance profile, storage via Terraform.
+- Least-privilege defaults and tagging standards.
+- Plan/apply workflow and env separation (dev/staging/prod).
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Fresh environment from code only | `infra/terraform` + bootstrap in `infra/README.md` |
+| Drift detection in CI/CD | `.github/workflows/terraform.yml` (`plan -detailed-exitcode`) |
+| Bootstrap and teardown docs | `infra/README.md` |
+
+### Execution order (from issue comment)
+
+- Do immediately after **#11**.
+- Blocks practical execution of: **#13**, **#14**, **#15**, **#16**, **#18**, **#19**, **#20**.
+- This is the cloud foundation issue.
+
+---
+
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator response times and fallback behaviour under load need
+to be measured and tuned to meet user-facing SLOs.
+
+### Scope
+
+- Profile end-to-end latency for `/api/v1/similar-posts` and `/api/v1/evaluate`.
+- Identify top bottlenecks in provider initialisation and corpus lookup.
+- Define and enforce timeout/fallback policy.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline latency measured and documented | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy defined and enforced in code | `config/settings.py` + orchestrator guard |
+| Regression test prevents silent regressions | `tests/test_orchestrator_latency.py` |
+
+### Execution order (from issue comment)
+
+- Start after **#21** load baseline is available.
+- Feeds SLO definitions in **#8**.
 
 ---
 
