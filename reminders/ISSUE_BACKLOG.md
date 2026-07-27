@@ -88,6 +88,38 @@ contention patterns not seen in local tests.
 - Feeds tuning work in **#22**.
 
 ---
+
+## Issue #13 — requirements (AWS secrets)
+
+**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
+**Branch:** `feature/issue-13-aws-secrets`  
+**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
+
+### Why
+
+Environment secrets in plain files are not safe for cloud production.
+
+### Scope
+
+- Move runtime secrets to AWS Secrets Manager (JSON secret).
+- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
+- Define rotation policy for DB/API credentials.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
+| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
+| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
+
+### Execution order (from issue comment)
+
+- Prioritize early once **#12** exists.
+- Should be complete before production deploy runbook (**#20**).
+- Feeds security sign-off in **#27**.
+
+---
 ## Progress summary
 
 | Priority | Count | Closed |

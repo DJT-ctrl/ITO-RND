@@ -41,6 +41,9 @@ Grafana opens with the Prometheus datasource and an **ITO Stack Overview**
 dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
+**Secrets (issue #13):** production credentials come from AWS Secrets Manager —
+see [`SECRETS.md`](SECRETS.md). Local dev still uses a gitignored `.env`.
+
 **Load testing (issue #21):** reproducible scenarios in
 [`scripts/load/`](../scripts/load/) and the published baseline in
 [`docs/ops/LOAD_BASELINE.md`](../docs/ops/LOAD_BASELINE.md).
