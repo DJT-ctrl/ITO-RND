@@ -1,0 +1,11 @@
+# Optional — copy to backend.tf (gitignored) for shared remote state:
+#
+# terraform {
+#   backend "s3" {}
+# }
+#
+# Then: terraform init -backend-config=backend.hcl
+
+terraform {
+  backend "s3" {}
+}

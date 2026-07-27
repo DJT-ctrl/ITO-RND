@@ -106,7 +106,6 @@ After launch, orchestrator latency spikes can degrade reliability under concurre
 - Preserve partial results when possible.
 
 ---
-
 ## Issue #13 — requirements (AWS secrets)
 
 **Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
@@ -176,67 +175,101 @@ AWS-native tooling.
 
 ---
 
-## Issue #18 — requirements (AWS budget alerts)
+## Issue #11 — requirements (AWS runtime ADR)
 
-**Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)  
-**Branch:** `feature/issue-18-aws-budget-alerts`  
-**Docs:** [`docs/ops/COST_CONTROLS.md`](../docs/ops/COST_CONTROLS.md) · Terraform: [`infra/budgets/`](../infra/budgets/)
+**Issue:** [intotheopen/intotheopen-backend#11](https://github.com/intotheopen/intotheopen-backend/issues/11)  
+**Branch:** `feature/issue-11-aws-runtime-adr`  
+**Docs:** [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md)
 
 ### Why
 
-Low-budget operation requires explicit cost guardrails to avoid unexpected AWS spend.
+Before go-live, the team should align on a concrete AWS architecture to avoid
+rework and unclear ownership.
 
 ### Scope
 
-- Define monthly budget threshold and service-level budget split.
-- Configure AWS Budgets with forecast alerts.
-- Add actionable response playbook for budget alerts.
+- Decide target runtime (single EC2 Docker Compose vs ECS Fargate).
+- Define networking boundary, ingress path, and trust boundaries.
+- Produce an ADR with trade-offs, migration path, and operational owner model.
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Budget alarms notify owner channels before overrun | `infra/budgets` (50/80/100 ACTUAL + FORECASTED → SNS) |
-| Monthly cloud cost report is generated and reviewed | `scripts/generate_monthly_cost_report.py` + `docs/ops/cost-reports/` |
-| Cost control steps are documented | `docs/ops/COST_CONTROLS.md` |
+| ADR approved with chosen target architecture | ADR-001 **Accepted (MVP): EC2 + Docker Compose** |
+| Deployment and rollback path documented | ADR sections + detailed runbook in **#20** |
+| Security assumptions and constraints listed | ADR “Security assumptions & constraints” |
 
 ### Execution order (from issue comment)
 
-- After **#12** exists (real spend to guard).
-- Parallel with **#15** / **#16**.
-- Feeds cost sign-off in **#27**.
+- Start cloud track here first (architecture decision).
+- Blocks: **#12** and **#20** design assumptions.
+- Keep lightweight for low-budget MVP path.
 
 ---
 
-## Issue #20 — requirements (deploy & rollback runbook)
+## Issue #12 — requirements (AWS IaC)
 
-**Issue:** [intotheopen/intotheopen-backend#20](https://github.com/intotheopen/intotheopen-backend/issues/20)  
-**Branch:** `feature/issue-20-deploy-rollback-runbook`  
-**Docs:** [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md)
+**Issue:** [intotheopen/intotheopen-backend#12](https://github.com/intotheopen/intotheopen-backend/issues/12)  
+**Branch:** `feature/issue-12-aws-iac`  
+**Docs:** [`infra/README.md`](../infra/README.md)
 
 ### Why
 
-A single-instance low-cost deployment still needs a repeatable release path.
+Manual AWS setup is error-prone and hard to reproduce. Infrastructure should be
+provisioned declaratively.
 
 ### Scope
 
-- Define deploy strategy (blue/green-lite or controlled rolling restart) for single-node setup.
-- Add pre-deploy and post-deploy smoke checks.
-- Define rollback command and decision criteria.
+- Provision VPC, subnets, routes, security groups, IAM, instance profile, storage via Terraform.
+- Least-privilege defaults and tagging standards.
+- Plan/apply workflow and env separation (dev/staging/prod).
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Deployment runbook can be executed by another team member | `DEPLOY_ROLLBACK.md` + `deploy_release.py` / `rollback_release.py` |
-| Rollback tested at least once in staging or controlled environment | `run_deploy_drill.py` + `DEPLOY_DRILL_LATEST.json` |
-| Downtime window expectations documented | ≤ 10 minutes MVP window in runbook |
+| Fresh environment from code only | `infra/terraform` + bootstrap in `infra/README.md` |
+| Drift detection in CI/CD | `.github/workflows/terraform.yml` (`plan -detailed-exitcode`) |
+| Bootstrap and teardown docs | `infra/README.md` |
 
 ### Execution order (from issue comment)
 
-- Near end of Milestone 4 after **#11**, **#12**, **#13**.
-- Must include rollback and smoke checks used by **#27**.
-- Treat as operational readiness evidence.
+- Do immediately after **#11**.
+- Blocks practical execution of: **#13**, **#14**, **#15**, **#16**, **#18**, **#19**, **#20**.
+- This is the cloud foundation issue.
+
+---
+
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator response times and fallback behaviour under load need
+to be measured and tuned to meet user-facing SLOs.
+
+### Scope
+
+- Profile end-to-end latency for `/api/v1/similar-posts` and `/api/v1/evaluate`.
+- Identify top bottlenecks in provider initialisation and corpus lookup.
+- Define and enforce timeout/fallback policy.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline latency measured and documented | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy defined and enforced in code | `config/settings.py` + orchestrator guard |
+| Regression test prevents silent regressions | `tests/test_orchestrator_latency.py` |
+
+### Execution order (from issue comment)
+
+- Start after **#21** load baseline is available.
+- Feeds SLO definitions in **#8**.
 
 ---
 
