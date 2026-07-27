@@ -12,7 +12,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 
 | Done | # | Title | Labels |
 | ---- | - | ----- | ------ |
-| [ ] | [#1](https://github.com/intotheopen/intotheopen-backend/issues/1) | Stabilize agent provider initialization (remove import-time crash path) | bug, P0, api, agents, stabilization |
+| [ ] *(PR [#29](https://github.com/intotheopen/intotheopen-backend/pull/29) open)* | [#1](https://github.com/intotheopen/intotheopen-backend/issues/1) | Stabilize agent provider initialization (remove import-time crash path) | bug, P0, api, agents, stabilization |
 | [ ] | [#3](https://github.com/intotheopen/intotheopen-backend/issues/3) | Harden API surface with auth + rate limiting before frontend exposure | enhancement, P0, api, security, stabilization |
 | [ ] | [#13](https://github.com/intotheopen/intotheopen-backend/issues/13) | Implement AWS-managed secrets and credential rotation | enhancement, P0, security, aws |
 | [ ] | [#15](https://github.com/intotheopen/intotheopen-backend/issues/15) | Establish AWS backup, restore, and disaster-recovery playbook | enhancement, P0, data, devops, aws |
@@ -38,7 +38,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 | [ ] | [#23](https://github.com/intotheopen/intotheopen-backend/issues/23) | Define and enforce CORS trusted-origin policy for frontend integration | enhancement, P1, api, security, testing, frontend-integration |
 | [ ] | [#24](https://github.com/intotheopen/intotheopen-backend/issues/24) | Add OpenAPI client generation and contract-break checks in CI | enhancement, P1, api, devops, testing, frontend-integration |
 | [ ] | [#25](https://github.com/intotheopen/intotheopen-backend/issues/25) | Introduce database migration versioning and CI validation | enhancement, P1, data, devops, testing |
-| [ ] | [#26](https://github.com/intotheopen/intotheopen-backend/issues/26) | Define data retention and sensitive-data governance policy | documentation, P1, data, security |
+| [ ] *(in progress — this branch)* | [#26](https://github.com/intotheopen/intotheopen-backend/issues/26) | Define data retention and sensitive-data governance policy | documentation, P1, data, security |
 | [ ] | [#27](https://github.com/intotheopen/intotheopen-backend/issues/27) | Create end-to-end go-live readiness checklist and release gate | documentation, P1, devops, testing, frontend-integration |
 
 ---
@@ -122,6 +122,37 @@ concurrent usage (post-launch hardening).
 
 ---
 
+## Issue #13 — requirements (AWS secrets)
+
+**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
+**Branch:** `feature/issue-13-aws-secrets`  
+**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
+
+### Why
+
+Environment secrets in plain files are not safe for cloud production.
+
+### Scope
+
+- Move runtime secrets to AWS Secrets Manager (JSON secret).
+- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
+- Define rotation policy for DB/API credentials.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
+| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
+| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
+
+### Execution order (from issue comment)
+
+- Prioritize early once **#12** exists.
+- Should be complete before production deploy runbook (**#20**).
+- Feeds security sign-off in **#27**.
+
+---
 ## Progress summary
 
 | Priority | Count | Closed |

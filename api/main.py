@@ -31,8 +31,27 @@ from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.variant_engine import build_variant_engine
+from api.openapi_examples import (
+    API_ERROR_EXAMPLE,
+    EVALUATE_REQUEST_EXAMPLE,
+    EVALUATE_RESPONSE_EXAMPLE,
+    HEALTH_OK_EXAMPLE,
+    SIMILAR_POSTS_REQUEST_EXAMPLE,
+    SIMILAR_POSTS_RESPONSE_EXAMPLE,
+    VALIDATION_ERROR_EXAMPLE,
+)
 from api.rate_limit import limiter, optional_rate_limit, rate_limit_exceeded_handler
-from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
+from api.schemas import (
+    API_VERSION,
+    ApiErrorResponse,
+    EvaluateRequest,
+    EvaluateResponse,
+    HealthResponse,
+    SimilarPost,
+    SimilarPostsRequest,
+    SimilarPostsResponse,
+    ValidationErrorResponse,
+)
 from api.security import ApiPrincipal, assert_user_id_authorized, configure_api_security, require_api_principal
 from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
@@ -48,7 +67,44 @@ _eval_model: Optional[str] = None
 predictor_agent: Any = None
 diagnostic_agents: Any = None
 
-app = FastAPI(title="ITO Post Similarity API")
+_OPENAPI_DESCRIPTION = """
+Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.
+
+## Versioning
+
+All stable integration endpoints live under **`/api/v1/`**. See
+`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.
+
+## Errors
+
+Documented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are
+stable for client generation. Runtime mapping to these envelopes is implemented
+in issue #7; until then, validation failures return HTTP 422 as documented and
+other failures may return a plain `detail` string.
+""".strip()
+
+_COMMON_ERROR_RESPONSES = {
+    422: {
+        "model": ValidationErrorResponse,
+        "description": "Request validation failed.",
+        "content": {"application/json": {"example": VALIDATION_ERROR_EXAMPLE}},
+    },
+    500: {
+        "model": ApiErrorResponse,
+        "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+        "content": {"application/json": {"example": API_ERROR_EXAMPLE}},
+    },
+}
+
+app = FastAPI(
+    title="IntoTheOpen API",
+    version=API_VERSION,
+    description=_OPENAPI_DESCRIPTION,
+    openapi_tags=[
+        {"name": "health", "description": "Liveness and API version probe."},
+        {"name": "v1", "description": "Stable v1 contract for frontend integration."},
+    ],
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 if settings.api_rate_limit:
@@ -118,12 +174,30 @@ def _ensure_eval_agents() -> tuple[str, Any, Any]:
     return _eval_model, predictor_agent, diagnostic_agents
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["health"],
+    summary="Liveness check",
+    responses={200: {"content": {"application/json": {"example": HEALTH_OK_EXAMPLE}}}},
+)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
 
 
-@app.post("/api/v1/similar-posts", response_model=SimilarPostsResponse)
+@app.post(
+    "/api/v1/similar-posts",
+    response_model=SimilarPostsResponse,
+    tags=["v1"],
+    summary="Find similar historical posts",
+    responses={
+        200: {
+            "description": "Nearest-neighbor posts for the draft.",
+            "content": {"application/json": {"example": SIMILAR_POSTS_RESPONSE_EXAMPLE}},
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+)
 @optional_rate_limit(settings.api_rate_limit)
 def similar_posts(
     request_body: SimilarPostsRequest,
@@ -156,13 +230,25 @@ def similar_posts(
     )
 
 
-@app.post("/api/v1/evaluate", response_model=PostEvaluationState)
+@app.post(
+    "/api/v1/evaluate",
+    response_model=EvaluateResponse,
+    tags=["v1"],
+    summary="Run the full multi-agent evaluation cycle",
+    responses={
+        200: {
+            "description": "Evaluation cycle result.",
+            "content": {"application/json": {"example": EVALUATE_RESPONSE_EXAMPLE}},
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+)
 @optional_rate_limit(settings.api_rate_limit)
 async def evaluate(
     request_body: EvaluateRequest,
     request: Request,
     principal: Optional[ApiPrincipal] = Depends(require_api_principal),
-) -> PostEvaluationState:
+) -> EvaluateResponse:
     """Run the async evaluation cycle end-to-end over HTTP."""
     assert_user_id_authorized(principal, request_body.user_id)
 
@@ -184,7 +270,7 @@ async def evaluate(
         collector=collector,
     )
     try:
-        return await run_evaluation_cycle(
+        state: PostEvaluationState = await run_evaluation_cycle(
             request_body.content,
             settings,
             predictor=predictor,
@@ -200,3 +286,36 @@ async def evaluate(
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return EvaluateResponse.model_validate(state.model_dump())
+
+
+def custom_openapi():
+    """Attach request-body examples after routes are registered."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    from fastapi.openapi.utils import get_openapi
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    for path, path_item in schema.get("paths", {}).items():
+        post = path_item.get("post")
+        if not post:
+            continue
+        body = post.get("requestBody", {}).get("content", {}).get("application/json", {})
+        if path.endswith("/similar-posts"):
+            body["example"] = SIMILAR_POSTS_REQUEST_EXAMPLE
+        elif path.endswith("/evaluate"):
+            body["example"] = EVALUATE_REQUEST_EXAMPLE
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore[method-assign]

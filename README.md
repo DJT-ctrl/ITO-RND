@@ -142,6 +142,13 @@ cp .env.example .env
 
 Full list and defaults: `.env.example`.
 
+### Data & secrets
+
+Scraped LinkedIn content and credentials are retained and handled according to
+the internal ops policy in **[deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md)**
+(indefinite retention by default; no PII masking in this milestone). Treat
+`LINKEDIN_COOKIES` and API keys like passwords — never commit real values.
+
 ---
 
 ## Build
@@ -197,6 +204,12 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 ```
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
+
+**AWS secrets (issue #13):** [deploy/SECRETS.md](deploy/SECRETS.md) — Secrets
+Manager injection and credential rotation (no durable prod `.env`).
+
+**Load baseline (issue #21):** [docs/ops/LOAD_BASELINE.md](docs/ops/LOAD_BASELINE.md) ·
+scripts under [scripts/load/](scripts/load/).
 
 **Orchestrator latency (issue #22):** [docs/ops/ORCHESTRATOR_LATENCY.md](docs/ops/ORCHESTRATOR_LATENCY.md)
 — agent/finalize timeouts and partial-result policy for `/api/v1/evaluate`.
@@ -486,6 +499,9 @@ curl -s localhost:8000/api/v1/evaluate \
 
 OpenAPI schema: http://localhost:8000/docs
 
+**API contract (v1):** [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md) ·
+[`docs/api/VERSIONING.md`](docs/api/VERSIONING.md) · committed snapshot [`openapi.json`](openapi.json)
+
 ---
 
 ## Tests
@@ -571,4 +587,6 @@ docker compose up -d --build
 ## Further reading
 
 - [deploy/README.md](deploy/README.md) — production stack, Grafana, systemd, Nginx
+- [deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md) — data retention and secrets handling
 - [.env.example](.env.example) — full environment variable reference
+- [REMINDERS.md](REMINDERS.md) — issue-first workflow and backlog

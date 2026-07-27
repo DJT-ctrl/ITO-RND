@@ -181,7 +181,10 @@ def test_service_key_allows_any_user_id(
 def test_health_check_remains_unauthenticated_when_auth_enabled(auth_client):
     response = auth_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    if "api_version" in payload:
+        assert payload["api_version"] == "v1"
 
 
 def test_rate_limit_enforced_per_api_key():
