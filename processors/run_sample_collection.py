@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from config.settings import Settings, load_settings
 from config.paths import utc_artifact_stamp
@@ -133,9 +133,9 @@ def _flatten_enriched_for_csv(enriched_post: dict[str, Any]) -> dict[str, Any]:
         "post_id": enriched_post.get("id") or "",
         "author_name": author.get("name") or "",
     }
-    for field in _ENRICHED_CSV_FIELDS:
-        if field not in row:
-            row[field] = enriched_post.get(field)
+    for column in _ENRICHED_CSV_FIELDS:
+        if column not in row:
+            row[column] = enriched_post.get(column)
     return row
 
 

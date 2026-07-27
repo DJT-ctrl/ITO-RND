@@ -2,11 +2,9 @@
 
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
 from config.settings import Settings
