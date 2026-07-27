@@ -1,7 +1,7 @@
 # Git & Issue Workflow Reminder
 
 **For:** Humans and AI agents working in this repository  
-**Last updated:** 2026-07-16  
+**Last updated:** 2026-07-17  
 **New to git/GitHub?** Start with [BEGINNER_GUIDE.md](BEGINNER_GUIDE.md)
 
 **Official org workflow:** [intotheopen/.github](https://github.com/intotheopen/.github) — [CONTRIBUTING.md](https://github.com/intotheopen/.github/blob/main/.github/CONTRIBUTING.md), [BACKEND.md](https://github.com/intotheopen/.github/blob/main/BACKEND.md), [PR template](https://github.com/intotheopen/.github/blob/main/.github/PULL_REQUEST_TEMPLATE.md)
@@ -79,13 +79,92 @@ From the [org CONTRIBUTING guide](https://github.com/intotheopen/.github/blob/ma
 
 ```
 1. Pick issue from backlog (or create issue if missing)
-2. Comment on issue: "Taking this" / assign yourself
-3. Branch:  fix/issue-N-short-slug  (see org naming above)
-4. Implement + tests (pytest -q)
-5. Open PR with Closes #N + PR template checklist
-6. Review → merge → issue auto-closes
-7. Tick issue in ISSUE_BACKLOG.md
+2. Side-effect check — could solving this create more issues? (see below)
+3. Comment on issue: "Taking this" / assign yourself
+4. Branch:  fix/issue-N-short-slug  (see org naming above)
+5. Implement + tests (pytest -q)  — only after user OK if side effects found
+6. Open PR with Closes #N + PR template checklist
+7. Review → merge → issue auto-closes
+8. Tick issue in ISSUE_BACKLOG.md
 ```
+
+---
+
+## Side-effect check — don't create more issues
+
+**Goal:** close the current issue without quietly inventing new bugs, deficits, or
+untracked follow-on work.
+
+**When:** after reading the issue / acceptance criteria, **before** branching and
+coding (and again if mid-implementation you discover a new gap).
+
+**Look for:**
+
+| Risk | Examples |
+| ---- | -------- |
+| New deficit | Fix needs a runbook/secret/alarm that does not exist and is not in the backlog |
+| New bug surface | Change breaks another module, API contract, or deploy path |
+| Scope creep | “While we're here” extras that deserve their own issue |
+| Duplicate | Follow-up already exists as an open issue — link it instead of creating another |
+
+Cross-check [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) and open GitHub issues before
+assuming something is new.
+
+### If a possible new issue is found
+
+1. **Stop** — do not open a new GitHub issue yet, do not expand the PR, do not keep shipping past the risk.
+2. Tell the user in the same reply, with the risk in **bold** after the main explanation, then ask permission. Example:
+
+> Planned approach for #18: …  
+>
+> **Possible new issue if we proceed:** budget alerts without a confirmed SNS owner email leave paging incomplete.  
+> Already on backlog? No.  
+> May I proceed with #18 as scoped, or should we adjust / file a follow-up first?
+
+3. **Wait** for explicit user permission (`proceed`, `file a follow-up`, `adjust scope`, etc.) before continuing.
+
+### If nothing material is found
+
+Continue the normal workflow. Prefer solving the current issue only; do not
+proactively open extra issues “just in case.”
+
+---
+
+## Merge conflicts — check before and after
+
+**Be wary:** many backlog PRs touch the same paths. Fixing a conflict on one PR
+can surface (or hide) conflicts on others. GitHub’s “mergeable” flag can also lag
+or look wrong when a PR is **stacked** on another feature branch instead of `main`.
+
+### When working a conflict
+
+1. **Identify the real base** — `gh pr view N --json baseRefName,mergeable`. If
+   `baseRefName` is not `main`, sync with that base branch too (not only `main`).
+2. **Resolve without compromises** — keep both sides’ intent (e.g. lazy agent init
+   *and* CI stubs; Streamlit tracked config *and* CI artifact ignores). Prefer
+   combining over picking a winner.
+3. **Do not merge to `main`** just to “test” — merge `main` (and stacked bases)
+   *into the PR branch*, push the branch, leave `main` alone.
+4. **Recheck every open PR** after you push:
+
+```bash
+gh pr list --repo intotheopen/intotheopen-backend --state open --limit 50 \
+  --json number,title,mergeable,mergeStateStatus,baseRefName \
+  --jq 'sort_by(.number) | .[] | "\(.number)\t\(.mergeable)\t\(.baseRefName)\t\(.title)"'
+```
+
+5. **Confirm siblings you already fixed** (e.g. #31, #33) are still `MERGEABLE`
+   after the latest push — fixing one must not break another.
+
+### Red flags
+
+| Signal | What to do |
+| ------ | ---------- |
+| Conflict only vs stacked base, clean vs `main` | Merge/rebase onto the updated base branch, or confirm with the team before retargeting to `main` |
+| Another PR flips to `CONFLICTING` after your push | Investigate immediately; do not assume it is unrelated |
+| Docstring-only / trivial marker conflicts | Still recheck the full PR list — shared history may hide larger stack issues |
+
+Also listed in [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) and rule **9** in [`FOR_AI.md`](FOR_AI.md).
 
 ---
 

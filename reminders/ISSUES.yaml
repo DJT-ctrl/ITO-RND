@@ -86,6 +86,27 @@ issues:
       - "Can run in parallel with **#15** and **#18**"
       - "Feeds go-live observability sign-off in **#27**"
 
+  - number: 19
+    title: "EC2/EBS rightsizing"
+    branch: "feature/issue-19-ec2-ebs-rightsizing"
+    docs: "docs/ops/RIGHTSIZING.md"
+    why: "Post-launch instance and volume sizes should match real workload patterns to control cost without sacrificing performance."
+    scope:
+      - "Capture and document baseline instance and volume sizing decisions"
+      - "Define idle-resource policy for non-prod environments"
+      - "Establish monthly rightsizing review process"
+    acceptance_criteria:
+      - criterion: "Baseline sizing is justified and recorded"
+        deliverable: "`infra/rightsizing/baseline.json`"
+      - criterion: "Idle policy protects prod and governs dev/staging"
+        deliverable: "`infra/rightsizing/idle_policy.json`"
+      - criterion: "Runbook guides monthly review and escalation"
+        deliverable: "`docs/ops/RIGHTSIZING.md`"
+    execution_notes:
+      - "Follows **#12** and **#18** for baseline cost context"
+      - "Review cadence feeds **#18** budget thresholds"
+      - "Never apply idle policy to prod environments"
+
   - number: 21
     title: "Load baseline"
     branch: "feature/issue-21-load-baseline"
