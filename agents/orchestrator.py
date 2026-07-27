@@ -257,6 +257,7 @@ async def _run_agent_with_telemetry(
     agent: EvaluationAgent,
     prompt: str,
     deps: EvaluationDeps,
+    timeout_s: Optional[float] = None,
 ) -> Any:
     step_id = "agent.predictor" if key == "__predictor__" else f"agent.{key}"
     label = "Predictor" if key == "__predictor__" else key.title()
@@ -269,7 +270,61 @@ async def _run_agent_with_telemetry(
         prompt=prompt,
         deps=deps,
         model=_agent_model_name(),
+        timeout_s=timeout_s,
     )
+
+
+def _partial_timeout_payload(key: str, timeout_s: float) -> dict:
+    """Structured partial result when an agent step times out (issue #22)."""
+    return {
+        "status": "timeout",
+        "partial": True,
+        "timed_out_after_s": timeout_s,
+        "message": f"{key} exceeded {timeout_s}s timeout; partial result returned",
+    }
+
+
+def _predictor_timeout_fallback(
+    neighbor_prediction: Optional[dict],
+    timeout_s: float,
+) -> dict:
+    """Prefer deterministic neighbor score when the Predictor LLM times out."""
+    from agents.predictor import PredictorOutput
+
+    if neighbor_prediction and neighbor_prediction.get("neighbor_count", 0) > 0:
+        fallback = PredictorOutput(
+            predicted_engagement_percentile=float(neighbor_prediction["percentile"]),
+            predicted_total_engagement=int(neighbor_prediction["total_engagement_estimate"]),
+            predicted_likes=int(neighbor_prediction.get("predicted_likes", 0)),
+            predicted_comments=int(neighbor_prediction.get("predicted_comments", 0)),
+            predicted_shares=int(neighbor_prediction.get("predicted_shares", 0)),
+            reasoning=(
+                "Predictor agent timed out; used deterministic neighbor-weighted "
+                "score so the cycle can still return a usable prediction."
+            ),
+        )
+        payload = fallback.model_dump()
+        payload["status"] = "timeout"
+        payload["partial"] = True
+        payload["timed_out_after_s"] = timeout_s
+        return payload
+    return _partial_timeout_payload("__predictor__", timeout_s)
+
+
+def _resolve_agent_timeout_s(settings: Settings) -> Optional[float]:
+    if not settings.agent_step_timeouts_enabled:
+        return None
+    if settings.agent_step_timeout_s <= 0:
+        return None
+    return float(settings.agent_step_timeout_s)
+
+
+def _resolve_finalize_timeout_s(settings: Settings) -> Optional[float]:
+    if not settings.agent_step_timeouts_enabled:
+        return None
+    if settings.finalize_timeout_s <= 0:
+        return None
+    return float(settings.finalize_timeout_s)
 
 
 async def run_evaluation_cycle(
@@ -403,20 +458,57 @@ async def run_evaluation_cycle(
     keys: list[str] = []
     coros: list[Awaitable[Any]] = []
     prompt = build_evaluation_user_message(draft_content)
+    agent_timeout_s = _resolve_agent_timeout_s(settings)
     if predictor is not None:
         keys.append("__predictor__")
-        coros.append(_run_agent_with_telemetry(collector, "__predictor__", predictor, prompt, deps))
+        coros.append(
+            _run_agent_with_telemetry(
+                collector, "__predictor__", predictor, prompt, deps, timeout_s=agent_timeout_s
+            )
+        )
     for name, agent in (diagnostics or {}).items():
         keys.append(name)
-        coros.append(_run_agent_with_telemetry(collector, name, agent, prompt, deps))
+        coros.append(
+            _run_agent_with_telemetry(
+                collector, name, agent, prompt, deps, timeout_s=agent_timeout_s
+            )
+        )
 
     results = await asyncio.gather(*coros, return_exceptions=True)
 
     for key, result in zip(keys, results):
+        if isinstance(result, asyncio.TimeoutError):
+            timeout_s = agent_timeout_s or 0.0
+            state.errors.append(f"{key}: exceeded {timeout_s}s timeout")
+            if key == "__predictor__":
+                state.predictor_result = _predictor_timeout_fallback(
+                    neighbor_prediction, timeout_s
+                )
+            else:
+                state.diagnostics[key] = _partial_timeout_payload(key, timeout_s)
+            continue
         if isinstance(result, Exception):
             # One bad agent must not drop the other agents' already-written
             # state or crash the whole cycle — record it and move on.
             state.errors.append(f"{key}: {result}")
+            if key == "__predictor__":
+                # Still return a usable prediction when neighbors are available.
+                state.predictor_result = _predictor_timeout_fallback(
+                    neighbor_prediction, agent_timeout_s or 0.0
+                )
+                if state.predictor_result.get("partial"):
+                    state.predictor_result["status"] = "error"
+                    state.predictor_result["message"] = (
+                        f"Predictor failed ({result}); used deterministic fallback"
+                        if neighbor_prediction
+                        else f"Predictor failed ({result})"
+                    )
+            else:
+                state.diagnostics[key] = {
+                    "status": "error",
+                    "partial": True,
+                    "message": str(result),
+                }
             continue
         output = _as_dict(result.output)
         if key == "__predictor__":
@@ -430,7 +522,19 @@ async def run_evaluation_cycle(
             state.diagnostics[key] = output
 
     if finalize is not None:
-        await finalize(state)
+        finalize_timeout_s = _resolve_finalize_timeout_s(settings)
+        try:
+            if finalize_timeout_s is not None:
+                await asyncio.wait_for(finalize(state), timeout=finalize_timeout_s)
+            else:
+                await finalize(state)
+        except asyncio.TimeoutError:
+            state.errors.append(
+                f"finalize: exceeded {finalize_timeout_s}s timeout; variants may be incomplete"
+            )
+        except Exception as exc:
+            # Variant engine failures must not discard agent results (issue #22).
+            state.errors.append(f"finalize: {exc}")
 
     state.run_metadata = collector.finalize()
     save_run_metadata(state.run_metadata, settings)

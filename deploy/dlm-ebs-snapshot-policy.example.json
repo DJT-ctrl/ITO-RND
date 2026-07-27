@@ -1,0 +1,26 @@
+{
+  "Description": "ITO Postgres EBS daily snapshots (issue #15) — create via AWS DLM console/CLI",
+  "ExecutionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/AWSDataLifecycleManagerDefaultRole",
+  "State": "ENABLED",
+  "ResourceTypes": ["VOLUME"],
+  "TargetTags": [
+    {
+      "Key": "ito:role",
+      "Value": "postgres-data"
+    }
+  ],
+  "Schedules": [
+    {
+      "Name": "DailyPostgresData",
+      "CreateRule": {
+        "Interval": 24,
+        "IntervalUnit": "HOURS",
+        "Times": ["03:00"]
+      },
+      "RetainRule": {
+        "Count": 14
+      },
+      "CopyTags": true
+    }
+  ]
+}
