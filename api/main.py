@@ -13,28 +13,102 @@ point in this repo uses). A fresh DB connection is opened per request —
 simplest correct option for this phase's scale; a connection pool is a
 legitimate future optimization but is scope creep for now (see
 PhaseT2plan.md Decision #3).
+
+Issue #1: predictor/diagnostic agents are built lazily on first /evaluate
+request so a provider mismatch cannot crash the process at import time
+(GET /health and similar-posts stay up).
 """
 
-from fastapi import FastAPI, HTTPException
+from typing import Any, Optional
+
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pgvector.psycopg import register_vector
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.variant_engine import build_variant_engine
-from api.schemas import EvaluateRequest, SimilarPost, SimilarPostsRequest, SimilarPostsResponse
+from api.openapi_examples import (
+    API_ERROR_EXAMPLE,
+    EVALUATE_REQUEST_EXAMPLE,
+    EVALUATE_RESPONSE_EXAMPLE,
+    HEALTH_OK_EXAMPLE,
+    SIMILAR_POSTS_REQUEST_EXAMPLE,
+    SIMILAR_POSTS_RESPONSE_EXAMPLE,
+    VALIDATION_ERROR_EXAMPLE,
+)
+from api.rate_limit import limiter, optional_rate_limit, rate_limit_exceeded_handler
+from api.schemas import (
+    API_VERSION,
+    ApiErrorResponse,
+    EvaluateRequest,
+    EvaluateResponse,
+    HealthResponse,
+    SimilarPost,
+    SimilarPostsRequest,
+    SimilarPostsResponse,
+    ValidationErrorResponse,
+)
+from api.security import ApiPrincipal, assert_user_id_authorized, configure_api_security, require_api_principal
 from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
 from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()
-_eval_model = pydantic_ai_gemini_model()
-predictor_agent = build_predictor_agent(_eval_model)
-diagnostic_agents = build_diagnostic_agents(_eval_model)
+configure_api_security(settings)
 
-app = FastAPI(title="ITO Post Similarity API")
+# Lazy agent state — populated by _ensure_eval_agents() on first /evaluate.
+# Tests may patch these module attributes directly (see tests/test_api.py).
+_eval_model: Optional[str] = None
+predictor_agent: Any = None
+diagnostic_agents: Any = None
+
+_OPENAPI_DESCRIPTION = """
+Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.
+
+## Versioning
+
+All stable integration endpoints live under **`/api/v1/`**. See
+`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.
+
+## Errors
+
+Documented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are
+stable for client generation. Runtime mapping to these envelopes is implemented
+in issue #7; until then, validation failures return HTTP 422 as documented and
+other failures may return a plain `detail` string.
+""".strip()
+
+_COMMON_ERROR_RESPONSES = {
+    422: {
+        "model": ValidationErrorResponse,
+        "description": "Request validation failed.",
+        "content": {"application/json": {"example": VALIDATION_ERROR_EXAMPLE}},
+    },
+    500: {
+        "model": ApiErrorResponse,
+        "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+        "content": {"application/json": {"example": API_ERROR_EXAMPLE}},
+    },
+}
+
+app = FastAPI(
+    title="IntoTheOpen API",
+    version=API_VERSION,
+    description=_OPENAPI_DESCRIPTION,
+    openapi_tags=[
+        {"name": "health", "description": "Liveness and API version probe."},
+        {"name": "v1", "description": "Stable v1 contract for frontend integration."},
+    ],
+)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+if settings.api_rate_limit:
+    app.add_middleware(SlowAPIMiddleware)
 
 # Telemetry: expose Prometheus metrics at /metrics for the local Prometheus
 # scraper (see docker-compose.yml's `prometheus` service + deploy/telemetry/).
@@ -52,15 +126,88 @@ except ImportError:
     pass
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def _ensure_eval_agents() -> tuple[str, Any, Any]:
+    """Build predictor/diagnostic agents on first use (not at import).
+
+    Raises HTTPException(503) with actionable config guidance if the provider
+    or model cannot be constructed.
+    """
+    global _eval_model, predictor_agent, diagnostic_agents
+
+    if _eval_model is None:
+        try:
+            _eval_model = pydantic_ai_gemini_model()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Agent model configuration invalid: {exc}. "
+                    "Set AGENT_GEMINI_MODEL (e.g. gemini-2.5-flash-lite) in .env."
+                ),
+            ) from exc
+
+    if predictor_agent is None:
+        try:
+            predictor_agent = build_predictor_agent(_eval_model)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Failed to initialize predictor agent ({_eval_model!r}): {exc}. "
+                    "Install pydantic-ai-slim[google]>=2.5,<3 and set GEMINI_API_KEY. "
+                    "Use the google: provider prefix (legacy google-gla: is not supported)."
+                ),
+            ) from exc
+
+    if diagnostic_agents is None:
+        try:
+            diagnostic_agents = build_diagnostic_agents(_eval_model)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Failed to initialize diagnostic agents ({_eval_model!r}): {exc}. "
+                    "Install pydantic-ai-slim[google]>=2.5,<3 and set GEMINI_API_KEY."
+                ),
+            ) from exc
+
+    return _eval_model, predictor_agent, diagnostic_agents
 
 
-@app.post("/api/v1/similar-posts", response_model=SimilarPostsResponse)
-def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["health"],
+    summary="Liveness check",
+    responses={200: {"content": {"application/json": {"example": HEALTH_OK_EXAMPLE}}}},
+)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.post(
+    "/api/v1/similar-posts",
+    response_model=SimilarPostsResponse,
+    tags=["v1"],
+    summary="Find similar historical posts",
+    responses={
+        200: {
+            "description": "Nearest-neighbor posts for the draft.",
+            "content": {"application/json": {"example": SIMILAR_POSTS_RESPONSE_EXAMPLE}},
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+)
+@optional_rate_limit(settings.api_rate_limit)
+def similar_posts(
+    request_body: SimilarPostsRequest,
+    request: Request,
+    principal: Optional[ApiPrincipal] = Depends(require_api_principal),
+) -> SimilarPostsResponse:
+    assert_user_id_authorized(principal, request_body.user_id)
+
     try:
-        query_vector, _prompt_tokens = embed_query(request.content, settings)
+        query_vector, _prompt_tokens = embed_query(request_body.content, settings)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -73,49 +220,102 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
         # register the adapter immediately so `query_vector` (a numpy
         # array) can be passed directly as a query parameter.
         register_vector(conn)
-        rows = find_similar(conn, query_vector, limit=request.limit, user_id=request.user_id)
+        rows = find_similar(conn, query_vector, limit=request_body.limit, user_id=request_body.user_id)
     finally:
         conn.close()
 
     return SimilarPostsResponse(
-        query_content=request.content,
+        query_content=request_body.content,
         results=[SimilarPost(**row) for row in rows],
     )
 
 
-@app.post("/api/v1/evaluate", response_model=PostEvaluationState)
-async def evaluate(request: EvaluateRequest) -> PostEvaluationState:
+@app.post(
+    "/api/v1/evaluate",
+    response_model=EvaluateResponse,
+    tags=["v1"],
+    summary="Run the full multi-agent evaluation cycle",
+    responses={
+        200: {
+            "description": "Evaluation cycle result.",
+            "content": {"application/json": {"example": EVALUATE_RESPONSE_EXAMPLE}},
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+)
+@optional_rate_limit(settings.api_rate_limit)
+async def evaluate(
+    request_body: EvaluateRequest,
+    request: Request,
+    principal: Optional[ApiPrincipal] = Depends(require_api_principal),
+) -> EvaluateResponse:
     """Run the async evaluation cycle end-to-end over HTTP."""
-    resolved_seo_mode = request.seo_mode or settings.seo_discoverability_mode
+    assert_user_id_authorized(principal, request_body.user_id)
+
+    eval_model, predictor, diagnostics = _ensure_eval_agents()
+    resolved_seo_mode = request_body.seo_mode or settings.seo_discoverability_mode
     collector = RunMetadataCollector(
         settings=settings,
-        user_id=request.user_id,
-        agent_model=_eval_model,
-        variant_strategy=request.variant_strategy,
-        reembed_variant_neighbors=request.reembed_variant_neighbors,
+        user_id=request_body.user_id,
+        agent_model=eval_model,
+        variant_strategy=request_body.variant_strategy,
+        reembed_variant_neighbors=request_body.reembed_variant_neighbors,
         seo_mode=resolved_seo_mode,
     )
     variant_hook = build_variant_engine(
-        predictor_agent,
-        strategy=request.variant_strategy,
-        reembed_neighbors=request.reembed_variant_neighbors,
+        predictor,
+        strategy=request_body.variant_strategy,
+        reembed_neighbors=request_body.reembed_variant_neighbors,
         settings=settings,
         collector=collector,
     )
     try:
-        return await run_evaluation_cycle(
-            request.content,
+        state: PostEvaluationState = await run_evaluation_cycle(
+            request_body.content,
             settings,
-            predictor=predictor_agent,
-            diagnostics=diagnostic_agents,
+            predictor=predictor,
+            diagnostics=diagnostics,
             finalize=variant_hook,
-            user_id=request.user_id,
-            use_voice_profile=request.use_voice_profile,
-            seo_mode=request.seo_mode,
-            use_google_trends=request.use_google_trends,
+            user_id=request_body.user_id,
+            use_voice_profile=request_body.use_voice_profile,
+            seo_mode=request_body.seo_mode,
+            use_google_trends=request_body.use_google_trends,
             collector=collector,
-            variant_strategy=request.variant_strategy,
-            reembed_variant_neighbors=request.reembed_variant_neighbors,
+            variant_strategy=request_body.variant_strategy,
+            reembed_variant_neighbors=request_body.reembed_variant_neighbors,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return EvaluateResponse.model_validate(state.model_dump())
+
+
+def custom_openapi():
+    """Attach request-body examples after routes are registered."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    from fastapi.openapi.utils import get_openapi
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+    )
+    for path, path_item in schema.get("paths", {}).items():
+        post = path_item.get("post")
+        if not post:
+            continue
+        body = post.get("requestBody", {}).get("content", {}).get("application/json", {})
+        if path.endswith("/similar-posts"):
+            body["example"] = SIMILAR_POSTS_REQUEST_EXAMPLE
+        elif path.endswith("/evaluate"):
+            body["example"] = EVALUATE_REQUEST_EXAMPLE
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi  # type: ignore[method-assign]
