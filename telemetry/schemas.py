@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 StepStage = Literal["retrieval", "setup", "agent", "variant"]
 StepCallType = Literal["llm", "embedding", "db", "compute", "external"]
-StepStatus = Literal["ok", "error"]
+StepStatus = Literal["ok", "error", "timeout"]
 
 
 class StepTelemetry(BaseModel):
