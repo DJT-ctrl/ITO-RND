@@ -42,6 +42,8 @@ htmlcov/
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
 data/pgdata/
+data/db_backups/*.dump
+data/telemetry/backup_status.json
 data/feedback_loop_overrides.json
 
 # Logs
@@ -71,10 +73,8 @@ T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
 
-# OpenAPI client tooling (package.json / lockfile are tracked; install locally)
 node_modules/
 
-# Ephemeral AWS-injected env (issue #13) - never commit
+# Runtime secrets (ephemeral)
+/run/ito/runtime.env
 runtime.env
-.runtime.env
-**/runtime.env
