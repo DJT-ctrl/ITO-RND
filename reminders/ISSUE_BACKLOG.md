@@ -6,7 +6,7 @@
 
 ---
 
-## Issue #11 — AWS runtime ADR
+## Issue #11 — requirements (AWS runtime ADR)
 
 **Issue:** [intotheopen/intotheopen-backend#11](https://github.com/intotheopen/intotheopen-backend/issues/11)
 **Branch:** `feature/issue-11-aws-runtime-adr`
@@ -38,7 +38,7 @@ Before go-live, the team should align on a concrete AWS architecture to avoid re
 
 ---
 
-## Issue #12 — AWS IaC
+## Issue #12 — requirements (AWS IaC)
 
 **Issue:** [intotheopen/intotheopen-backend#12](https://github.com/intotheopen/intotheopen-backend/issues/12)
 **Branch:** `feature/issue-12-aws-iac`
@@ -70,7 +70,7 @@ Manual AWS setup is error-prone and hard to reproduce. Infrastructure should be 
 
 ---
 
-## Issue #13 — AWS secrets
+## Issue #13 — requirements (AWS secrets)
 
 **Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)
 **Branch:** `feature/issue-13-aws-secrets`
@@ -88,7 +88,7 @@ Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ---
 
-## Issue #15 — Backup / DR
+## Issue #15 — requirements (Backup / DR)
 
 **Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)
 **Branch:** `feature/issue-15-aws-backup-dr`
@@ -106,7 +106,7 @@ Stateful services need explicit backup and restore guarantees before production 
 
 ---
 
-## Issue #16 — CloudWatch logs & alarms
+## Issue #16 — requirements (CloudWatch logs & alarms)
 
 **Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)
 **Branch:** `feature/issue-16-cloudwatch-logs-alarms`
@@ -138,7 +138,7 @@ Cloud operations need first-class observability and alerting integrated with AWS
 
 ---
 
-## Issue #18 — AWS budget alerts
+## Issue #18 — requirements (AWS budget alerts)
 
 **Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)
 **Branch:** `feature/issue-18-aws-budget-alerts`
@@ -170,7 +170,7 @@ Post-launch spend needs monthly guardrails and alert thresholds to avoid unexpec
 
 ---
 
-## Issue #21 — Load baseline
+## Issue #21 — requirements (Load baseline)
 
 **Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)
 **Branch:** `feature/issue-21-load-baseline`
@@ -202,7 +202,7 @@ After frontend launch, real user traffic can expose latency bottlenecks and cont
 
 ---
 
-## Issue #22 — Orchestrator latency
+## Issue #22 — requirements (Orchestrator latency)
 
 **Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)
 **Branch:** `feature/issue-22-orchestrator-latency`
