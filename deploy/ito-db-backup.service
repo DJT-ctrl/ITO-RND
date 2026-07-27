@@ -1,0 +1,17 @@
+[Unit]
+Description=ITO scheduled Postgres logical backup to local disk + optional S3 (issue #15)
+Requires=docker.service
+After=docker.service network-online.target ito-stack.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ito-rnd
+EnvironmentFile=-/etc/ito/ito.env
+# Optional: ITO_BACKUP_S3_BUCKET, ITO_BACKUP_S3_PREFIX, ITO_BACKUP_KEEP_LOCAL
+ExecStart=/opt/ito-rnd/.venv/bin/python /opt/ito-rnd/scripts/run_scheduled_backup.py
+# On failure, systemd records the unit failed — journalctl -u ito-db-backup
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
