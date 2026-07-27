@@ -185,6 +185,12 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
 
+**AWS runtime (issue #11):** [docs/ops/ADR-001-aws-runtime.md](docs/ops/ADR-001-aws-runtime.md) —
+MVP = single EC2 + Docker Compose (ECS deferred).
+
+**AWS secrets (issue #13):** [deploy/SECRETS.md](deploy/SECRETS.md) — Secrets
+Manager injection and credential rotation (no durable prod `.env`).
+
 **Backup / DR (issue #15):** [docs/ops/BACKUP_DR.md](docs/ops/BACKUP_DR.md) —
 RPO ≤ 24h, RTO ≤ 4h, daily dumps + EBS snapshots, restore drill.
 

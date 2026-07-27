@@ -41,6 +41,10 @@ Grafana opens with the Prometheus datasource and an **ITO Stack Overview**
 dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
+**Target AWS runtime (issue #11):** single EC2 + this Compose stack —
+see [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md).
+ECS Fargate is the documented post-MVP migration path.
+
 **Secrets (issue #13):** production credentials come from AWS Secrets Manager —
 see [`SECRETS.md`](SECRETS.md). Local dev still uses a gitignored `.env`.
 

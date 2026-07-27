@@ -1,4 +1,4 @@
-# Issue Backlog — 27 issues
+﻿# Issue Backlog — 27 issues
 
 **Repository (canonical):** [intotheopen/intotheopen-backend](https://github.com/intotheopen/intotheopen-backend)  
 **Issues:** https://github.com/intotheopen/intotheopen-backend/issues  
@@ -64,8 +64,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 
 ### Why
 
-After frontend launch, real user traffic can expose latency bottlenecks and
-contention patterns not seen in local tests.
+After frontend launch, real user traffic can expose latency bottlenecks and contention patterns not seen in local tests.
 
 ### Scope
 
@@ -79,7 +78,7 @@ contention patterns not seen in local tests.
 | --------- | ----------- |
 | Reproducible load test scripts exist | `scripts/load/run_load_test.py` + `scenarios.yaml` (+ optional stub API) |
 | Baseline performance report is published | `docs/ops/LOAD_BASELINE.md` |
-| Improvement plan with measurable targets is captured | Same doc → feeds tuning work in **#22** |
+| Improvement plan with measurable targets is captured | Same doc -> feeds tuning work in **#22** |
 
 ### Execution order (from issue comment)
 
@@ -183,6 +182,38 @@ Stateful data on AWS needs backup/restore guarantees before frontend traffic beg
 - Prioritize before launch cut.
 - Backup/restore drill outcome should be included in **#27** release gate.
 - Can run in parallel with **#16** and **#18** after **#12**.
+
+---
+
+## Issue #11 — requirements (AWS runtime ADR)
+
+**Issue:** [intotheopen/intotheopen-backend#11](https://github.com/intotheopen/intotheopen-backend/issues/11)  
+**Branch:** `feature/issue-11-aws-runtime-adr`  
+**Docs:** [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md)
+
+### Why
+
+Before go-live, the team should align on a concrete AWS architecture to avoid rework and unclear ownership.
+
+### Scope
+
+- Decide target runtime (single EC2 Docker Compose vs ECS Fargate).
+- Define networking boundary, ingress path, and trust boundaries.
+- Produce an ADR with trade-offs, migration path, and operational owner model.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| ADR approved with chosen target architecture | ADR-001 **Accepted (MVP): EC2 + Docker Compose** |
+| Deployment and rollback path documented | ADR sections + detailed runbook in **#20** |
+| Security assumptions and constraints listed | ADR "Security assumptions & constraints" |
+
+### Execution order (from issue comment)
+
+- Start cloud track here first (architecture decision).
+- Blocks: **#12** and **#20** design assumptions.
+- Keep lightweight for low-budget MVP path.
 
 ---
 
