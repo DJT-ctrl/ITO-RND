@@ -5,7 +5,6 @@ import json
 import pytest
 
 from storage.pipeline_registry import (
-    PipelineBundle,
     dedupe_records_by_post_id,
     join_content_to_records,
     list_bundles,
@@ -13,7 +12,6 @@ from storage.pipeline_registry import (
     register_analysed_bundle,
     register_scrape_bundle,
     write_artefact_meta,
-    _MANIFEST_PATH,
 )
 
 
