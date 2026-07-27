@@ -52,6 +52,7 @@ When fetching issues: `gh issue view N --repo intotheopen/intotheopen-backend`
 | Item | Status |
 | ---- | ------ |
 | Issue #1 | PR open → https://github.com/intotheopen/intotheopen-backend/pull/29 (`Closes #1`) |
+| Issue #16 | Branch `feature/issue-16-cloudwatch-logs-alarms` — CloudWatch logs/alarms MVP |
 | Issues #2–#27 | Still open — see [`ISSUE_BACKLOG.md`](ISSUE_BACKLOG.md) |
 | Next suggested | After #1 merges: next **P0** (#3 auth/rate-limit, or #13/#15 AWS) |
 

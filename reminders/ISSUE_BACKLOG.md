@@ -89,6 +89,23 @@ contention patterns not seen in local tests.
 
 ---
 
+## Issue #22 — requirements (orchestrator latency)
+
+**Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
+**Branch:** `feature/issue-22-orchestrator-latency`  
+**Docs:** [`docs/ops/ORCHESTRATOR_LATENCY.md`](../docs/ops/ORCHESTRATOR_LATENCY.md)
+
+### Why
+
+After launch, orchestrator latency spikes can degrade reliability under concurrent usage.
+
+### Scope
+
+- Analyze slow orchestration stages and timeouts.
+- Define Timeout/fallback policy for slow or failed steps.
+- Preserve partial results when possible.
+
+---
 ## Issue #13 — requirements (AWS secrets)
 
 **Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
@@ -97,27 +114,13 @@ contention patterns not seen in local tests.
 
 ### Why
 
-Environment secrets in plain files are not safe for cloud production.
+Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ### Scope
 
-- Move runtime secrets to AWS Secrets Manager (JSON secret).
-- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
-- Define rotation policy for DB/API credentials.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
-| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
-| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
-
-### Execution order (from issue comment)
-
-- Prioritize early once **#12** exists.
-- Should be complete before production deploy runbook (**#20**).
-- Feeds security sign-off in **#27**.
+- Store runtime secrets in AWS Secrets Manager.
+- Inject runtime env values ephemerally.
+- Define credential rotation and validation flow.
 
 ---
 
@@ -129,27 +132,46 @@ Environment secrets in plain files are not safe for cloud production.
 
 ### Why
 
-Stateful data on AWS needs backup/restore guarantees before frontend traffic begins.
+Stateful services need explicit backup and restore guarantees before production traffic.
 
 ### Scope
 
-- Define backup strategy (EBS snapshots + logical pg dumps to S3).
-- Set retention and restore-time objectives (RPO/RTO).
-- Run and document a restore drill.
+- Document RPO and RTO targets.
+- Ensure scheduled backup jobs and restore drill workflow are defined.
+- Keep DR validation in the release readiness path.
+
+---
+
+## Issue #16 — requirements (CloudWatch logs & alarms)
+
+**Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)  
+**Branch:** `feature/issue-16-cloudwatch-logs-alarms`  
+**Docs:** [`docs/ops/CLOUDWATCH.md`](../docs/ops/CLOUDWATCH.md) · Terraform: [`infra/observability/`](../infra/observability/)
+
+### Why
+
+Cloud operations need first-class observability and alerting integrated with
+AWS-native tooling.
+
+### Scope
+
+- Ship app/system logs to CloudWatch with retention policy.
+- Define CloudWatch alarms for API error rate, latency, host health, and disk pressure.
+- Connect alert destinations (SNS / Slack / PagerDuty).
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Automated backup jobs scheduled and monitored | `ito-db-backup.timer` + textfile metrics + `backup.yml` alerts |
-| Restore drill succeeds in non-prod with timings | `scripts/run_restore_drill.py` + `RESTORE_DRILL_LATEST.json` |
-| RPO/RTO targets agreed and published | RPO ≤ 24h, RTO ≤ 4h in `BACKUP_DR.md` |
+| Critical alerts fire in a controlled test | `scripts/test_cloudwatch_alarms.py` (+ `--live` SNS check) |
+| Dashboards include API and host health | `infra/observability/dashboard.tf` |
+| On-call runbook links alarm → diagnosis → mitigation | `docs/ops/CLOUDWATCH.md` |
 
 ### Execution order (from issue comment)
 
-- Prioritize before launch cut.
-- Backup/restore drill outcome should be included in **#27** release gate.
-- Can run in parallel with **#16** and **#18** after **#12**.
+- After **#12** (Compose host instance id / IAM role).
+- Can run in parallel with **#15** and **#18**.
+- Feeds go-live observability sign-off in **#27**.
 
 ---
 
