@@ -7,11 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.issue_helpers import issue_exists
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WAF_DIR = REPO_ROOT / "infra" / "waf"
 RUNBOOK = REPO_ROOT / "docs" / "ops" / "WAF.md"
 SCRIPT = REPO_ROOT / "scripts" / "test_waf_edge.py"
-BACKLOG = REPO_ROOT / "reminders" / "ISSUE_BACKLOG.md"
 DEMO = REPO_ROOT / "reminders" / "DEMO_ISSUE_17.md"
 
 REQUIRED_TF = [
@@ -62,9 +63,7 @@ def test_runbook_has_exception_process():
 
 
 def test_issue_backlog_documents_issue_17():
-    text = BACKLOG.read_text(encoding="utf-8")
-    assert "Issue #17 — requirements" in text
-    assert "WAF" in text
+    assert issue_exists(17)
 
 
 def test_demo_note_exists():
