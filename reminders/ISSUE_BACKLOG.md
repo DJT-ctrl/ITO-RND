@@ -6,18 +6,6 @@
 
 Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes #N`).
 
-### Merge conflicts — stay wary
-
-Open issues often share files (`api/main.py`, tests, `.gitignore`, CI). Resolving
-one PR against `main` (or updating a stacked base branch) can leave **other** open
-PRs conflicting — or GitHub can report a conflict even when the branch is clean
-vs `main` because the PR base is another feature branch.
-
-**Before and after any conflict fix:** check *all* open PRs’ mergeable status
-(without merging to `main`), keep both sides’ intent when resolving, and recheck
-siblings so fixing one does not silently break another. Full checklist:
-[GIT_ISSUE_WORKFLOW.md — Merge conflicts](GIT_ISSUE_WORKFLOW.md#merge-conflicts--check-before-and-after).
-
 ---
 
 ## P0 — Critical
@@ -68,38 +56,6 @@ siblings so fixing one does not silently break another. Full checklist:
 
 ---
 
-## Issue #13 — requirements (AWS secrets)
-
-**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
-**Branch:** `feature/issue-13-aws-secrets`  
-**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
-
-### Why
-
-Environment secrets in plain files are not safe for cloud production.
-
-### Scope
-
-- Move runtime secrets to AWS Secrets Manager (JSON secret).
-- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
-- Define rotation policy for DB/API credentials.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
-| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
-| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
-
-### Execution order (from issue comment)
-
-- Prioritize early once **#12** exists.
-- Should be complete before production deploy runbook (**#20**).
-- Feeds security sign-off in **#27**.
-
----
-
 ## Issue #21 — requirements (load baseline)
 
 **Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)  
@@ -133,125 +89,7 @@ contention patterns not seen in local tests.
 
 ---
 
-## Issue #16 — requirements (CloudWatch logs & alarms)
-
-**Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)  
-**Branch:** `feature/issue-16-cloudwatch-logs-alarms`  
-**Docs:** [`docs/ops/CLOUDWATCH.md`](../docs/ops/CLOUDWATCH.md) · Terraform: [`infra/observability/`](../infra/observability/)
-
-### Why
-
-Cloud operations need first-class observability and alerting integrated with
-AWS-native tooling.
-
-### Scope
-
-- Ship app/system logs to CloudWatch with retention policy.
-- Define CloudWatch alarms for API error rate, latency, host health, and disk pressure.
-- Connect alert destinations (SNS / Slack / PagerDuty).
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| Critical alerts fire in a controlled test | `scripts/test_cloudwatch_alarms.py` (+ `--live` SNS check) |
-| Dashboards include API and host health | `infra/observability/dashboard.tf` |
-| On-call runbook links alarm → diagnosis → mitigation | `docs/ops/CLOUDWATCH.md` |
-
-### Execution order (from issue comment)
-
-- After **#12** (Compose host instance id / IAM role).
-- Can run in parallel with **#15** and **#18**.
-- Feeds go-live observability sign-off in **#27**.
-
----
-
-## Issue #18 — requirements (AWS budget alerts)
-
-**Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)  
-**Branch:** `feature/issue-18-aws-budget-alerts`  
-**Docs:** [`docs/ops/COST_CONTROLS.md`](../docs/ops/COST_CONTROLS.md) · Terraform: [`infra/budgets/`](../infra/budgets/)
-
-### Why
-
-Low-budget operation requires explicit cost guardrails to avoid unexpected AWS spend.
-
-### Scope
-
-- Define monthly budget threshold and service-level budget split.
-- Configure AWS Budgets with forecast alerts.
-- Add actionable response playbook for budget alerts.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| Budget alarms notify owner channels before overrun | `infra/budgets` (50/80/100 ACTUAL + FORECASTED → SNS) |
-| Monthly cloud cost report is generated and reviewed | `scripts/generate_monthly_cost_report.py` + `docs/ops/cost-reports/` |
-| Cost control steps are documented | `docs/ops/COST_CONTROLS.md` |
-
-### Execution order (from issue comment)
-
-- After **#12** exists (real spend to guard).
-- Parallel with **#15** / **#16**.
-- Feeds cost sign-off in **#27**.
-
----
-
-## Issue #20 — requirements (deploy & rollback runbook)
-
-**Issue:** [intotheopen/intotheopen-backend#20](https://github.com/intotheopen/intotheopen-backend/issues/20)  
-**Branch:** `feature/issue-20-deploy-rollback-runbook`  
-**Docs:** [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md)
-
-### Why
-
-A single-instance low-cost deployment still needs a repeatable release path.
-
-### Scope
-
-- Define deploy strategy (blue/green-lite or controlled rolling restart) for single-node setup.
-- Add pre-deploy and post-deploy smoke checks.
-- Define rollback command and decision criteria.
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| Deployment runbook can be executed by another team member | `DEPLOY_ROLLBACK.md` + `deploy_release.py` / `rollback_release.py` |
-| Rollback tested at least once in staging or controlled environment | `run_deploy_drill.py` + `DEPLOY_DRILL_LATEST.json` |
-| Downtime window expectations documented | ≤ 10 minutes MVP window in runbook |
-
-### Execution order (from issue comment)
-
-- Near end of Milestone 4 after **#11**, **#12**, **#13**.
-- Must include rollback and smoke checks used by **#27**.
-- Treat as operational readiness evidence.
-
----
-
-## Issue #14 — requirements (HTTPS ingress + strict SGs)
-
-**Issue:** [intotheopen/intotheopen-backend#14](https://github.com/intotheopen/intotheopen-backend/issues/14)  
-**Branch:** `feature/issue-14-https-ingress`  
-**Docs:** [`docs/ops/INGRESS_HTTPS.md`](../docs/ops/INGRESS_HTTPS.md)
-
-### Why
-
-Public APIs require TLS termination, controlled ingress, and baseline edge protection.
-
-### Scope
-
-- Configure certificates and HTTPS-only ingress (Nginx + Let's Encrypt on-host for MVP).
-- Strict security groups (80/443 only publicly; API on localhost).
-- Evaluate AWS WAF — **defer enablement to #17** (issue title / low-cost MVP).
-
-### Acceptance criteria
-
-| Criterion | Deliverable |
-| --------- | ----------- |
-| API is reachable only over HTTPS | `deploy/nginx/ito-api.conf` TLS → `127.0.0.1:8000` |
-| HIssue #22 — requirements (orchestrator latency)
+## Issue #22 — requirements (orchestrator latency)
 
 **Issue:** [intotheopen/intotheopen-backend#22](https://github.com/intotheopen/intotheopen-backend/issues/22)  
 **Branch:** `feature/issue-22-orchestrator-latency`  
@@ -259,100 +97,92 @@ Public APIs require TLS termination, controlled ingress, and baseline edge prote
 
 ### Why
 
-After launch, orchestrator response times and fallback behaviour under load need
-to be measured and tuned to meet user-facing SLOs.
+After usage data arrives, optimize evaluation reliability and latency under
+concurrent usage (post-launch hardening).
 
 ### Scope
 
-- Profile end-to-end latency for `/api/v1/similar-posts` and `/api/v1/evaluate`.
-- Identify top bottlenecks in provider initialisation and corpus lookup.
-- Define and enforce timeout/fallback policy.
+- Review async orchestration hotspots and slow-step telemetry.
+- Add timeouts/fallbacks for long-running agent steps.
+- Reduce tail latency and improve partial-result behavior on step failures.
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Baseline latency measured and documented | `docs/ops/ORCHESTRATOR_LATENCY.md` |
-| Timeout/fallback policy defined and enforced in code | `config/settings.py` + orchestrator guard |
-| Regression test prevents silent regressions | `tests/test_orchestrator_latency.py` |
+| Documented latency profile for orchestration stages | `docs/ops/ORCHESTRATOR_LATENCY.md` |
+| Timeout/fallback policy implemented for slow steps | `AGENT_STEP_TIMEOUT_S` / `FINALIZE_TIMEOUT_S` + orchestrator partials |
+| Error rate and p95 latency improve versus baseline | Caps + partial 200s vs #21 baseline; re-check with load scripts |
 
 ### Execution order (from issue comment)
 
-- Start after **#21** load baseline is available.
-- Feeds SLO definitions in **#8**.
+- Run after **#21** baseline report is ready.
+- Use telemetry from **#8** / **#16** to validate improvements.
+- Keep explicitly post-launch unless critical issues emerge.
 
 ---
 
-## TTP is redirected or blocked | `return 301 https://…` on port 80 |
-| WAF and security group rules are documented and tested | WAF → #17 in runbook; `sg_allowlist.json` + hardening tests |
+## Issue #13 — requirements (AWS secrets)
 
-### Execution order
-
-- After **#12** (host + SG) and alongside **#20** (deploy).
-- WAF enablement tracked separately in **#17**.
-
----
-
-## Issue #17 — requirements (AWS WAF post-launch)
-
-**Issue:** [intotheopen/intotheopen-backend#17](https://github.com/intotheopen/intotheopen-backend/issues/17)  
-**Branch:** `feature/issue-17-aws-waf`  
-**Docs:** [`docs/ops/WAF.md`](../docs/ops/WAF.md) · Terraform: [`infra/waf/`](../infra/waf/)
+**Issue:** [intotheopen/intotheopen-backend#13](https://github.com/intotheopen/intotheopen-backend/issues/13)  
+**Branch:** `feature/issue-13-aws-secrets`  
+**Docs:** [`deploy/SECRETS.md`](../deploy/SECRETS.md)
 
 ### Why
 
-For low-budget launch, WAF and advanced edge policies can be deferred, but should
-be tracked as explicit post-launch hardening.
+Environment secrets in plain files are not safe for cloud production.
 
 ### Scope
 
-- Add AWS WAF managed rule groups tuned for API traffic.
-- Add stricter bot/rate controls at edge layer.
-- Validate false-positive impact with staged rollout (COUNT → BLOCK).
+- Move runtime secrets to AWS Secrets Manager (JSON secret).
+- Inject at runtime via ephemeral env file / optional in-process fetch (not baked into images).
+- Define rotation policy for DB/API credentials.
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| WAF deployed and attached to production ingress | `infra/waf` Web ACL + ALB association (`alb_arn`) |
-| Baseline managed rules enabled and tuned | Managed groups + rate limit + `enable_blocking` |
-| Runbook includes block/allow exception process | `docs/ops/WAF.md` |
+| No production secrets in repo or server-side `.env` | Ephemeral `/run/ito/runtime.env`; example JSON placeholders only |
+| App reads secrets from managed AWS secret store | `scripts/fetch_aws_secrets.py` + `config.aws_secrets` / `ITO_ENV_FILE` |
+| Rotation playbook tested end-to-end | `deploy/SECRETS.md` + `tests/test_aws_secrets.py` dry-run |
 
-### Execution order
+### Execution order (from issue comment)
 
-- After launch / after **#14** HTTPS path; requires ALB (or CloudFront) in front of EC2.
-- Watch cost vs **#18** before enabling Block in prod.
+- Prioritize early once **#12** exists.
+- Should be complete before production deploy runbook (**#20**).
+- Feeds security sign-off in **#27**.
 
 ---
 
-## Issue #19 — requirements (EC2/EBS rightsizing)
+## Issue #15 — requirements (backup / DR)
 
-**Issue:** [intotheopen/intotheopen-backend#19](https://github.com/intotheopen/intotheopen-backend/issues/19)  
-**Branch:** `feature/issue-19-ec2-ebs-rightsizing`  
-**Docs:** [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md)
+**Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)  
+**Branch:** `feature/issue-15-aws-backup-dr`  
+**Docs:** [`docs/ops/BACKUP_DR.md`](../docs/ops/BACKUP_DR.md)
 
 ### Why
 
-Cloud spend can drift from idle resources and oversized instance/storage choices.
+Stateful data on AWS needs backup/restore guarantees before frontend traffic begins.
 
 ### Scope
 
-- Right-size EC2 and EBS for baseline traffic.
-- Add stop/start and cleanup policy for non-production environments.
-- Document periodic rightsizing review checklist.
+- Define backup strategy (EBS snapshots + logical pg dumps to S3).
+- Set retention and restore-time objectives (RPO/RTO).
+- Run and document a restore drill.
 
 ### Acceptance criteria
 
 | Criterion | Deliverable |
 | --------- | ----------- |
-| Baseline instance/storage class selected with rationale | `baseline.json` + runbook table (`t3.small` / gp3) |
-| Non-prod idle resource policy implemented | `idle_policy.json` + `apply_nonprod_idle_policy.py` |
-| Monthly rightsizing review cadence in place | `run_rightsizing_review.py` + `docs/ops/rightsizing-reviews/` |
+| Automated backup jobs scheduled and monitored | `ito-db-backup.timer` + textfile metrics + `backup.yml` alerts |
+| Restore drill succeeds in non-prod with timings | `scripts/run_restore_drill.py` + `RESTORE_DRILL_LATEST.json` |
+| RPO/RTO targets agreed and published | RPO ≤ 24h, RTO ≤ 4h in `BACKUP_DR.md` |
 
-### Execution order
+### Execution order (from issue comment)
 
-- Post-launch hardening; pairs with **#18** monthly cost review.
-- Uses host defaults from **#12**.
+- Prioritize before launch cut.
+- Backup/restore drill outcome should be included in **#27** release gate.
+- Can run in parallel with **#16** and **#18** after **#12**.
 
 ---
 
