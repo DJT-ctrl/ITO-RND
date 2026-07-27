@@ -44,7 +44,7 @@ def generate_backlog_markdown(issues_yaml_path: Path, output_path: Path) -> None
         acceptance_criteria = issue.get("acceptance_criteria", [])
         execution_notes = issue.get("execution_notes", [])
         
-        lines.append(f"## Issue #{num} — {title}")
+        lines.append(f"## Issue #{num} — requirements ({title})")
         lines.append("")
         lines.append(f"**Issue:** [intotheopen/intotheopen-backend#{num}](https://github.com/intotheopen/intotheopen-backend/issues/{num})")
         lines.append(f"**Branch:** `{branch}`")
