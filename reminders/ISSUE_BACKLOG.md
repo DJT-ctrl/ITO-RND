@@ -1,4 +1,4 @@
-# Issue Backlog — 27 issues
+﻿# Issue Backlog — 27 issues
 
 **Repository (canonical):** [intotheopen/intotheopen-backend](https://github.com/intotheopen/intotheopen-backend)  
 **Issues:** https://github.com/intotheopen/intotheopen-backend/issues  
@@ -12,7 +12,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 
 | Done | # | Title | Labels |
 | ---- | - | ----- | ------ |
-| [ ] | [#1](https://github.com/intotheopen/intotheopen-backend/issues/1) | Stabilize agent provider initialization (remove import-time crash path) | bug, P0, api, agents, stabilization |
+| [ ] *(PR [#29](https://github.com/intotheopen/intotheopen-backend/pull/29) open)* | [#1](https://github.com/intotheopen/intotheopen-backend/issues/1) | Stabilize agent provider initialization (remove import-time crash path) | bug, P0, api, agents, stabilization |
 | [ ] | [#3](https://github.com/intotheopen/intotheopen-backend/issues/3) | Harden API surface with auth + rate limiting before frontend exposure | enhancement, P0, api, security, stabilization |
 | [ ] | [#13](https://github.com/intotheopen/intotheopen-backend/issues/13) | Implement AWS-managed secrets and credential rotation | enhancement, P0, security, aws |
 | [ ] | [#15](https://github.com/intotheopen/intotheopen-backend/issues/15) | Establish AWS backup, restore, and disaster-recovery playbook | enhancement, P0, data, devops, aws |
@@ -38,7 +38,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 | [ ] | [#23](https://github.com/intotheopen/intotheopen-backend/issues/23) | Define and enforce CORS trusted-origin policy for frontend integration | enhancement, P1, api, security, testing, frontend-integration |
 | [ ] | [#24](https://github.com/intotheopen/intotheopen-backend/issues/24) | Add OpenAPI client generation and contract-break checks in CI | enhancement, P1, api, devops, testing, frontend-integration |
 | [ ] | [#25](https://github.com/intotheopen/intotheopen-backend/issues/25) | Introduce database migration versioning and CI validation | enhancement, P1, data, devops, testing |
-| [ ] | [#26](https://github.com/intotheopen/intotheopen-backend/issues/26) | Define data retention and sensitive-data governance policy | documentation, P1, data, security |
+| [ ] *(in progress — this branch)* | [#26](https://github.com/intotheopen/intotheopen-backend/issues/26) | Define data retention and sensitive-data governance policy | documentation, P1, data, security |
 | [ ] | [#27](https://github.com/intotheopen/intotheopen-backend/issues/27) | Create end-to-end go-live readiness checklist and release gate | documentation, P1, devops, testing, frontend-integration |
 
 ---
@@ -64,8 +64,7 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 
 ### Why
 
-After frontend launch, real user traffic can expose latency bottlenecks and
-contention patterns not seen in local tests.
+After frontend launch, real user traffic can expose latency bottlenecks and contention patterns not seen in local tests.
 
 ### Scope
 
@@ -79,7 +78,7 @@ contention patterns not seen in local tests.
 | --------- | ----------- |
 | Reproducible load test scripts exist | `scripts/load/run_load_test.py` + `scenarios.yaml` (+ optional stub API) |
 | Baseline performance report is published | `docs/ops/LOAD_BASELINE.md` |
-| Improvement plan with measurable targets is captured | Same doc → feeds tuning work in **#22** |
+| Improvement plan with measurable targets is captured | Same doc -> feeds tuning work in **#22** |
 
 ### Execution order (from issue comment)
 
@@ -143,7 +142,7 @@ Stateful data on AWS needs backup/restore guarantees before frontend traffic beg
 | --------- | ----------- |
 | Automated backup jobs scheduled and monitored | `ito-db-backup.timer` + textfile metrics + `backup.yml` alerts |
 | Restore drill succeeds in non-prod with timings | `scripts/run_restore_drill.py` + `RESTORE_DRILL_LATEST.json` |
-| RPO/RTO targets agreed and published | RPO ≤ 24h, RTO ≤ 4h in `BACKUP_DR.md` |
+| RPO/RTO targets agreed and published | RPO <= 24h, RTO <= 4h in `BACKUP_DR.md` |
 
 ### Execution order (from issue comment)
 
@@ -161,8 +160,7 @@ Stateful data on AWS needs backup/restore guarantees before frontend traffic beg
 
 ### Why
 
-Before go-live, the team should align on a concrete AWS architecture to avoid
-rework and unclear ownership.
+Before go-live, the team should align on a concrete AWS architecture to avoid rework and unclear ownership.
 
 ### Scope
 
@@ -176,7 +174,7 @@ rework and unclear ownership.
 | --------- | ----------- |
 | ADR approved with chosen target architecture | ADR-001 **Accepted (MVP): EC2 + Docker Compose** |
 | Deployment and rollback path documented | ADR sections + detailed runbook in **#20** |
-| Security assumptions and constraints listed | ADR “Security assumptions & constraints” |
+| Security assumptions and constraints listed | ADR "Security assumptions & constraints" |
 
 ### Execution order (from issue comment)
 

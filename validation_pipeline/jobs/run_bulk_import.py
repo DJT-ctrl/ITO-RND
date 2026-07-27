@@ -12,7 +12,6 @@ from feedback.batch import run_feedback_batch
 from feedback.store import refresh_cluster_stats
 from storage.vector_store import create_schema, get_connection
 from validation_pipeline.corpus_import import (
-    ImportSourceKind,
     bulk_import_and_predict_async,
     load_all_collected_posts,
 )
