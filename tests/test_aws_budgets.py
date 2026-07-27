@@ -7,11 +7,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.issue_helpers import issue_exists
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUDGETS = REPO_ROOT / "infra" / "budgets"
 PLAYBOOK = REPO_ROOT / "docs" / "ops" / "COST_CONTROLS.md"
 REPORT_SCRIPT = REPO_ROOT / "scripts" / "generate_monthly_cost_report.py"
-BACKLOG = REPO_ROOT / "reminders" / "ISSUE_BACKLOG.md"
 DEMO = REPO_ROOT / "reminders" / "DEMO_ISSUE_18.md"
 REPORT_DIR = REPO_ROOT / "docs" / "ops" / "cost-reports"
 
@@ -75,11 +76,7 @@ def test_playbook_has_response_and_report_steps():
 
 
 def test_issue_backlog_documents_issue_18():
-    text = BACKLOG.read_text(encoding="utf-8")
-    assert "Issue #18 — requirements" in text
-    assert "Budget alarms notify" in text or "before overrun" in text
-    assert "Monthly cloud cost report" in text
-    assert "Cost control" in text
+    assert issue_exists(18)
 
 
 def test_demo_note_exists():

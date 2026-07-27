@@ -86,6 +86,27 @@ issues:
       - "Can run in parallel with **#15** and **#18**"
       - "Feeds go-live observability sign-off in **#27**"
 
+  - number: 18
+    title: "AWS budget alerts"
+    branch: "feature/issue-18-aws-budget-alerts"
+    docs: "docs/ops/COST_CONTROLS.md"
+    why: "Post-launch spend needs monthly guardrails and alert thresholds to avoid unexpected cloud overrun."
+    scope:
+      - "Define monthly overall and service-level budgets (EC2, EBS, CloudWatch)"
+      - "Route ACTUAL and FORECASTED budget alerts to team channels"
+      - "Publish monthly cloud cost report workflow"
+    acceptance_criteria:
+      - criterion: "Budget resources defined in IaC"
+        deliverable: "`infra/budgets/*.tf`"
+      - criterion: "Cost response playbook is documented"
+        deliverable: "`docs/ops/COST_CONTROLS.md`"
+      - criterion: "Monthly report can be generated"
+        deliverable: "`scripts/generate_monthly_cost_report.py`"
+    execution_notes:
+      - "Depends on **#12** for AWS foundation"
+      - "Can run in parallel with **#16**"
+      - "Inputs rightsizing follow-up in **#19**"
+
   - number: 21
     title: "Load baseline"
     branch: "feature/issue-21-load-baseline"
