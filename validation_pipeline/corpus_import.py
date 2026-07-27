@@ -244,7 +244,3 @@ def bulk_import_and_predict(
 
 
 # Re-export vectorized bulk import (canonical definitions live in vectorized_corpus).
-from validation_pipeline.vectorized_corpus import (  # noqa: E402
-    bulk_import_vectorized_and_predict,
-    bulk_import_vectorized_and_predict_async,
-)
