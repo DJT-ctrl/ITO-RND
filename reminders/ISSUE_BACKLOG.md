@@ -88,6 +88,38 @@ Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ---
 
+## Issue #14 — requirements (HTTPS ingress hardening)
+
+**Issue:** [intotheopen/intotheopen-backend#14](https://github.com/intotheopen/intotheopen-backend/issues/14)
+**Branch:** `feature/issue-14-https-ingress`
+**Docs:** [`docs/ops/INGRESS_HTTPS.md`](../docs/ops/INGRESS_HTTPS.md)
+
+### Why
+
+Production traffic should terminate TLS at the edge and keep app/database ports private by default.
+
+### Scope
+
+- Enforce HTTPS redirect and TLS termination at ingress
+- Restrict public ingress to 80/443 and block direct app/db access
+- Document WAF deferral and follow-up scope
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Ingress config enforces TLS and redirect | `deploy/nginx/ito-api.conf` + install script |
+| Security group ingress policy is documented | `infra/ingress/sg_allowlist.json` |
+| Operational guidance is published | `docs/ops/INGRESS_HTTPS.md` |
+
+### Execution order
+
+- Depends on **#12** infrastructure baseline
+- Feeds WAF follow-up in **#17**
+- Keep app and database listeners private
+
+---
+
 ## Issue #15 — requirements (Backup / DR)
 
 **Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)

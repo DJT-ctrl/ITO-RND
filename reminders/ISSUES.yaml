@@ -55,6 +55,27 @@ issues:
       - "Inject runtime env values ephemerally"
       - "Define credential rotation and validation flow"
 
+  - number: 14
+    title: "HTTPS ingress hardening"
+    branch: "feature/issue-14-https-ingress"
+    docs: "docs/ops/INGRESS_HTTPS.md"
+    why: "Production traffic should terminate TLS at the edge and keep app/database ports private by default."
+    scope:
+      - "Enforce HTTPS redirect and TLS termination at ingress"
+      - "Restrict public ingress to 80/443 and block direct app/db access"
+      - "Document WAF deferral and follow-up scope"
+    acceptance_criteria:
+      - criterion: "Ingress config enforces TLS and redirect"
+        deliverable: "`deploy/nginx/ito-api.conf` + install script"
+      - criterion: "Security group ingress policy is documented"
+        deliverable: "`infra/ingress/sg_allowlist.json`"
+      - criterion: "Operational guidance is published"
+        deliverable: "`docs/ops/INGRESS_HTTPS.md`"
+    execution_notes:
+      - "Depends on **#12** infrastructure baseline"
+      - "Feeds WAF follow-up in **#17**"
+      - "Keep app and database listeners private"
+
   - number: 15
     title: "Backup / DR"
     branch: "feature/issue-15-aws-backup-dr"
