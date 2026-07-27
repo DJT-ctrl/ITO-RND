@@ -138,6 +138,38 @@ Cloud operations need first-class observability and alerting integrated with AWS
 
 ---
 
+## Issue #18 — requirements (AWS budget alerts)
+
+**Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)
+**Branch:** `feature/issue-18-aws-budget-alerts`
+**Docs:** [`docs/ops/COST_CONTROLS.md`](../docs/ops/COST_CONTROLS.md)
+
+### Why
+
+Post-launch spend needs monthly guardrails and alert thresholds to avoid unexpected cloud overrun.
+
+### Scope
+
+- Define monthly overall and service-level budgets (EC2, EBS, CloudWatch)
+- Route ACTUAL and FORECASTED budget alerts to team channels
+- Publish monthly cloud cost report workflow
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Budget resources defined in IaC | `infra/budgets/*.tf` |
+| Cost response playbook is documented | `docs/ops/COST_CONTROLS.md` |
+| Monthly report can be generated | `scripts/generate_monthly_cost_report.py` |
+
+### Execution order
+
+- Depends on **#12** for AWS foundation
+- Can run in parallel with **#16**
+- Inputs rightsizing follow-up in **#19**
+
+---
+
 ## Issue #19 — requirements (EC2/EBS rightsizing)
 
 **Issue:** [intotheopen/intotheopen-backend#19](https://github.com/intotheopen/intotheopen-backend/issues/19)

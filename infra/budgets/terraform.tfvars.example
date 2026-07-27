@@ -1,0 +1,14 @@
+aws_region   = "eu-west-2"
+environment  = "dev"
+project      = "intotheopen"
+
+monthly_budget_usd     = 80
+ec2_budget_usd         = 45
+ebs_budget_usd         = 15
+cloudwatch_budget_usd  = 12
+
+# Owner channels — confirm SNS email subscription after apply.
+alert_emails = ["owner@example.com"]
+
+# Optional Slack (Chatbot/webhook) or PagerDuty Events API:
+# alert_https_endpoint = "https://events.pagerduty.com/integration/.../enqueue"
