@@ -88,6 +88,38 @@ Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ---
 
+## Issue #14 — requirements (HTTPS ingress hardening)
+
+**Issue:** [intotheopen/intotheopen-backend#14](https://github.com/intotheopen/intotheopen-backend/issues/14)
+**Branch:** `feature/issue-14-https-ingress`
+**Docs:** [`docs/ops/INGRESS_HTTPS.md`](../docs/ops/INGRESS_HTTPS.md)
+
+### Why
+
+Production traffic should terminate TLS at the edge and keep app/database ports private by default.
+
+### Scope
+
+- Enforce HTTPS redirect and TLS termination at ingress
+- Restrict public ingress to 80/443 and block direct app/db access
+- Document WAF deferral and follow-up scope
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Ingress config enforces TLS and redirect | `deploy/nginx/ito-api.conf` + install script |
+| Security group ingress policy is documented | `infra/ingress/sg_allowlist.json` |
+| Operational guidance is published | `docs/ops/INGRESS_HTTPS.md` |
+
+### Execution order
+
+- Depends on **#12** infrastructure baseline
+- Feeds WAF follow-up in **#17**
+- Keep app and database listeners private
+
+---
+
 ## Issue #15 — requirements (Backup / DR)
 
 **Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)
@@ -170,6 +202,38 @@ Post-launch internet exposure needs managed edge protection, staged rollout, and
 
 ---
 
+## Issue #18 — requirements (AWS budget alerts)
+
+**Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)
+**Branch:** `feature/issue-18-aws-budget-alerts`
+**Docs:** [`docs/ops/COST_CONTROLS.md`](../docs/ops/COST_CONTROLS.md)
+
+### Why
+
+Post-launch spend needs monthly guardrails and alert thresholds to avoid unexpected cloud overrun.
+
+### Scope
+
+- Define monthly overall and service-level budgets (EC2, EBS, CloudWatch)
+- Route ACTUAL and FORECASTED budget alerts to team channels
+- Publish monthly cloud cost report workflow
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Budget resources defined in IaC | `infra/budgets/*.tf` |
+| Cost response playbook is documented | `docs/ops/COST_CONTROLS.md` |
+| Monthly report can be generated | `scripts/generate_monthly_cost_report.py` |
+
+### Execution order
+
+- Depends on **#12** for AWS foundation
+- Can run in parallel with **#16**
+- Inputs rightsizing follow-up in **#19**
+
+---
+
 ## Issue #19 — requirements (EC2/EBS rightsizing)
 
 **Issue:** [intotheopen/intotheopen-backend#19](https://github.com/intotheopen/intotheopen-backend/issues/19)
@@ -199,6 +263,38 @@ Post-launch instance and volume sizes should match real workload patterns to con
 - Follows **#12** and **#18** for baseline cost context
 - Review cadence feeds **#18** budget thresholds
 - Never apply idle policy to prod environments
+
+---
+
+## Issue #20 — requirements (Deploy and rollback runbook)
+
+**Issue:** [intotheopen/intotheopen-backend#20](https://github.com/intotheopen/intotheopen-backend/issues/20)
+**Branch:** `feature/issue-20-deploy-rollback-runbook`
+**Docs:** [`docs/ops/DEPLOY_ROLLBACK.md`](../docs/ops/DEPLOY_ROLLBACK.md)
+
+### Why
+
+Single-instance deployments need a deterministic release and rollback procedure before production cutovers.
+
+### Scope
+
+- Define pre-deploy checks and controlled rollout steps
+- Document rollback triggers, steps, and decision points
+- Automate drill execution and evidence capture
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Runbook documents strategy and downtime budget | `docs/ops/DEPLOY_ROLLBACK.md` |
+| Deploy and rollback scripts support dry-run safety | `scripts/deploy_release.py` + `scripts/rollback_release.py` |
+| Drill output is recorded | `docs/ops/DEPLOY_DRILL_LATEST.json` |
+
+### Execution order
+
+- Depends on runtime model from **#11**
+- Depends on infra baseline from **#12**
+- Feeds operational readiness before go-live
 
 ---
 

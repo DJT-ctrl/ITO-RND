@@ -55,6 +55,27 @@ issues:
       - "Inject runtime env values ephemerally"
       - "Define credential rotation and validation flow"
 
+  - number: 14
+    title: "HTTPS ingress hardening"
+    branch: "feature/issue-14-https-ingress"
+    docs: "docs/ops/INGRESS_HTTPS.md"
+    why: "Production traffic should terminate TLS at the edge and keep app/database ports private by default."
+    scope:
+      - "Enforce HTTPS redirect and TLS termination at ingress"
+      - "Restrict public ingress to 80/443 and block direct app/db access"
+      - "Document WAF deferral and follow-up scope"
+    acceptance_criteria:
+      - criterion: "Ingress config enforces TLS and redirect"
+        deliverable: "`deploy/nginx/ito-api.conf` + install script"
+      - criterion: "Security group ingress policy is documented"
+        deliverable: "`infra/ingress/sg_allowlist.json`"
+      - criterion: "Operational guidance is published"
+        deliverable: "`docs/ops/INGRESS_HTTPS.md`"
+    execution_notes:
+      - "Depends on **#12** infrastructure baseline"
+      - "Feeds WAF follow-up in **#17**"
+      - "Keep app and database listeners private"
+
   - number: 15
     title: "Backup / DR"
     branch: "feature/issue-15-aws-backup-dr"
@@ -107,6 +128,27 @@ issues:
       - "Depends on **#12** foundation and ALB context"
       - "Start in COUNT mode before production BLOCK"
 
+  - number: 18
+    title: "AWS budget alerts"
+    branch: "feature/issue-18-aws-budget-alerts"
+    docs: "docs/ops/COST_CONTROLS.md"
+    why: "Post-launch spend needs monthly guardrails and alert thresholds to avoid unexpected cloud overrun."
+    scope:
+      - "Define monthly overall and service-level budgets (EC2, EBS, CloudWatch)"
+      - "Route ACTUAL and FORECASTED budget alerts to team channels"
+      - "Publish monthly cloud cost report workflow"
+    acceptance_criteria:
+      - criterion: "Budget resources defined in IaC"
+        deliverable: "`infra/budgets/*.tf`"
+      - criterion: "Cost response playbook is documented"
+        deliverable: "`docs/ops/COST_CONTROLS.md`"
+      - criterion: "Monthly report can be generated"
+        deliverable: "`scripts/generate_monthly_cost_report.py`"
+    execution_notes:
+      - "Depends on **#12** for AWS foundation"
+      - "Can run in parallel with **#16**"
+      - "Inputs rightsizing follow-up in **#19**"
+
   - number: 19
     title: "EC2/EBS rightsizing"
     branch: "feature/issue-19-ec2-ebs-rightsizing"
@@ -127,6 +169,27 @@ issues:
       - "Follows **#12** and **#18** for baseline cost context"
       - "Review cadence feeds **#18** budget thresholds"
       - "Never apply idle policy to prod environments"
+
+  - number: 20
+    title: "Deploy and rollback runbook"
+    branch: "feature/issue-20-deploy-rollback-runbook"
+    docs: "docs/ops/DEPLOY_ROLLBACK.md"
+    why: "Single-instance deployments need a deterministic release and rollback procedure before production cutovers."
+    scope:
+      - "Define pre-deploy checks and controlled rollout steps"
+      - "Document rollback triggers, steps, and decision points"
+      - "Automate drill execution and evidence capture"
+    acceptance_criteria:
+      - criterion: "Runbook documents strategy and downtime budget"
+        deliverable: "`docs/ops/DEPLOY_ROLLBACK.md`"
+      - criterion: "Deploy and rollback scripts support dry-run safety"
+        deliverable: "`scripts/deploy_release.py` + `scripts/rollback_release.py`"
+      - criterion: "Drill output is recorded"
+        deliverable: "`docs/ops/DEPLOY_DRILL_LATEST.json`"
+    execution_notes:
+      - "Depends on runtime model from **#11**"
+      - "Depends on infra baseline from **#12**"
+      - "Feeds operational readiness before go-live"
 
   - number: 21
     title: "Load baseline"

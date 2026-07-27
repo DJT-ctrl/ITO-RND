@@ -85,7 +85,7 @@ def generate_backlog_markdown(issues_yaml_path: Path, output_path: Path) -> None
     
     # Write output
     output_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"✓ Generated {output_path}")
+    print(f"Generated {output_path}")
 
 
 if __name__ == "__main__":

@@ -1,26 +1,19 @@
-# Reference only — NOT wired up or tested (no EC2 instance exists yet).
+# Reference Nginx site for ITO API (issue #14).
 #
-# This mirrors the same deployment blocker documented in T1.4_DATABASE_PLAN.md
-# for Phase 2 (EC2 + EBS). Once an EC2 instance exists, this config forwards
-# web traffic to the Uvicorn process serving api.main:app on port 8000
-# (T2.1's "Configure Nginx on the EC2 instance to forward web traffic to
-# Uvicorn").
+# Prefer the TLS-ready template:
+#   deploy/nginx/ito-api.conf
+#   sudo bash deploy/nginx/install-tls.sh <domain> <email>
 #
-# Example usage once deployed:
-#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/ito-api
-#   sudo ln -s /etc/nginx/sites-available/ito-api /etc/nginx/sites-enabled/
-#   sudo nginx -t && sudo systemctl reload nginx
+# Runbook: docs/ops/INGRESS_HTTPS.md
+#
+# Legacy HTTP-only stub kept so older docs still resolve. Do **not** use this
+# alone in production — it serves cleartext and fails #14 acceptance.
 
 server {
     listen 80;
-    server_name _;  # replace with the EC2 instance's public IP or domain
+    server_name api.example.com;
 
     location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        return 301 https://$host$request_uri;
     }
 }
