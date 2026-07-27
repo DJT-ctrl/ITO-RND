@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+import psycopg
 
 from config.settings import Settings
 from processors.pattern_analysis import correlate_numeric_features, group_engagement_by_tag
@@ -152,8 +153,10 @@ def get_or_refresh_benchmarks(
 ) -> tuple[Optional[dict[str, Any]], list[str]]:
     """Load cached benchmarks or refresh from DB when stale.
 
-    Returns (snapshot, warnings). Snapshot is None only when the DB is empty
-    and no cache file exists.
+    Returns (snapshot, warnings). Snapshot is None when refresh cannot produce
+    data and no usable cache file exists (empty DB, missing DATABASE_URL, or
+    DB/network outage). Never raises on connectivity failures — callers get a
+    warning and may continue evaluation without corpus benchmarks.
     """
     resolved_path = path or DEFAULT_SNAPSHOT_PATH
     warnings: list[str] = []
@@ -174,7 +177,7 @@ def get_or_refresh_benchmarks(
 
     try:
         return refresh_snapshot_from_db(settings, path=resolved_path), warnings
-    except ValueError as exc:
+    except (ValueError, psycopg.Error, OSError, TimeoutError) as exc:
         cached = load_snapshot(resolved_path)
         if cached is not None:
             warnings.append(f"{exc} — using stale corpus benchmark cache.")

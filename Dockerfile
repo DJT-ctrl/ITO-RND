@@ -13,8 +13,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install deps first (their own layer) so app-code changes don't bust the
-# pip cache on every rebuild.
+# Install pinned deps first (their own layer) so app-code changes don't bust the
+# pip cache on every rebuild. requirements.txt is generated from requirements.in
+# via scripts/compile-requirements.sh (issue #4).
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
