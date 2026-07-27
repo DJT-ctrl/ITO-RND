@@ -172,6 +172,11 @@ class Settings:
     eval_cost_warning_usd: float = 0.10
     eval_latency_warning_ms: int = 60000
     eval_step_latency_warning_ms: int = 20000
+    # Issue #22: bound slow orchestration steps so /evaluate p95 stays finite.
+    # Agent stage wall time ≈ max(agent latencies) under asyncio.gather.
+    agent_step_timeout_s: float = 12.0
+    finalize_timeout_s: float = 8.0
+    agent_step_timeouts_enabled: bool = True
     # API hardening (issue #3): Bearer key auth + per-key rate limits.
     api_auth_enabled: bool = False
     api_keys_json: str = ""
@@ -268,6 +273,9 @@ def load_settings() -> Settings:
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
         eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
+        agent_step_timeout_s=float(os.getenv("AGENT_STEP_TIMEOUT_S", "12")),
+        finalize_timeout_s=float(os.getenv("FINALIZE_TIMEOUT_S", "8")),
+        agent_step_timeouts_enabled=_env_bool("AGENT_STEP_TIMEOUTS_ENABLED", default=True),
         api_auth_enabled=_env_bool("API_AUTH_ENABLED", default=False),
         api_keys_json=os.getenv("API_KEYS_JSON", ""),
         api_rate_limit=os.getenv("API_RATE_LIMIT", ""),

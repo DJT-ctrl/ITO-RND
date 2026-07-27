@@ -211,6 +211,9 @@ Manager injection and credential rotation (no durable prod `.env`).
 **Load baseline (issue #21):** [docs/ops/LOAD_BASELINE.md](docs/ops/LOAD_BASELINE.md) ·
 scripts under [scripts/load/](scripts/load/).
 
+**Orchestrator latency (issue #22):** [docs/ops/ORCHESTRATOR_LATENCY.md](docs/ops/ORCHESTRATOR_LATENCY.md)
+— agent/finalize timeouts and partial-result policy for `/api/v1/evaluate`.
+
 ---
 
 ## Reproduce the corpus pipeline
