@@ -125,6 +125,24 @@ Production credentials must come from Secrets Manager, not durable `.env` files.
 
 ---
 
+## Issue #15 — requirements (backup / DR)
+
+**Issue:** [intotheopen/intotheopen-backend#15](https://github.com/intotheopen/intotheopen-backend/issues/15)  
+**Branch:** `feature/issue-15-aws-backup-dr`  
+**Docs:** [`docs/ops/BACKUP_DR.md`](../docs/ops/BACKUP_DR.md)
+
+### Why
+
+Stateful services need explicit backup and restore guarantees before production traffic.
+
+### Scope
+
+- Document RPO and RTO targets.
+- Ensure scheduled backup jobs and restore drill workflow are defined.
+- Keep DR validation in the release readiness path.
+
+---
+
 ## Issue #16 — requirements (CloudWatch logs & alarms)
 
 **Issue:** [intotheopen/intotheopen-backend#16](https://github.com/intotheopen/intotheopen-backend/issues/16)  
