@@ -1,0 +1,13 @@
+# Copy to backend.hcl (gitignored) and pass:
+#   terraform init -backend-config=backend.hcl
+#
+# bucket         = "ito-terraform-state-ACCOUNT_ID"
+# key            = "ito/dev/terraform.tfstate"
+# region         = "eu-west-2"
+# encrypt        = true
+# dynamodb_table = "ito-terraform-locks"   # optional but recommended
+
+bucket  = "ito-terraform-state-REPLACE_ME"
+key     = "ito/dev/terraform.tfstate"
+region  = "eu-west-2"
+encrypt = true
