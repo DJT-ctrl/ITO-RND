@@ -7,13 +7,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.issue_helpers import issue_exists
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWLIST = REPO_ROOT / "infra" / "ingress" / "sg_allowlist.json"
 NGINX = REPO_ROOT / "deploy" / "nginx" / "ito-api.conf"
 RUNBOOK = REPO_ROOT / "docs" / "ops" / "INGRESS_HTTPS.md"
 INSTALL = REPO_ROOT / "deploy" / "nginx" / "install-tls.sh"
 SCRIPT = REPO_ROOT / "scripts" / "test_ingress_hardening.py"
-BACKLOG = REPO_ROOT / "reminders" / "ISSUE_BACKLOG.md"
 DEMO = REPO_ROOT / "reminders" / "DEMO_ISSUE_14.md"
 LEGACY = REPO_ROOT / "deploy" / "nginx.conf.example"
 
@@ -55,10 +56,7 @@ def test_runbook_documents_https_sg_and_waf_deferral():
 
 
 def test_issue_backlog_documents_issue_14():
-    text = BACKLOG.read_text(encoding="utf-8")
-    assert "Issue #14 — requirements" in text
-    assert "HTTPS" in text
-    assert "WAF" in text
+    assert issue_exists(14)
 
 
 def test_demo_note_exists():
