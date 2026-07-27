@@ -56,6 +56,38 @@ Tick the checkbox when the issue is **closed on GitHub** (PR merged with `Closes
 
 ---
 
+## Issue #21 — requirements (load baseline)
+
+**Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)  
+**Branch:** `feature/issue-21-load-baseline`  
+**Docs:** [`docs/ops/LOAD_BASELINE.md`](../docs/ops/LOAD_BASELINE.md) · scripts: [`scripts/load/`](../scripts/load/)
+
+### Why
+
+After frontend launch, real user traffic can expose latency bottlenecks and
+contention patterns not seen in local tests.
+
+### Scope
+
+- Add realistic load scenarios for `/api/v1/similar-posts` and `/api/v1/evaluate`.
+- Profile hot paths and identify top 3 bottlenecks.
+- Define target p95 latency and throughput for next release.
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Reproducible load test scripts exist | `scripts/load/run_load_test.py` + `scenarios.yaml` (+ optional stub API) |
+| Baseline performance report is published | `docs/ops/LOAD_BASELINE.md` |
+| Improvement plan with measurable targets is captured | Same doc → feeds tuning work in **#22** |
+
+### Execution order (from issue comment)
+
+- Start after launch baseline is stable.
+- Prefer after **#5** and **#8** are active so measurements are trustworthy.
+- Feeds tuning work in **#22**.
+
+---
 ## Progress summary
 
 | Priority | Count | Closed |
