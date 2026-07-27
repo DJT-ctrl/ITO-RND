@@ -1,0 +1,24 @@
+groups:
+  - name: ito-backup
+    rules:
+      - alert: BackupJobFailed
+        expr: ito_backup_last_ok == 0
+        for: 15m
+        labels:
+          severity: critical
+          area: backup
+        annotations:
+          summary: "ITO Postgres backup last run failed"
+          description: "ito_backup_last_ok is 0. Check journalctl -u ito-db-backup and data/telemetry/backup_status.json."
+          runbook_url: "docs/ops/BACKUP_DR.md"
+
+      - alert: BackupJobStale
+        expr: (time() - ito_backup_last_success_timestamp) > 129600
+        for: 30m
+        labels:
+          severity: warning
+          area: backup
+        annotations:
+          summary: "ITO Postgres backup older than 36h"
+          description: "No successful backup within RPO buffer (36h). RPO target is 24h — investigate timer/S3/pg_dump."
+          runbook_url: "docs/ops/BACKUP_DR.md"

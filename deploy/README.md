@@ -85,6 +85,16 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now ito-stack.service
 ```
 
+### Database backups (issue #15)
+
+```bash
+sudo cp deploy/ito-db-backup.service deploy/ito-db-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ito-db-backup.timer
+```
+
+Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACKUP_DR.md).
+
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
 ## AWS deploy & rollback (issue #20)
