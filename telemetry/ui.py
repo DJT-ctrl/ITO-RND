@@ -93,7 +93,7 @@ def render_run_metadata_summary(metadata: Optional[RunMetadata]) -> None:
 def _render_step_table(steps: list[StepTelemetry]) -> None:
     rows = []
     for step in steps:
-        status_icon = "✓" if step.status == "ok" else "✗"
+        status_icon = "✓" if step.status == "ok" else ("T" if step.status == "timeout" else "✗")
         rows.append(
             {
                 "Step": step.label,
