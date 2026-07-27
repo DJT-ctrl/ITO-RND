@@ -51,13 +51,13 @@ data/feedback_loop_overrides.json
 # OpenAPI / local tooling
 node_modules/
 
-# Terraform — AWS Budgets (issue #18)
-infra/budgets/.terraform/
-infra/budgets/*.tfstate
-infra/budgets/*.tfstate.*
-infra/budgets/tfplan
-infra/budgets/terraform.tfvars
-!infra/budgets/terraform.tfvars.example
+# Terraform — CloudWatch observability (issue #16)
+infra/observability/.terraform/
+infra/observability/*.tfstate
+infra/observability/*.tfstate.*
+infra/observability/tfplan
+infra/observability/terraform.tfvars
+!infra/observability/terraform.tfvars.example
 
 # Local planning notes (kept on disk, excluded from repo)
 planning/
@@ -70,3 +70,20 @@ T1.4_DATABASE_PLAN.md
 T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
+
+# OpenAPI / local tooling
+node_modules/
+
+# Terraform (issue #12)
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/tfplan
+infra/terraform/backend.hcl
+infra/terraform/backend.tf
+infra/envs/*.tfvars
+!infra/envs/*.tfvars.example
+
+# Runtime secrets (ephemeral, never committed)
+/run/ito/runtime.env
+runtime.env

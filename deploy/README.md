@@ -41,10 +41,24 @@ Grafana opens with the Prometheus datasource and an **ITO Stack Overview**
 dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
+**Target AWS runtime (issue #11):** single EC2 + this Compose stack —
+see [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md).
+ECS Fargate is the documented post-MVP migration path.
+
+**Secrets (issue #13):** production credentials come from AWS Secrets Manager —
+see [`SECRETS.md`](SECRETS.md). Local dev still uses a gitignored `.env`.
+
+**Load testing (issue #21):** reproducible scenarios in
+[`scripts/load/`](../scripts/load/) and the published baseline in
+[`docs/ops/LOAD_BASELINE.md`](../docs/ops/LOAD_BASELINE.md).
+
 > Only the API (`:8000`) and Grafana (`:3000`) publish beyond localhost.
 > Postgres and the raw telemetry ports bind to `127.0.0.1`. On EC2, restrict
 > even `:8000`/`:3000` via the security group and/or front them with the Nginx
 > config in `deploy/nginx.conf.example`.
+
+**AWS provisioning (issue #12):** Terraform under [`infra/`](../infra/) —
+bootstrap/teardown and CI drift checks in [`infra/README.md`](../infra/README.md).
 
 ### Port conflicts
 
@@ -78,9 +92,21 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now ito-stack.service
 ```
 
+### Database backups (issue #15)
+
+```bash
+sudo cp deploy/ito-db-backup.service deploy/ito-db-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ito-db-backup.timer
+```
+
+Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACKUP_DR.md).
+
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
 ## Common operations
+
+See [CI.md](CI.md) for pipeline jobs, merge gates, and flaky-test policy.
 
 ```bash
 docker compose logs -f api      # tail the API logs
@@ -89,22 +115,28 @@ docker compose down             # stop the stack (keeps volumes/data)
 docker compose down -v          # stop AND wipe telemetry volumes
 ```
 
-## AWS Budgets (issue #18)
+## CloudWatch (AWS on-call path — issue #16)
 
-Monthly cost guardrails live in [`infra/budgets/`](../infra/budgets/). Playbook:
-[`docs/ops/COST_CONTROLS.md`](../docs/ops/COST_CONTROLS.md).
+Local Prometheus/Grafana stay on-box. For AWS-native paging, apply
+[`infra/observability/`](../infra/observability/), then on the EC2 host:
 
 ```bash
-cd infra/budgets && cp terraform.tfvars.example terraform.tfvars  # set alert_emails
-terraform apply
-python scripts/generate_monthly_cost_report.py --month YYYY-MM --simulate
+sudo bash deploy/cloudwatch/install-agent.sh dev
+python scripts/publish_cw_api_metrics.py --environment dev --loop
+python scripts/test_cloudwatch_alarms.py --simulate
 ```
+
+Runbook: [`docs/ops/CLOUDWATCH.md`](../docs/ops/CLOUDWATCH.md).
 
 ## Notes
 
 - **Data persistence:** Postgres data lives in `DB_DATA_PATH` (default
   `./data/pgdata`; point at the mounted EBS volume on EC2). Prometheus and
   Grafana use named volumes (`prometheus_data`, `grafana_data`).
+- **Data retention & secrets:** see [DATA_GOVERNANCE.md](DATA_GOVERNANCE.md).
+  Business data is kept indefinitely by default. Prometheus retention defaults
+  to unlimited (`PROMETHEUS_RETENTION_TIME=0`); set e.g. `90d` in `.env` on
+  small disks.
 - **cAdvisor / node-exporter** rely on Linux host mounts (`/sys`, `/proc`,
   `/var/lib/docker`). They are intended for the Linux EC2 host; on macOS/
   colima their host-level metrics may be partial, but the stack still starts.
