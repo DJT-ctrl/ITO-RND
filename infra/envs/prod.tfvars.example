@@ -1,0 +1,11 @@
+environment              = "prod"
+aws_region               = "eu-west-2"
+instance_type            = "t3.medium"
+data_volume_size_gb      = 100
+allowed_cidrs            = ["0.0.0.0/0"] # tighten before go-live (#14)
+ssh_cidrs                = []
+key_name                 = ""
+enable_elastic_ip        = true
+enable_volume_protection = true
+# secret_arn_prefix  = "arn:aws:secretsmanager:eu-west-2:123456789012:secret:ito/prod/"
+# backup_bucket_name = "ito-backups-prod-ACCOUNT_ID"
