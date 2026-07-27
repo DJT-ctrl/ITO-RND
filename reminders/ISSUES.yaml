@@ -107,6 +107,27 @@ issues:
       - "Can run in parallel with **#15** and **#18**"
       - "Feeds go-live observability sign-off in **#27**"
 
+  - number: 17
+    title: "AWS WAF edge protections"
+    branch: "feature/issue-17-aws-waf"
+    docs: "docs/ops/WAF.md"
+    why: "Post-launch internet exposure needs managed edge protection, staged rollout, and exception handling for false positives."
+    scope:
+      - "Provision Web ACL with AWS managed rule groups"
+      - "Add rate-limiting and staged COUNT-to-BLOCK rollout"
+      - "Document allowlist/blocklist and emergency rollback process"
+    acceptance_criteria:
+      - criterion: "WAF resources and association are defined in IaC"
+        deliverable: "`infra/waf/waf.tf`"
+      - criterion: "Blocking mode can be toggled safely"
+        deliverable: "`infra/waf/variables.tf` (`enable_blocking`)"
+      - criterion: "Operational exception runbook is published"
+        deliverable: "`docs/ops/WAF.md`"
+    execution_notes:
+      - "Follows ingress hardening in **#14**"
+      - "Depends on **#12** foundation and ALB context"
+      - "Start in COUNT mode before production BLOCK"
+
   - number: 18
     title: "AWS budget alerts"
     branch: "feature/issue-18-aws-budget-alerts"

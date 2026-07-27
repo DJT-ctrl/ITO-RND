@@ -170,6 +170,38 @@ Cloud operations need first-class observability and alerting integrated with AWS
 
 ---
 
+## Issue #17 — requirements (AWS WAF edge protections)
+
+**Issue:** [intotheopen/intotheopen-backend#17](https://github.com/intotheopen/intotheopen-backend/issues/17)
+**Branch:** `feature/issue-17-aws-waf`
+**Docs:** [`docs/ops/WAF.md`](../docs/ops/WAF.md)
+
+### Why
+
+Post-launch internet exposure needs managed edge protection, staged rollout, and exception handling for false positives.
+
+### Scope
+
+- Provision Web ACL with AWS managed rule groups
+- Add rate-limiting and staged COUNT-to-BLOCK rollout
+- Document allowlist/blocklist and emergency rollback process
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| WAF resources and association are defined in IaC | `infra/waf/waf.tf` |
+| Blocking mode can be toggled safely | `infra/waf/variables.tf` (`enable_blocking`) |
+| Operational exception runbook is published | `docs/ops/WAF.md` |
+
+### Execution order
+
+- Follows ingress hardening in **#14**
+- Depends on **#12** foundation and ALB context
+- Start in COUNT mode before production BLOCK
+
+---
+
 ## Issue #18 — requirements (AWS budget alerts)
 
 **Issue:** [intotheopen/intotheopen-backend#18](https://github.com/intotheopen/intotheopen-backend/issues/18)
