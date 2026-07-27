@@ -1,5 +1,7 @@
 # intotheopen-backend
 
+[![CI](https://github.com/intotheopen/intotheopen-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/intotheopen/intotheopen-backend/actions/workflows/ci.yml)
+
 LinkedIn post intelligence backend: scraping, enrichment, embeddings, multi-agent
 evaluation, validation pipeline, and feedback loop.
 
@@ -68,7 +70,7 @@ This document is the **build and reproduction guide**. For production deployment
 
 | Requirement | Version / notes |
 | ----------- | --------------- |
-| **Python** | 3.12 recommended (matches `Dockerfile`; 3.11+ should work locally) |
+| **Python** | **3.12 required** for local installs (matches `Dockerfile` and the pinned `requirements.txt` lockfile) |
 | **Docker** | Engine + Compose v2 plugin (`docker compose`, not legacy `docker-compose`) |
 | **Git** | To clone the repo |
 | **Apify account** | For live LinkedIn scraping ([apify.com](https://apify.com)) |
@@ -89,8 +91,19 @@ cd intotheopen-backend
 
 python3.12 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt   # pinned lockfile (see requirements.in to change deps)
 ```
+
+**Dependency locking (issue #4):** `requirements.in` is the human-editable source;
+`requirements.txt` is the pinned lockfile generated with pip-tools on **Python 3.12**
+(matching Docker). After editing `requirements.in`, regenerate the lock:
+
+```bash
+./scripts/compile-requirements.sh
+```
+
+Local + CI + Docker should all install from the same `requirements.txt` for
+reproducible environments.
 
 ---
 
@@ -129,6 +142,13 @@ cp .env.example .env
 
 Full list and defaults: `.env.example`.
 
+### Data & secrets
+
+Scraped LinkedIn content and credentials are retained and handled according to
+the internal ops policy in **[deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md)**
+(indefinite retention by default; no PII masking in this milestone). Treat
+`LINKEDIN_COOKIES` and API keys like passwords — never commit real values.
+
 ---
 
 ## Build
@@ -149,8 +169,8 @@ manually:
 docker compose build api
 ```
 
-The image uses `python:3.12-slim`, installs `requirements.txt`, and runs
-`uvicorn api.main:app` on port 8000. Data files and the Streamlit dashboard
+The image uses `python:3.12-slim`, installs the pinned `requirements.txt` lockfile,
+and runs `uvicorn api.main:app` on port 8000. Data files and the Streamlit dashboard
 are excluded via `.dockerignore` — host-side scripts read from `data/` directly.
 
 ---
@@ -184,6 +204,12 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 ```
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
+
+**AWS secrets (issue #13):** [deploy/SECRETS.md](deploy/SECRETS.md) — Secrets
+Manager injection and credential rotation (no durable prod `.env`).
+
+**Load baseline (issue #21):** [docs/ops/LOAD_BASELINE.md](docs/ops/LOAD_BASELINE.md) ·
+scripts under [scripts/load/](scripts/load/).
 
 ---
 
@@ -470,6 +496,9 @@ curl -s localhost:8000/api/v1/evaluate \
 
 OpenAPI schema: http://localhost:8000/docs
 
+**API contract (v1):** [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md) ·
+[`docs/api/VERSIONING.md`](docs/api/VERSIONING.md) · committed snapshot [`openapi.json`](openapi.json)
+
 ---
 
 ## Tests
@@ -477,6 +506,9 @@ OpenAPI schema: http://localhost:8000/docs
 ```bash
 pytest -q
 ```
+
+CI runs lint, a Python 3.11/3.12 test matrix, and an optional Docker Compose smoke
+check on every PR — see [deploy/CI.md](deploy/CI.md).
 
 Tests mock external APIs (Apify, Gemini, Postgres where needed) — no API
 charges during CI or local test runs.
@@ -552,4 +584,6 @@ docker compose up -d --build
 ## Further reading
 
 - [deploy/README.md](deploy/README.md) — production stack, Grafana, systemd, Nginx
+- [deploy/DATA_GOVERNANCE.md](deploy/DATA_GOVERNANCE.md) — data retention and secrets handling
 - [.env.example](.env.example) — full environment variable reference
+- [REMINDERS.md](REMINDERS.md) — issue-first workflow and backlog
