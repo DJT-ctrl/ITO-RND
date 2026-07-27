@@ -38,12 +38,22 @@ async def run_agent_step(
     prompt: str,
     deps: Any,
     model: Optional[str] = None,
+    timeout_s: Optional[float] = None,
 ) -> Any:
-    """Run a PydanticAI agent (or duck-typed stub) and record telemetry."""
+    """Run a PydanticAI agent (or duck-typed stub) and record telemetry.
+
+    When ``timeout_s`` is set and positive, the agent call is bounded with
+    ``asyncio.wait_for``. Timeouts raise ``asyncio.TimeoutError`` after
+    recording a ``status="timeout"`` step (issue #22).
+    """
     started_at = _utc_now()
     t0 = time.perf_counter()
     try:
-        result = await agent.run(prompt, deps=deps)
+        run_coro = agent.run(prompt, deps=deps)
+        if timeout_s is not None and timeout_s > 0:
+            result = await asyncio.wait_for(run_coro, timeout=timeout_s)
+        else:
+            result = await run_coro
         latency_ms = _elapsed_ms(t0)
         if collector is not None:
             usage = _extract_usage(result)
@@ -70,6 +80,22 @@ async def run_agent_step(
                     model=model,
                 )
         return result
+    except asyncio.TimeoutError:
+        latency_ms = _elapsed_ms(t0)
+        if collector is not None:
+            collector.record_step(
+                step_id=step_id,
+                label=label,
+                stage=stage,
+                call_type="llm",
+                latency_ms=latency_ms,
+                started_at=started_at,
+                ended_at=_utc_now(),
+                status="timeout",
+                model=model,
+                error=f"exceeded {timeout_s}s timeout",
+            )
+        raise
     except Exception as exc:
         latency_ms = _elapsed_ms(t0)
         if collector is not None:

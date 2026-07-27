@@ -188,6 +188,9 @@ See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
 **Backup / DR (issue #15):** [docs/ops/BACKUP_DR.md](docs/ops/BACKUP_DR.md) —
 RPO ≤ 24h, RTO ≤ 4h, daily dumps + EBS snapshots, restore drill.
 
+**Orchestrator latency (issue #22):** [docs/ops/ORCHESTRATOR_LATENCY.md](docs/ops/ORCHESTRATOR_LATENCY.md)
+— agent/finalize timeouts and partial-result policy for `/api/v1/evaluate`.
+
 ---
 
 ## Reproduce the corpus pipeline
