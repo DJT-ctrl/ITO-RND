@@ -104,6 +104,16 @@ Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACK
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
+## Rightsizing & idle non-prod (issue #19)
+
+Baseline `t3.small` + gp3 volumes, non-prod office-hours stop/start, monthly
+review: [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md).
+
+```bash
+python scripts/apply_nonprod_idle_policy.py --action auto --simulate
+python scripts/run_rightsizing_review.py --month YYYY-MM --simulate
+```
+
 ## Common operations
 
 See [CI.md](CI.md) for pipeline jobs, merge gates, and flaky-test policy.

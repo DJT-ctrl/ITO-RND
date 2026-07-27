@@ -1,0 +1,19 @@
+{
+  "issue": 19,
+  "applies_to_envs": ["dev", "staging"],
+  "never_applies_to_envs": ["prod"],
+  "required_tags": {
+    "ito:project": "intotheopen",
+    "ito:idle-policy": "office-hours"
+  },
+  "schedule_utc": {
+    "stop_weekdays_after_hour": 20,
+    "start_weekdays_at_hour": 8,
+    "stop_all_weekend": true
+  },
+  "cleanup": {
+    "unattached_eip_grace_hours": 24,
+    "unused_ebs_age_days": 7,
+    "dev_snapshot_max_age_days": 14
+  }
+}
