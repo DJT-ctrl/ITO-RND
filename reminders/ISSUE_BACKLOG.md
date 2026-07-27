@@ -170,6 +170,38 @@ Cloud operations need first-class observability and alerting integrated with AWS
 
 ---
 
+## Issue #19 — requirements (EC2/EBS rightsizing)
+
+**Issue:** [intotheopen/intotheopen-backend#19](https://github.com/intotheopen/intotheopen-backend/issues/19)
+**Branch:** `feature/issue-19-ec2-ebs-rightsizing`
+**Docs:** [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md)
+
+### Why
+
+Post-launch instance and volume sizes should match real workload patterns to control cost without sacrificing performance.
+
+### Scope
+
+- Capture and document baseline instance and volume sizing decisions
+- Define idle-resource policy for non-prod environments
+- Establish monthly rightsizing review process
+
+### Acceptance criteria
+
+| Criterion | Deliverable |
+| --------- | ----------- |
+| Baseline sizing is justified and recorded | `infra/rightsizing/baseline.json` |
+| Idle policy protects prod and governs dev/staging | `infra/rightsizing/idle_policy.json` |
+| Runbook guides monthly review and escalation | `docs/ops/RIGHTSIZING.md` |
+
+### Execution order
+
+- Follows **#12** and **#18** for baseline cost context
+- Review cadence feeds **#18** budget thresholds
+- Never apply idle policy to prod environments
+
+---
+
 ## Issue #21 — requirements (Load baseline)
 
 **Issue:** [intotheopen/intotheopen-backend#21](https://github.com/intotheopen/intotheopen-backend/issues/21)

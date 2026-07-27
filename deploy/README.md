@@ -104,18 +104,15 @@ Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACK
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
-## HTTPS ingress (issue #14)
+## Rightsizing & idle non-prod (issue #19)
 
-Terminate TLS on the host with Nginx (not ALB by default). Runbook:
-[`docs/ops/INGRESS_HTTPS.md`](../docs/ops/INGRESS_HTTPS.md).
+Baseline `t3.small` + gp3 volumes, non-prod office-hours stop/start, monthly
+review: [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md).
 
 ```bash
-sudo cp deploy/nginx/ito-api.conf /etc/nginx/conf.d/ito-api.conf
-sudo bash deploy/nginx/install-tls.sh api.example.com you@example.com
-python scripts/test_ingress_hardening.py --simulate
+python scripts/apply_nonprod_idle_policy.py --action auto --simulate
+python scripts/run_rightsizing_review.py --month YYYY-MM --simulate
 ```
-
-WAF is deferred to issue **#17**.
 
 ## Common operations
 
