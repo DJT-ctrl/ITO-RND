@@ -63,3 +63,7 @@ T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
 
 node_modules/
+
+# Runtime secrets (ephemeral)
+/run/ito/runtime.env
+runtime.env
