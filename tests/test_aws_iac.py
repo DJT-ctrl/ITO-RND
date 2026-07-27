@@ -36,7 +36,7 @@ def test_env_tfvars_examples_cover_dev_staging_prod():
         path = ENVS / f"{env}.tfvars.example"
         assert path.is_file(), path
         text = path.read_text(encoding="utf-8")
-        assert f'environment' in text and f'"{env}"' in text
+        assert 'environment' in text and f'"{env}"' in text
 
 
 def test_infra_readme_has_bootstrap_and_teardown():
