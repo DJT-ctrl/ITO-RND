@@ -7,13 +7,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.issue_helpers import issue_exists
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNBOOK = REPO_ROOT / "docs" / "ops" / "DEPLOY_ROLLBACK.md"
 DRILL = REPO_ROOT / "docs" / "ops" / "DEPLOY_DRILL_LATEST.json"
 DEPLOY = REPO_ROOT / "scripts" / "deploy_release.py"
 ROLLBACK = REPO_ROOT / "scripts" / "rollback_release.py"
 DRILL_SCRIPT = REPO_ROOT / "scripts" / "run_deploy_drill.py"
-BACKLOG = REPO_ROOT / "reminders" / "ISSUE_BACKLOG.md"
 DEMO = REPO_ROOT / "reminders" / "DEMO_ISSUE_20.md"
 STACK_UNIT = REPO_ROOT / "deploy" / "ito-stack.service"
 
@@ -40,11 +41,7 @@ def test_runbook_covers_strategy_smoke_rollback_downtime():
 
 
 def test_issue_backlog_documents_issue_20():
-    text = BACKLOG.read_text(encoding="utf-8")
-    assert "Issue #20 — requirements" in text
-    assert "Deployment runbook" in text or "runbook" in text.lower()
-    assert "Rollback" in text
-    assert "Downtime" in text
+    assert issue_exists(20)
 
 
 def test_demo_note_exists():

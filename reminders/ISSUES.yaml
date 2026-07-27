@@ -86,6 +86,27 @@ issues:
       - "Can run in parallel with **#15** and **#18**"
       - "Feeds go-live observability sign-off in **#27**"
 
+  - number: 20
+    title: "Deploy and rollback runbook"
+    branch: "feature/issue-20-deploy-rollback-runbook"
+    docs: "docs/ops/DEPLOY_ROLLBACK.md"
+    why: "Single-instance deployments need a deterministic release and rollback procedure before production cutovers."
+    scope:
+      - "Define pre-deploy checks and controlled rollout steps"
+      - "Document rollback triggers, steps, and decision points"
+      - "Automate drill execution and evidence capture"
+    acceptance_criteria:
+      - criterion: "Runbook documents strategy and downtime budget"
+        deliverable: "`docs/ops/DEPLOY_ROLLBACK.md`"
+      - criterion: "Deploy and rollback scripts support dry-run safety"
+        deliverable: "`scripts/deploy_release.py` + `scripts/rollback_release.py`"
+      - criterion: "Drill output is recorded"
+        deliverable: "`docs/ops/DEPLOY_DRILL_LATEST.json`"
+    execution_notes:
+      - "Depends on runtime model from **#11**"
+      - "Depends on infra baseline from **#12**"
+      - "Feeds operational readiness before go-live"
+
   - number: 21
     title: "Load baseline"
     branch: "feature/issue-21-load-baseline"
