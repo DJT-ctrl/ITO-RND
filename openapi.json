@@ -65,7 +65,7 @@
                   "results": [
                     {
                       "post_id": "post-101",
-                      "content": "Three lessons from our AI launch week\u2026",
+                      "content": "Three lessons from our AI launch week…",
                       "likes": 120,
                       "comments": 18,
                       "shares": 4,
@@ -172,7 +172,7 @@
                   "similar_posts": [
                     {
                       "post_id": "post-101",
-                      "content": "Three lessons from our AI launch week\u2026",
+                      "content": "Three lessons from our AI launch week…",
                       "likes": 120,
                       "comments": 18,
                       "shares": 4,
@@ -204,7 +204,7 @@
                     "predicted_likes": 30,
                     "predicted_comments": 8,
                     "predicted_shares": 4,
-                    "reasoning": "Neighbors with similar hiring announcements scored in the 75\u201385 percentile band."
+                    "reasoning": "Neighbors with similar hiring announcements scored in the 75–85 percentile band."
                   },
                   "diagnostics": {
                     "seo": {
@@ -997,7 +997,8 @@
             "type": "string",
             "enum": [
               "ok",
-              "error"
+              "error",
+              "timeout"
             ],
             "title": "Status"
           },
