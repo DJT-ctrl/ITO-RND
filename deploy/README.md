@@ -104,15 +104,14 @@ Playbook, RPO/RTO, and restore drill: [`docs/ops/BACKUP_DR.md`](../docs/ops/BACK
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
-## AWS WAF (issue #17 — post-launch)
+## Rightsizing & idle non-prod (issue #19)
 
-Edge WAF attaches to an **ALB** (not bare Nginx/EC2). Terraform:
-[`infra/waf/`](../infra/waf/). Runbook: [`docs/ops/WAF.md`](../docs/ops/WAF.md).
+Baseline `t3.small` + gp3 volumes, non-prod office-hours stop/start, monthly
+review: [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md).
 
 ```bash
-cd infra/waf && cp terraform.tfvars.example terraform.tfvars
-terraform apply -var="enable_blocking=false"   # COUNT mode first
-python scripts/test_waf_edge.py --simulate
+python scripts/apply_nonprod_idle_policy.py --action auto --simulate
+python scripts/run_rightsizing_review.py --month YYYY-MM --simulate
 ```
 
 ## Common operations
