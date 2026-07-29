@@ -30,6 +30,7 @@ def _due_prediction() -> PredictionRecord:
 @patch("validation_pipeline.worker.mark_validating")
 @patch("validation_pipeline.worker.fetch_engagement_by_urls")
 @patch("validation_pipeline.worker.compute_validation_scores")
+@patch("validation_pipeline.worker.fetch_bucketed_corpus_engagement_totals")
 @patch("validation_pipeline.worker.fetch_corpus_engagement_totals")
 @patch("validation_pipeline.worker.fetch_due_predictions")
 @patch("validation_pipeline.worker.get_connection")
@@ -41,6 +42,7 @@ def test_run_due_validations_success(
     mock_get_connection,
     mock_fetch_due,
     mock_corpus,
+    mock_bucketed,
     mock_scores,
     mock_fetch_by_urls,
     mock_mark_validating,
@@ -53,11 +55,13 @@ def test_run_due_validations_success(
     settings.database_url = "postgresql://test"
     settings.validation_age_window_tolerance_hours = 6.0
     settings.validation_backtest_mature_min_hours = 72
+    settings.validation_age_bucket_min_n = 30
     settings.validation_window.return_value = timedelta(hours=48)
     prediction = _due_prediction()
     mock_get_connection.return_value = MagicMock()
     mock_fetch_due.return_value = [prediction]
     mock_corpus.return_value = [10, 20, 30]
+    mock_bucketed.return_value = ([10, 20, 30], "48_72", "corpus_fallback")
     actuals = EngagementActuals(likes=1, comments=1, shares=1, total_engagement=3)
     mock_fetch_by_urls.return_value = {prediction.prediction_id: actuals}
     scores = ValidationScores(

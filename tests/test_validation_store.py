@@ -5,7 +5,11 @@ from unittest.mock import MagicMock
 from uuid import uuid4
 
 from validation_pipeline.schemas import NewPrediction
-from validation_pipeline.store import insert_prediction, prediction_exists
+from validation_pipeline.store import (
+    existing_prediction_post_ids,
+    insert_prediction,
+    prediction_exists,
+)
 
 
 def test_prediction_exists_true():
@@ -22,6 +26,26 @@ def test_prediction_exists_false():
     conn.cursor.return_value.__enter__.return_value = cursor
     cursor.fetchone.return_value = None
     assert prediction_exists(conn, "post-123") is False
+
+
+def test_existing_prediction_post_ids_batches():
+    conn = MagicMock()
+    cursor = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cursor
+    cursor.fetchall.return_value = [("a",), ("c",)]
+
+    found = existing_prediction_post_ids(conn, ["a", "b", "c"])
+    assert found == {"a", "c"}
+    cursor.execute.assert_called_once()
+    sql, params = cursor.execute.call_args.args
+    assert "ANY(%s)" in sql
+    assert params == (["a", "b", "c"],)
+
+
+def test_existing_prediction_post_ids_empty():
+    conn = MagicMock()
+    assert existing_prediction_post_ids(conn, []) == set()
+    conn.cursor.assert_not_called()
 
 
 def test_insert_prediction_returns_record():

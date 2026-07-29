@@ -35,6 +35,8 @@ def fetch_cluster_feedback(
     approved_only: bool = True,
     query_embedding: Optional[Sequence[float]] = None,
     age_aware_enabled: bool = False,
+    multi_horizon_learning: bool = False,
+    query_horizon_hours: float | None = None,
 ) -> list[FeedbackRecord]:
     """Return feedback rows for a cluster.
 
@@ -42,8 +44,10 @@ def fetch_cluster_feedback(
     When ``query_embedding`` is set, rank by cosine distance to the lesson
     prediction embedding, then recency. Otherwise newest-first.
     When ``age_aware_enabled``, skip lessons from forced_early validations.
+    When ``multi_horizon_learning``, only lessons from the same horizon bucket.
     """
     from validation_pipeline.age_aware import age_aware_learning_sql
+    from validation_pipeline.age_buckets import horizon_learning_sql
 
     if not cluster_id or limit <= 0:
         return []
@@ -54,6 +58,11 @@ def fetch_cluster_feedback(
     age_clause, age_params = age_aware_learning_sql(
         enabled=age_aware_enabled, alias="p"
     )
+    horizon_clause, horizon_params = horizon_learning_sql(
+        enabled=multi_horizon_learning,
+        query_horizon_hours=query_horizon_hours,
+        alias="p",
+    )
 
     where_params: list = [cluster_id]
     if feedback_version:
@@ -63,6 +72,7 @@ def fetch_cluster_feedback(
         exclude_clause = "AND f.prediction_id <> %s"
         where_params.append(exclude_prediction_id)
     where_params.extend(age_params)
+    where_params.extend(horizon_params)
 
     if query_embedding:
         select_distance = (
@@ -91,6 +101,7 @@ def fetch_cluster_feedback(
               {exclude_clause}
               {approved_clause}
               {age_clause}
+              {horizon_clause}
             {order_clause}
             LIMIT %s
             """,
@@ -115,6 +126,8 @@ def fetch_cluster_feedback_with_fallback(
     query_embedding: Optional[Sequence[float]] = None,
     cluster_n_min: int = 50,
     age_aware_enabled: bool = False,
+    multi_horizon_learning: bool = False,
+    query_horizon_hours: float | None = None,
 ) -> tuple[list[FeedbackRecord], str, Optional[str], Optional[float], int]:
     """Fetch lessons with T10.7 topic → shape fallback.
 
@@ -133,6 +146,8 @@ def fetch_cluster_feedback_with_fallback(
         approved_only=approved_only,
         query_embedding=query_embedding,
         age_aware_enabled=age_aware_enabled,
+        multi_horizon_learning=multi_horizon_learning,
+        query_horizon_hours=query_horizon_hours,
     )
 
     for candidate_id in candidates:

@@ -1,7 +1,7 @@
 """Validation Pipeline — collect & predict from live scrape or saved collections.
 
-Backtest mode strips engagement metrics from already-aged posts so the predictor
-runs blind, then allows immediate validation against real actuals (no 48h wait).
+Phase 11: each post auto-creates a same-age grade (Lane A) plus fixed 24/48/72h
+horizon predictions (Lane B) under Gemini budget caps.
 """
 
 import asyncio
@@ -23,11 +23,11 @@ from telemetry.apify import load_apify_runs  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.corpus_import import (  # noqa: E402
     collected_posts_from_saved_collection,
+    count_already_predicted,
     list_saved_collections,
 )
 from validation_pipeline.pipeline import run_collect_and_predict, run_predict_on_posts  # noqa: E402
 from validation_pipeline.reset import reset_validation_data_for_settings  # noqa: E402
-from validation_pipeline.schemas import strip_engagement_for_backtest  # noqa: E402
 from validation_pipeline.ui import load_predictions, render_predictions_table  # noqa: E402
 from validation_pipeline.vectorized_corpus import (  # noqa: E402
     bulk_import_vectorized_and_predict,
@@ -39,9 +39,9 @@ st.set_page_config(page_title="Collect and predict", layout="wide")
 page_header(
     "Collect and predict",
     "Create predictions to grade later: import an already-vectorized corpus, "
-    "scrape fresh posts, or load a saved collection. Each run writes predicted "
-    "engagement and schedules a validation check.",
-    step_hint="Validation step 1 of 4 · Next: Validation queue",
+    "scrape fresh posts, or load a saved collection. Multi-horizon mode writes "
+    "same-age + 24/48/72h predictions per post.",
+    step_hint="Validation step 1 of 4 · Next: Validation queue · Phase 11",
 )
 pipeline_flow_strip("validation", "predict")
 render_phase_badges(["0"])
@@ -57,11 +57,17 @@ Use analysed LinkedIn **CSV/JSONL bundles that already have matching `.npy`
 embeddings** from **Make embeddings** (not raw scraper JSON). Posts are merged
 and deduped by `post_id`, then predicted with the flash-lite model.
 
-**Backtest tip:** aged posts can be predicted “blind” and graded immediately
-in the queue (no 48h wait).
+**Phase 11:** each post gets a **same-age** immediate grade plus **24h / 48h / 72h**
+scheduled rows (blind predict). Cap: `VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN`.
 """,
 )
 st.caption(f"Predictor model: `{pydantic_ai_gemini_model()}`")
+if settings.validation_multi_horizon_enabled:
+    st.caption(
+        f"Multi-horizon ON — max {settings.validation_multi_horizon_max_predicts_per_run} "
+        f"Gemini predicts/run · fixed horizons "
+        f"{list(settings.validation_fixed_horizons_hours)}"
+    )
 
 vectorized_datasets = discover_vectorized_datasets(settings)
 if vectorized_datasets:
@@ -78,9 +84,28 @@ posts_ready, _ = (
     if vectorized_datasets
     else ([], [])
 )
-st.metric("Unique vectorized posts ready", len(posts_ready))
+already_predicted = 0
+if posts_ready and settings.database_url:
+    try:
+        already_predicted = count_already_predicted(posts_ready, settings)
+    except Exception:
+        already_predicted = 0
 
-col_reset, col_max, col_due, col_bt = st.columns(4)
+remaining_to_predict = max(len(posts_ready) - already_predicted, 0)
+metric_cols = st.columns(3)
+with metric_cols[0]:
+    st.metric("Unique vectorized posts", len(posts_ready))
+with metric_cols[1]:
+    st.metric("Already complete", already_predicted)
+with metric_cols[2]:
+    st.metric("Remaining to predict", remaining_to_predict)
+if already_predicted:
+    st.caption(
+        "Posts with all planned horizon rows are skipped automatically — "
+        "each import run picks the next incomplete posts up to Max posts."
+    )
+
+col_reset, col_max = st.columns(2)
 with col_reset:
     if st.button(
         "Reset validation data",
@@ -94,29 +119,9 @@ with col_max:
         "Max posts",
         min_value=1,
         max_value=2000,
-        value=min(len(posts_ready) or 1, 500),
+        value=min(remaining_to_predict or len(posts_ready) or 1, 500),
         key="vectorized_import_max",
     )
-with col_due:
-    bulk_due_now = st.checkbox(
-        "Due immediately",
-        value=False,
-        key="vectorized_due_immediately",
-        help="Otherwise validation is scheduled for posted_at + 48h (old posts are already due).",
-    )
-with col_bt:
-    bulk_backtest = st.checkbox(
-        "⚡ Backtest mode",
-        value=False,
-        key="vectorized_backtest",
-        help=(
-            "Strip likes/comments/shares so the predictor runs blind, "
-            "then validate immediately against real actuals. "
-            "Use with already-aged posts to skip the 48h wait."
-        ),
-    )
-    if bulk_backtest:
-        bulk_due_now = True
 
 if "validation_reset_counts" in st.session_state:
     reset = st.session_state["validation_reset_counts"]
@@ -129,24 +134,39 @@ can_bulk = bool(
     settings.database_url
     and settings.gemini_api_key
     and vectorized_datasets
-    and posts_ready
+    and remaining_to_predict
+)
+st.caption(
+    "This step runs **up to four Gemini predictions per post** (same-age + fixed "
+    "horizons) under the per-run budget — expect a few seconds each, plus a 1s "
+    "pause between posts. Feedback is written later after you grade in "
+    "**Validation queue** (Lane A grades immediately)."
 )
 if st.button(
     "Import vectorized posts and predict",
     type="primary",
     disabled=not can_bulk,
 ):
-    with st.spinner(
-        "Backtest: predicting blind (engagement stripped)..."
-        if bulk_backtest
-        else "Predicting vectorized corpus..."
-    ):
-        result = bulk_import_vectorized_and_predict(
-            settings,
-            max_posts=int(bulk_max),
-            due_immediately=bulk_due_now,
-            backtest=bulk_backtest,
-        )
+    progress = st.progress(0, text="Multi-horizon predict on vectorized corpus...")
+    status = st.empty()
+
+    def on_bulk_progress(completed: int, total: int, message: str) -> None:
+        fraction = (completed / total) if total else 1.0
+        progress.progress(min(max(fraction, 0.0), 1.0), text=message)
+        status.caption(message)
+
+    result = bulk_import_vectorized_and_predict(
+        settings,
+        max_posts=int(bulk_max),
+        on_progress=on_bulk_progress,
+    )
+    progress.progress(
+        1.0,
+        text=(
+            f"Done — imported={result.imported} skipped={result.skipped} "
+            f"errors={len(result.errors)}"
+        ),
+    )
     st.session_state["vectorized_import_result"] = result
     st.rerun()
 
@@ -180,29 +200,15 @@ with st.sidebar:
         max_value=100,
         value=settings.validation_max_posts_per_run,
     )
-    due_immediately = st.checkbox(
-        "Due immediately (for testing)",
-        value=False,
-        help="Skip the 48h wait — use with saved collections to test validation in Queue.",
-    )
-    backtest_mode = st.checkbox(
-        "⚡ Backtest mode",
-        value=False,
-        help=(
-            "Strip engagement metrics so the predictor runs blind on "
-            "already-aged posts. Forces 'Due immediately' ON."
-        ),
-    )
-    if backtest_mode:
-        due_immediately = True
-
-    window_hours = settings.validation_window_hours
-    if settings.validation_dev_window_minutes is not None:
+    if settings.validation_multi_horizon_enabled:
+        st.info(
+            "Multi-horizon: same-age grade now + 24/48/72h rescrape rows "
+            f"(budget ≤ {settings.validation_multi_horizon_max_predicts_per_run}/run)."
+        )
+    elif settings.validation_dev_window_minutes is not None:
         st.info(f"Dev validation window: {settings.validation_dev_window_minutes} minutes")
-    elif due_immediately:
-        st.info("Predictions will be due for validation immediately.")
     else:
-        st.info(f"Validation window: {window_hours} hours after publish")
+        st.info(f"Legacy window: {settings.validation_window_hours}h after publish")
 
     can_predict = bool(settings.gemini_api_key and settings.database_url)
 
@@ -253,100 +259,52 @@ if run_clicked:
         messages.append(msg)
         log.code("\n".join(messages[-8:]))
 
-    with st.spinner(
-        "Backtest: predicting blind (engagement stripped)..."
-        if backtest_mode
-        else "Running..."
-    ):
+    with st.spinner("Running multi-horizon collect/predict..."):
         if source_mode == "Live Apify scrape":
-            from validation_pipeline.collect import collect_posts as _collect_posts
-
-            # Match Scraper Stage defaults: relevance, no time filter.
-            # date + week triggers LinkedIn's anonymous chronological-search throttle.
             search_params = {
                 "searchQueries": [search_query.strip()],
                 "maxPosts": int(max_posts),
                 "sortBy": "relevance",
             }
-            if backtest_mode:
-                # Collect first, strip engagement, then predict separately.
-                posts = _collect_posts(
+            result = asyncio.run(
+                run_collect_and_predict(
                     search_params,
                     settings=settings,
                     on_progress=on_progress,
                 )
-                posts = strip_engagement_for_backtest(posts)
-                on_progress(
-                    f"⚡ Backtest: stripped engagement from {len(posts)} post(s)."
-                )
-                result = asyncio.run(
-                    run_predict_on_posts(
-                        posts,
-                        settings=settings,
-                        due_immediately=True,
-                        on_progress=on_progress,
-                    )
-                )
-            else:
-                result = asyncio.run(
-                    run_collect_and_predict(
-                        search_params,
-                        settings=settings,
-                        on_progress=on_progress,
-                    )
-                )
-        else:
-            scan_path = next(f for f in saved_scans if f.name == selected_scan)
-            posts = collected_posts_from_saved_collection(
-                scan_path,
-                settings,
-                max_posts=int(max_posts),
             )
-            if backtest_mode:
-                posts = strip_engagement_for_backtest(posts)
-                on_progress(
-                    f"⚡ Backtest: stripped engagement from {len(posts)} post(s) "
-                    f"loaded from `{selected_scan}`."
-                )
-            else:
-                on_progress(f"Loaded {len(posts)} post(s) from `{selected_scan}`.")
+            st.session_state["last_apify_runs"] = load_apify_runs(limit=20)
+        else:
+            from config.paths import resolve_data_path
+
+            path = resolve_data_path(settings.raw_data_dir) / selected_scan
+            posts = collected_posts_from_saved_collection(
+                path, settings, max_posts=int(max_posts)
+            )
             result = asyncio.run(
                 run_predict_on_posts(
                     posts,
                     settings=settings,
-                    due_immediately=due_immediately,
                     on_progress=on_progress,
                 )
             )
-    st.session_state["last_collect_result"] = result
 
-if "last_collect_result" in st.session_state:
-    result = st.session_state["last_collect_result"]
+    st.session_state["validation_last_result"] = result
+    st.rerun()
+
+if "validation_last_result" in st.session_state:
+    last = st.session_state["validation_last_result"]
     st.success(
-        f"Posts {result.scraped} · Predicted {result.predicted} · "
-        f"Skipped {result.skipped} · Errors {len(result.errors)}"
+        f"scraped/loaded={last.scraped} predicted={last.predicted} "
+        f"skipped={last.skipped} budget_skipped={getattr(last, 'budget_skipped', 0)} "
+        f"errors={len(last.errors)}"
     )
-    validation_runs = [
-        r
-        for r in load_apify_runs(settings, limit=30)
-        if r.context and r.context.startswith("validation")
-    ][:5]
-    if validation_runs:
-        render_apify_session_cost(validation_runs)
-    if result.errors:
-        for err in result.errors:
+    if last.errors:
+        for err in last.errors[:10]:
             st.error(err)
-    if result.predictions:
-        st.subheader("Newly scheduled predictions")
-        render_predictions_table(result.predictions)
-
+    if last.predictions:
+        render_predictions_table(last.predictions)
 
 st.divider()
-render_apify_cost_history(settings, limit=40)
-st.divider()
-st.subheader("Recent predictions")
-if settings.database_url:
-    recent = load_predictions(settings, limit=20)
-    render_predictions_table(recent)
-else:
-    st.warning("DATABASE_URL required to list predictions.")
+render_apify_session_cost()
+render_apify_cost_history()

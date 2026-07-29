@@ -23,6 +23,7 @@ PydanticAI's `deps_type` expects.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -31,6 +32,7 @@ from api.schemas import SimilarPost
 from telemetry.schemas import RunMetadata
 
 SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
+PredictionLaneHint = Literal["same_age", "fixed_horizon"]
 
 # T7.1 comparison surface: how many nearest neighbors to retrieve.
 DEFAULT_NEIGHBOR_LIMIT = 10
@@ -76,6 +78,12 @@ class EvaluationDeps:
     image_url: Optional[str] = None
     image_bytes: Optional[bytes] = None
     image_media_type: Optional[str] = None
+    # Phase 11: horizon-aware validation / predict context.
+    posted_at: Optional[datetime] = None
+    target_horizon_hours: Optional[float] = None
+    prediction_lane: Optional[PredictionLaneHint] = None
+    age_hours_at_predict: Optional[float] = None
+    age_bucket: Optional[str] = None
 
 
 class PostEvaluationState(BaseModel):

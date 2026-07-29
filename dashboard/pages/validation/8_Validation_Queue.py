@@ -12,6 +12,7 @@ from config.settings import load_settings  # noqa: E402
 from dashboard.chrome import page_header, pipeline_flow_strip, render_phase_badges, section_header  # noqa: E402
 from validation_pipeline.ui import (  # noqa: E402
     load_predictions,
+    render_validation_batch_summary,
     render_validation_comparison_table,
 )
 from validation_pipeline.worker import run_due_validations, run_validations_for_ids  # noqa: E402
@@ -84,20 +85,55 @@ with st.sidebar:
 
 if "last_batch" in st.session_state:
     batch = st.session_state["last_batch"]
-    st.success(
-        f"Processed {batch.processed} · Validated {batch.validated} · Failed {batch.failed}"
+    render_validation_batch_summary(batch)
+    fingerprint = (
+        batch.processed,
+        batch.validated,
+        batch.failed,
+        str(batch.results[0].prediction_id) if batch.results else "",
     )
-    for item in batch.results:
-        if item.status == "failed":
-            st.error(f"{item.prediction_id}: {item.error}")
-        elif item.status == "skipped" and item.error:
-            st.warning(item.error)
+    if st.session_state.get("_last_batch_fingerprint") != fingerprint:
+        st.session_state["validation_queue_show"] = "Validated"
+        st.session_state["_last_batch_fingerprint"] = fingerprint
 
-status_filter = st.selectbox(
-    "Show",
-    ["All", "Scheduled", "Validated", "Failed"],
-    index=0,
-)
+# Apply deferred Show-filter changes before the selectbox is created.
+if "validation_queue_show_pending" in st.session_state:
+    st.session_state["validation_queue_show"] = st.session_state.pop(
+        "validation_queue_show_pending"
+    )
+
+status_cols = st.columns([2, 1, 1])
+with status_cols[0]:
+    status_filter = st.selectbox(
+        "Show",
+        ["All", "Scheduled", "Validated", "Failed"],
+        key="validation_queue_show",
+    )
+with status_cols[1]:
+    st.write("")  # vertical align with selectbox
+    if st.button("Select all scheduled", use_container_width=True):
+        scheduled = load_predictions(settings, status="scheduled", limit=200)
+        ids = [str(p.prediction_id) for p in scheduled]
+        if not ids:
+            st.warning("No scheduled predictions to select.")
+        else:
+            st.session_state["validation_selected_ids"] = ids
+            st.session_state["validation_preselected_ids"] = ids
+            st.session_state["validation_comparison_rev"] = (
+                st.session_state.get("validation_comparison_rev", 0) + 1
+            )
+            st.session_state["validation_queue_show_pending"] = "Scheduled"
+            st.rerun()
+with status_cols[2]:
+    st.write("")
+    if st.button("Clear selection", use_container_width=True):
+        st.session_state["validation_selected_ids"] = []
+        st.session_state["validation_preselected_ids"] = []
+        st.session_state["validation_comparison_rev"] = (
+            st.session_state.get("validation_comparison_rev", 0) + 1
+        )
+        st.rerun()
+
 status_map = {
     "All": None,
     "Scheduled": "scheduled",
@@ -105,8 +141,12 @@ status_map = {
     "Failed": "failed",
 }
 predictions = load_predictions(settings, status=status_map[status_filter], limit=200)
+selected_count = len(st.session_state.get("validation_selected_ids", []))
+if selected_count:
+    st.caption(f"{selected_count} post(s) selected for re-scrape.")
 render_validation_comparison_table(
     predictions,
-    editor_key="validation_comparison_main",
+    editor_key=f"validation_comparison_main_{st.session_state.get('validation_comparison_rev', 0)}",
     selectable=True,
+    preselected_ids=st.session_state.get("validation_preselected_ids") or None,
 )

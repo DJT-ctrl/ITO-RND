@@ -6,7 +6,7 @@
 Yes — in the numbered phase ladder this is the **feedback-loop** phase. Internally the work was tracked as lettered sub-phases **A–J** (plus G+), not as “T8.x” spreadsheet rows.
 
 **Active docs:** [`current md/`](current%20md/README.md)  
-**Do not confuse with:** [Phase 7](Phase_7.md) (multi-agent evaluation) or [Phase 9](Phase_9.md) (offline independent modules A1–A4).
+**Do not confuse with:** [Phase 7](Phase_7.md) (multi-agent evaluation), [Phase 9](Phase_9.md) (offline independent modules A1–A4), or [Phase 11](Phase_11.md) (multi-horizon age-aware validation).
 
 ---
 

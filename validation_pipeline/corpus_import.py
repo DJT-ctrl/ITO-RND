@@ -6,7 +6,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,7 +18,7 @@ from storage.vector_store import create_schema, get_connection
 from validation_pipeline.collect import raw_posts_to_collected
 from validation_pipeline.predict import predict_for_post, save_prediction
 from validation_pipeline.schemas import CollectedPost, PredictionRecord
-from validation_pipeline.store import prediction_exists
+from validation_pipeline.store import existing_prediction_post_ids, prediction_exists
 
 ImportSourceKind = Literal["raw", "validation", "all"]
 
@@ -75,6 +75,90 @@ def dedupe_collected_posts(posts: list[CollectedPost]) -> list[CollectedPost]:
         seen.add(post.linkedin_post_id)
         unique.append(post)
     return unique
+
+
+def partition_posts_by_existing_predictions(
+    posts: list[CollectedPost],
+    settings: Settings,
+) -> tuple[list[CollectedPost], list[CollectedPost]]:
+    """Split posts into (pending, already_predicted) using the predictions table.
+
+    With multi-horizon enabled, a post is complete only when every planned
+    horizon row exists. Otherwise any predictions row ticks the post off.
+    """
+    if not posts:
+        return [], []
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        if settings.validation_multi_horizon_enabled:
+            from validation_pipeline.multi_horizon import planned_horizons_for_post
+            from validation_pipeline.store import existing_prediction_keys
+
+            keys = existing_prediction_keys(
+                conn, [post.linkedin_post_id for post in posts]
+            )
+            pending: list[CollectedPost] = []
+            already: list[CollectedPost] = []
+            for post in posts:
+                planned = planned_horizons_for_post(post, settings)
+                missing = [
+                    h
+                    for _lane, h in planned
+                    if (post.linkedin_post_id, float(h)) not in keys
+                ]
+                if missing:
+                    pending.append(post)
+                else:
+                    already.append(post)
+            return pending, already
+
+        existing = existing_prediction_post_ids(
+            conn,
+            [post.linkedin_post_id for post in posts],
+        )
+    finally:
+        conn.close()
+
+    pending = []
+    already = []
+    for post in posts:
+        if post.linkedin_post_id in existing:
+            already.append(post)
+        else:
+            pending.append(post)
+    return pending, already
+
+
+def count_already_predicted(posts: list[CollectedPost], settings: Settings) -> int:
+    """How many of *posts* already have a predictions row."""
+    if not posts:
+        return 0
+    _, already = partition_posts_by_existing_predictions(posts, settings)
+    return len(already)
+
+
+def select_posts_for_predict(
+    posts: list[CollectedPost],
+    settings: Settings,
+    *,
+    max_posts: int | None = None,
+    skip_existing: bool = True,
+) -> tuple[list[CollectedPost], int]:
+    """Drop already-predicted posts (when enabled), then apply *max_posts*.
+
+    Returns ``(selected_posts, skipped_count)``. Skipping before the cap means
+    re-runs advance to new posts instead of reloading the same already-done
+    head of the corpus.
+    """
+    skipped = 0
+    selected = posts
+    if skip_existing:
+        selected, already = partition_posts_by_existing_predictions(selected, settings)
+        skipped = len(already)
+    if max_posts is not None:
+        selected = selected[:max_posts]
+    return selected, skipped
 
 
 def collected_posts_from_saved_collection(
@@ -167,40 +251,98 @@ async def predict_on_posts_async(
     inter_post_delay_s: float = 1.0,
     is_backtest: bool = False,
     validation_window_hours: float | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> CorpusImportResult:
-    """Run the predictor on pre-loaded posts and schedule validation."""
+    """Run the predictor on pre-loaded posts and schedule validation.
+
+    When multi-horizon is enabled (default), creates Lane A + Lane B rows.
+    ``on_progress`` receives ``(completed, total, message)`` after each post
+    attempt (predict, skip, or error).
+    """
     result = CorpusImportResult(loaded=len(posts))
+    total = len(posts)
+
+    def _report(completed: int, message: str) -> None:
+        if on_progress:
+            on_progress(completed, total, message)
+
+    if total == 0:
+        _report(0, "No posts to predict")
+        return result
+
+    if settings.validation_multi_horizon_enabled and not is_backtest:
+        from validation_pipeline.multi_horizon import run_multi_horizon_on_posts
+
+        def _mh_progress(message: str) -> None:
+            _report(0, message)
+
+        mh = await run_multi_horizon_on_posts(
+            posts, settings=settings, on_progress=_mh_progress
+        )
+        result.imported = mh.predicted
+        result.skipped = mh.skipped
+        result.predictions = mh.predictions
+        result.errors = mh.errors
+        _report(
+            total,
+            f"Done — imported={result.imported} skipped={result.skipped} "
+            f"budget_skipped={mh.budget_skipped} errors={len(result.errors)}",
+        )
+        return result
+
     due_at = datetime.now(timezone.utc) if due_immediately else None
+    horizon = (
+        float(validation_window_hours)
+        if validation_window_hours is not None
+        else float(settings.validation_window_hours)
+    )
+    _report(0, f"Starting predict for {total} post(s)...")
 
     for index, post in enumerate(posts, start=1):
+        label = post.linkedin_post_id or f"post-{index}"
+        _report(index - 1, f"Predicting {index}/{total}: {label}")
+
         if skip_existing:
             conn = get_connection(settings)
             try:
                 create_schema(conn)
-                if prediction_exists(conn, post.linkedin_post_id):
+                if prediction_exists(conn, post.linkedin_post_id, horizon):
                     result.skipped += 1
+                    _report(index, f"Skipped {index}/{total}: {label} (already predicted)")
                     continue
             finally:
                 conn.close()
 
         try:
-            prediction = await predict_for_post(post, settings)
+            prediction = await predict_for_post(
+                post,
+                settings,
+                target_horizon_hours=horizon,
+                prediction_lane="fixed_horizon",
+            )
             saved = save_prediction(
                 post,
                 prediction,
                 settings,
                 validation_due_at=due_at,
                 is_backtest=is_backtest,
-                validation_window_hours=validation_window_hours,
+                validation_window_hours=horizon,
+                prediction_lane="fixed_horizon",
             )
             result.imported += 1
             result.predictions.append(saved)
+            _report(index, f"Predicted {index}/{total}: {label}")
         except Exception as exc:
             result.errors.append(f"{post.linkedin_post_id}: {exc}")
+            _report(index, f"Error {index}/{total}: {label}")
 
-        if inter_post_delay_s > 0 and index < len(posts):
+        if inter_post_delay_s > 0 and index < total:
             await asyncio.sleep(inter_post_delay_s)
 
+    _report(
+        total,
+        f"Done — imported={result.imported} skipped={result.skipped} errors={len(result.errors)}",
+    )
     return result
 
 
@@ -227,8 +369,14 @@ async def bulk_import_and_predict_async(
     posts, source_files = load_all_collected_posts(
         settings,
         source=source,
-        max_posts=max_posts,
+        max_posts=None,
         extra_paths=extra_paths,
+    )
+    posts, skipped_existing = select_posts_for_predict(
+        posts,
+        settings,
+        max_posts=max_posts,
+        skip_existing=skip_existing,
     )
     result = await predict_on_posts_async(
         posts,
@@ -237,6 +385,7 @@ async def bulk_import_and_predict_async(
         skip_existing=skip_existing,
         validation_window_hours=validation_window_hours,
     )
+    result.skipped += skipped_existing
     result.source_files = source_files
     return result
 

@@ -137,6 +137,12 @@ class Settings:
     validation_age_aware_enabled: bool = False
     validation_age_window_tolerance_hours: float = 6.0
     validation_backtest_mature_min_hours: int = 72
+    # Phase 11: multi-horizon age-aware validation.
+    validation_multi_horizon_enabled: bool = True
+    validation_multi_horizon_learning: bool = True
+    validation_multi_horizon_max_predicts_per_run: int = 40
+    validation_fixed_horizons_hours: tuple[int, ...] = (24, 48, 72)
+    validation_age_bucket_min_n: int = 30
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -159,7 +165,7 @@ class Settings:
     agentic_general_max_posts: int = 20
     agentic_niche_max_posts_total: int = 40
     agentic_niche_stale_hours: float = 20.0
-    agentic_scrape_with_gemini: bool = False
+    agentic_scrape_with_gemini: bool = True
     # T10.10: Dev AI workflow critic (Gemini Pro).
     agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
     agentic_pro_digest_dry_run: bool = False
@@ -256,6 +262,21 @@ def load_settings() -> Settings:
         validation_backtest_mature_min_hours=int(
             os.getenv("VALIDATION_BACKTEST_MATURE_MIN_HOURS", "72")
         ),
+        validation_multi_horizon_enabled=_env_bool(
+            "VALIDATION_MULTI_HORIZON_ENABLED", default=True
+        ),
+        validation_multi_horizon_learning=_env_bool(
+            "VALIDATION_MULTI_HORIZON_LEARNING", default=True
+        ),
+        validation_multi_horizon_max_predicts_per_run=int(
+            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "40")
+        ),
+        validation_fixed_horizons_hours=_env_int_tuple(
+            "VALIDATION_FIXED_HORIZONS_HOURS", default=(24, 48, 72)
+        ),
+        validation_age_bucket_min_n=int(
+            os.getenv("VALIDATION_AGE_BUCKET_MIN_N", "30")
+        ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
@@ -348,6 +369,28 @@ def _env_optional_int(name: str) -> Optional[int]:
     if raw is None or not raw.strip():
         return None
     return int(raw)
+
+
+def _env_int_tuple(
+    name: str,
+    *,
+    default: tuple[int, ...] = (24, 48, 72),
+) -> tuple[int, ...]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    parts: list[int] = []
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            value = int(piece)
+        except ValueError:
+            continue
+        if value > 0:
+            parts.append(value)
+    return tuple(parts) if parts else default
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

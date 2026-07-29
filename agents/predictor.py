@@ -70,6 +70,12 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
                 f"- Engagement percentile: {post.engagement_percentile:.1f}",
                 f"- Likes/comments/shares: {post.likes}/{post.comments}/{post.shares}",
             ]
+            age_h = getattr(post, "engagement_age_hours", None)
+            if age_h is not None:
+                parts.append(f"- Engagement age (hours since publish): {float(age_h):.1f}")
+            posted = getattr(post, "posted_at", None)
+            if posted is not None:
+                parts.append(f"- Posted at (UTC): {posted}")
             if post.follower_count is not None:
                 parts.append(f"- Author follower count: {post.follower_count}")
                 if post.engagement_rate is not None:
@@ -88,19 +94,32 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     deterministic_section = _format_deterministic_score_section(deps.neighbor_prediction)
     draft_author_section = _format_draft_author_section(deps.draft_follower_count)
     feedback_section = _format_feedback_section(deps.feedback_context)
+    horizon_section = _format_horizon_section(deps)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
     draft_section = wrap_untrusted_text(deps.draft_content)
+    horizon_label = (
+        f"{deps.target_horizon_hours:g}h after publish"
+        if deps.target_horizon_hours is not None
+        else "the stated horizon (do not assume 48h)"
+    )
 
     return f"""
 {PROMPT_DATA_PREAMBLE}
 
 You are the Predictor Agent for a LinkedIn post evaluation pipeline.
 
-Your task: explain how the draft will perform by comparing it with the nearest
-historical posts retrieved from the vector database. The numeric prediction
-has already been computed deterministically from those neighbors — your job is
-to write clear comparative reasoning, not to invent a different score.
-{voice_section}{draft_author_section}{deterministic_section}{feedback_section}
+Your task: explain how the draft will perform **at a specific time horizon** by
+comparing it with the nearest historical posts retrieved from the vector database.
+The numeric prediction has already been computed deterministically from those
+neighbors — your job is to write clear comparative reasoning, not to invent a
+different score.
+
+CRITICAL — time horizon:
+- Scores are for engagement **at exactly {horizon_label}**.
+- Do **not** assume a default 48-hour window unless that is the stated horizon.
+- Neighbor engagement may be measured at different ages; prefer comparing against
+  neighbors whose engagement age is closest to the target horizon when ages are given.
+{horizon_section}{voice_section}{draft_author_section}{deterministic_section}{feedback_section}
 Draft post:
 {draft_section}
 
@@ -108,8 +127,9 @@ Nearest historical posts:
 {neighbor_context}
 
 Reason about:
-- How the draft's hook compares with high- and low-performing neighbors.
+- How the draft's hook compares with high- and low-performing neighbors **at this horizon**.
 - Whether its length, specificity, CTA, media implication, and hashtag usage match patterns in the neighbors.
+- How post age / horizon affects expected engagement accrual (early vs mature).
 {reasoning_guidance}
 
 Return only structured data matching the required output schema:
@@ -118,8 +138,32 @@ Return only structured data matching the required output schema:
 - predicted_likes: use exactly {deps.neighbor_prediction.get("predicted_likes", 0) if deps.neighbor_prediction else 0}.
 - predicted_comments: use exactly {deps.neighbor_prediction.get("predicted_comments", 0) if deps.neighbor_prediction else 0}.
 - predicted_shares: use exactly {deps.neighbor_prediction.get("predicted_shares", 0) if deps.neighbor_prediction else 0}.
-- reasoning: concise comparative explanation grounded in the retrieved neighbors and the deterministic score.
+- reasoning: concise comparative explanation grounded in the retrieved neighbors, the target horizon, and the deterministic score.
 """.strip()
+
+
+def _format_horizon_section(deps: EvaluationDeps) -> str:
+    if (
+        deps.target_horizon_hours is None
+        and deps.posted_at is None
+        and deps.prediction_lane is None
+    ):
+        return ""
+    lines = ["", "Target horizon context:"]
+    if deps.prediction_lane:
+        lines.append(f"- Prediction lane: {deps.prediction_lane}")
+    if deps.target_horizon_hours is not None:
+        lines.append(f"- Target horizon hours: {deps.target_horizon_hours:g}")
+    if deps.age_bucket:
+        lines.append(f"- Age bucket: {deps.age_bucket}")
+    if deps.posted_at is not None:
+        lines.append(f"- Draft posted_at (UTC): {deps.posted_at}")
+    if deps.age_hours_at_predict is not None:
+        lines.append(
+            f"- Age at predict / scrape (hours): {deps.age_hours_at_predict:.2f}"
+        )
+    lines.append("")
+    return "\n".join(lines)
 
 
 def apply_deterministic_prediction(

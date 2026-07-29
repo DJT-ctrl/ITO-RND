@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 PredictionStatus = Literal["scheduled", "validating", "validated", "failed", "skipped"]
 CalibrationSource = Literal["cluster", "global", "none"]
+PredictionLane = Literal["same_age", "fixed_horizon"]
 ValidationMode = Literal[
     "live_48h",
     "backtest_mature",
@@ -41,6 +42,12 @@ class PredictionTelemetry(BaseModel):
     shadow_feedback_count: int = Field(default=0, ge=0)
     injectability_mode: Optional[str] = None
     soft_blend_weight: Optional[float] = None
+    # Phase 11 multi-horizon
+    target_horizon_hours: Optional[float] = None
+    prediction_lane: Optional[str] = None
+    age_bucket: Optional[str] = None
+    percentile_source: Optional[str] = None
+    neighbor_age_prefer: Optional[bool] = None
 
 
 class EngagementForecast(BaseModel):
@@ -80,6 +87,8 @@ class PredictionRecord(BaseModel):
     prediction_horizon_hours: Optional[float] = None
     validation_age_hours: Optional[float] = None
     validation_mode: Optional[ValidationMode] = None
+    prediction_lane: Optional[PredictionLane] = None
+    scraped_at_predict: Optional[datetime] = None
 
     actual_likes: Optional[int] = None
     actual_comments: Optional[int] = None
@@ -120,6 +129,8 @@ class NewPrediction(BaseModel):
     validation_due_at: datetime
     is_backtest: bool = False
     prediction_horizon_hours: Optional[float] = None
+    prediction_lane: Optional[PredictionLane] = None
+    scraped_at_predict: Optional[datetime] = None
 
 
 class EngagementActuals(BaseModel):
@@ -138,6 +149,8 @@ class ValidationScores(BaseModel):
     comments_delta: float
     shares_delta: float
     total_engagement_delta: float
+    age_bucket: Optional[str] = None
+    percentile_source: Optional[str] = None
 
 
 class ValidationResult(BaseModel):
@@ -161,6 +174,8 @@ class CollectPredictResult(BaseModel):
     skipped: int = 0
     predictions: list[PredictionRecord] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    budget_skipped: int = 0
+    source_files: list[str] = Field(default_factory=list)
 
 
 class CollectedPost(BaseModel):
@@ -175,6 +190,7 @@ class CollectedPost(BaseModel):
     comments: int = 0
     shares: int = 0
     total_engagement: int = 0
+    scraped_at: Optional[datetime] = None
 
 
 def strip_engagement_for_backtest(

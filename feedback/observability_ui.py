@@ -350,3 +350,37 @@ def _render_phase_f_gates(
             f"Shadow does **not** beat live (MAE delta {delta_label}). "
             "Keep `hard_lock` and injection OFF; continue collecting shadow."
         )
+
+
+def render_stats_cheat_sheet() -> None:
+    """Plain-English legend for the Phase F numbers people mix up."""
+    st.subheader("Stats cheat sheet")
+    st.caption(
+        "Two different ideas of “good”: absolute accuracy (MAE — lower is better) "
+        "vs improvement gates (lift % / shadow beat — higher / positive is better)."
+    )
+
+    st.markdown(
+        """
+| Stat | What it means | Amazing | OK | Bad |
+|------|---------------|---------|----|-----|
+| **MAE** (arms table, e.g. `raw_no_feedback`) | Average miss in **percentile points** (0–100). | ≤10 | ~15–20 | ≥25 |
+| **% within 10** | Share of posts within 10 pts of truth. | ≥50% | ~30–45% | <25% |
+| **Cal MAE lift %** | How much calibration *cuts* MAE vs raw. Gate ≥5%. | ≥5% (twice) | ~3–5% | <3% |
+| **Shadow sample** | Holdout rows that logged a shadow score. | 30/30 | ≥15/30 | 0 or few |
+| **live − shadow MAE** | Positive = shadow more accurate than live. | Clearly > 0 | ≈ 0 (tied) | < 0 (shadow worse) |
+| **Holdout size** | Fixed test-set size (default 30), not “how good”. | — | 30+ | <30 blocks eval |
+| **Graded posts** | Validated predictions with a delta. | Growing | > holdout | ≤ holdout |
+"""
+    )
+    st.markdown(
+        """
+**Why shadow vs live MAE matters**
+
+Shadow is a parallel score: “what if we soft-blended / injected?” Live is what
+you actually showed. If **shadow MAE is lower** than live MAE, that alternate
+path is more accurate — safe to consider turning injection/soft_blend **ON**.
+If shadow MAE is **equal or higher**, injection would not help (or would hurt) —
+keep it **OFF**. The 5% cal lift is a separate gate for the numeric nudge only.
+"""
+    )

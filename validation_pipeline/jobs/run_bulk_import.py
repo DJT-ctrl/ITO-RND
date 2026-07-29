@@ -15,6 +15,7 @@ from validation_pipeline.corpus_import import (
     ImportSourceKind,
     bulk_import_and_predict_async,
     load_all_collected_posts,
+    select_posts_for_predict,
 )
 from validation_pipeline.reset import reset_validation_data_for_settings
 from validation_pipeline.vectorized_corpus import (
@@ -146,24 +147,44 @@ def main() -> int:
             print(f"  - {dataset.label}")
         posts, _ = load_all_vectorized_collected_posts(
             settings,
-            max_posts=args.max_posts,
+            max_posts=None,
         )
         source_files = [dataset.label for dataset in datasets]
     else:
         posts, source_files = load_all_collected_posts(
             settings,
             source=args.source,  # type: ignore[arg-type]
-            max_posts=args.max_posts,
+            max_posts=None,
             extra_paths=extra_paths or None,
         )
         print(f"Sources: {len(source_files)} file(s)")
         for path in source_files:
             print(f"  - {path}")
 
-    print(f"Unique posts ready: {len(posts)}")
+    print(f"Unique posts in corpus: {len(posts)}")
+    selected, skipped_existing = select_posts_for_predict(
+        posts,
+        settings,
+        max_posts=args.max_posts,
+        skip_existing=not args.no_skip_existing,
+    )
+    print(
+        f"Already predicted (skipped): {skipped_existing}; "
+        f"selected for this run: {len(selected)}"
+    )
 
     if args.dry_run:
         return 0
+
+    if not selected and not args.no_skip_existing:
+        print("No new posts to import (all already predicted).", file=sys.stderr)
+        if args.source == "vectorized" and not posts:
+            print(
+                "Run Corpus Pipeline → Post Analyser, then Vectorisation, "
+                "before importing.",
+                file=sys.stderr,
+            )
+        return 1 if not posts else 0
 
     if not posts:
         print("No posts to import.", file=sys.stderr)

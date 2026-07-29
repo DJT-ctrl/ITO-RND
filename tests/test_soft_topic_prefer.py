@@ -118,3 +118,58 @@ def test_vector_store_reexports_find_similar():
     from storage.similarity import find_similar as canonical
 
     assert exported is canonical
+
+
+# --- Phase 11: combined niche + age soft prefer must not cancel out ---
+
+
+def _row_aged(post_id: str, niche: str | None, age_hours: float | None, distance: float) -> dict:
+    return {
+        "post_id": post_id,
+        "niche": niche,
+        "engagement_age_hours": age_hours,
+        "cosine_distance": distance,
+        "content": f"content-{post_id}",
+    }
+
+
+def test_apply_soft_topic_and_age_prefer_ranks_double_match_first():
+    from storage.similarity import apply_soft_topic_and_age_prefer
+
+    rows = [
+        _row_aged("niche_only", "fintech", 200.0, 0.05),  # niche match, age mismatch
+        _row_aged("age_only", "career", 50.0, 0.05),  # age match (48_72 bucket), niche mismatch
+        _row_aged("both", "fintech", 50.0, 0.10),  # matches both, worse raw distance
+        _row_aged("neither", "career", 200.0, 0.01),  # best raw distance, matches neither
+    ]
+    ranked = apply_soft_topic_and_age_prefer(
+        rows, "fintech", prefer_age_hours=48.0, limit=4
+    )
+    assert ranked[0]["post_id"] == "both"
+    # Single-match rows should still outrank the no-match row despite its
+    # better raw distance.
+    assert ranked[-1]["post_id"] == "neither"
+
+
+def test_find_similar_combines_niche_and_age_prefer_instead_of_overriding():
+    """Regression: sequential apply_soft_topic_prefer then apply_soft_age_prefer
+    calls let the age sort discard the niche sort's effect entirely, since
+    apply_soft_age_prefer's key ignores niche. find_similar must combine both
+    preferences instead of applying them as two independent re-ranks.
+    """
+    with patch("storage.similarity._find_similar_query") as mock_query:
+        mock_query.return_value = [
+            _row_aged("niche_only", "fintech", 200.0, 0.05),
+            _row_aged("both", "fintech", 50.0, 0.10),
+            _row_aged("neither", "career", 200.0, 0.01),
+        ]
+        out = find_similar(
+            MagicMock(),
+            np.zeros(8),
+            limit=3,
+            prefer_niche="fintech",
+            soft_topic_prefer=True,
+            prefer_age_hours=48.0,
+            soft_age_prefer=True,
+        )
+    assert out[0]["post_id"] == "both"

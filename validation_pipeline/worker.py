@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -17,6 +18,7 @@ from validation_pipeline.schemas import ValidationBatchResult, ValidationResult
 from validation_pipeline.scoring import (
     compute_validation_scores,
     corpus_size_warning,
+    fetch_bucketed_corpus_engagement_totals,
     fetch_corpus_engagement_totals,
 )
 from validation_pipeline.store import (
@@ -27,6 +29,9 @@ from validation_pipeline.store import (
     mark_validated,
     mark_validating,
 )
+
+logger = logging.getLogger(__name__)
+
 
 def _validate_predictions(
     predictions: list,
@@ -59,30 +64,50 @@ def _validate_predictions(
                     f"after the batch URL scrape. "
                     f"The post is treated as deleted, private, or no longer public."
                 )
-            scores = compute_validation_scores(actuals, prediction, corpus_totals)
             validated_at = datetime.now(timezone.utc)
             horizon_hours = (
                 prediction.prediction_horizon_hours
                 if prediction.prediction_horizon_hours is not None
                 else settings.validation_window().total_seconds() / 3600.0
             )
-            age_hours, mode = classify_validation_mode(
-                posted_at=prediction.posted_at,
-                validated_at=validated_at,
-                horizon_hours=float(horizon_hours),
-                is_backtest=bool(prediction.is_backtest),
-                tolerance_hours=settings.validation_age_window_tolerance_hours,
-                mature_min_hours=float(settings.validation_backtest_mature_min_hours),
-            )
-            enriched = prediction.model_copy(
-                update={
-                    "validated_at": validated_at,
-                    "validation_age_hours": age_hours,
-                    "validation_mode": mode,
-                }
-            )
             conn = get_connection(settings)
             try:
+                create_schema(conn)
+                bucket_totals, age_bucket, percentile_source = (
+                    fetch_bucketed_corpus_engagement_totals(
+                        conn,
+                        horizon_hours=float(horizon_hours),
+                        min_n=settings.validation_age_bucket_min_n,
+                    )
+                )
+                score_totals = (
+                    bucket_totals
+                    if percentile_source == "age_bucket"
+                    else corpus_totals
+                )
+                scores = compute_validation_scores(
+                    actuals,
+                    prediction,
+                    score_totals,
+                    age_bucket=age_bucket,
+                    percentile_source=percentile_source,
+                    horizon_hours=float(horizon_hours),
+                )
+                age_hours, mode = classify_validation_mode(
+                    posted_at=prediction.posted_at,
+                    validated_at=validated_at,
+                    horizon_hours=float(horizon_hours),
+                    is_backtest=bool(prediction.is_backtest),
+                    tolerance_hours=settings.validation_age_window_tolerance_hours,
+                    mature_min_hours=float(settings.validation_backtest_mature_min_hours),
+                )
+                enriched = prediction.model_copy(
+                    update={
+                        "validated_at": validated_at,
+                        "validation_age_hours": age_hours,
+                        "validation_mode": mode,
+                    }
+                )
                 mark_validated(
                     conn,
                     prediction.prediction_id,

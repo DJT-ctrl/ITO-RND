@@ -105,17 +105,26 @@ def fetch_calibration_stats(
     conn: psycopg.Connection,
     *,
     age_aware_enabled: bool = False,
+    multi_horizon_learning: bool = False,
+    query_horizon_hours: float | None = None,
 ) -> CalibrationStats:
     """Return global signed mean prediction_delta and validated count.
 
     prediction_delta = actual_percentile − predicted_percentile.
     Empty validated set → n_validated=0, mean_delta=0.0.
     When age_aware_enabled, excludes forced_early rows from the average.
+    When multi_horizon_learning, restrict to the query horizon's age bucket.
     """
     from validation_pipeline.age_aware import age_aware_learning_sql
+    from validation_pipeline.age_buckets import horizon_learning_sql
 
     age_clause, age_params = age_aware_learning_sql(
         enabled=age_aware_enabled, alias="predictions"
+    )
+    horizon_clause, horizon_params = horizon_learning_sql(
+        enabled=multi_horizon_learning,
+        query_horizon_hours=query_horizon_hours,
+        alias="predictions",
     )
     with conn.cursor() as cur:
         cur.execute(
@@ -127,8 +136,9 @@ def fetch_calibration_stats(
             WHERE status = 'validated'
               AND prediction_delta IS NOT NULL
               {age_clause}
+              {horizon_clause}
             """,
-            tuple(age_params),
+            tuple([*age_params, *horizon_params]),
         )
         row = cur.fetchone()
 
@@ -178,12 +188,19 @@ def resolve_calibration_stats(
     cluster_id: Optional[str] = None,
     cluster_n_min: int = 50,
     age_aware_enabled: bool = False,
+    multi_horizon_learning: bool = False,
+    query_horizon_hours: float | None = None,
 ) -> CalibrationStats:
     """Prefer cluster mean_delta when sample_count >= cluster_n_min; else global.
 
     Fallback chain: cluster → global → none.
+    When multi_horizon_learning is on, skip cluster cache (bucket-agnostic) and
+    use horizon-filtered global stats.
     """
-    if cluster_id:
+    if (
+        cluster_id
+        and not multi_horizon_learning
+    ):
         cluster = fetch_cluster_stats(conn, cluster_id)
         if (
             cluster is not None
@@ -198,7 +215,10 @@ def resolve_calibration_stats(
             )
 
     global_stats = fetch_calibration_stats(
-        conn, age_aware_enabled=age_aware_enabled
+        conn,
+        age_aware_enabled=age_aware_enabled,
+        multi_horizon_learning=multi_horizon_learning,
+        query_horizon_hours=query_horizon_hours,
     )
     if cluster_id:
         return CalibrationStats(

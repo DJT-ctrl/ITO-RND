@@ -35,6 +35,8 @@ class ReplayRow(BaseModel):
     live_percentile: Optional[float] = None
     shadow_percentile: Optional[float] = None
     llm_percentile: Optional[float] = None
+    # Phase 11: horizon for stratified offline eval
+    prediction_horizon_hours: Optional[float] = None
 
 
 class ArmMetrics(BaseModel):
@@ -146,21 +148,44 @@ def run_offline_replay(
     holdout_size: int = 30,
     global_n_min: int = 30,
     cluster_n_min: int = 50,
+    stratify_by_horizon_bucket: bool = False,
 ) -> FeedbackEvaluationReport:
     """Evaluate calibration × injection arms using stats from non-holdout rows.
 
     Primary four arms match live flags. Scaffold D-v1 / D-v2 arms reuse the same
     numeric scores (deterministic overwrite) but tag preferred_feedback_version
     so reports document retrieve preference until Phase J.
+
+    When ``stratify_by_horizon_bucket`` is True, keep only rows in the largest
+    horizon age bucket so Phase F does not mix e.g. 5h and 72h grades.
     """
+    from validation_pipeline.age_buckets import bucket_for_hours
+
+    working = list(rows)
+    if stratify_by_horizon_bucket and working:
+        counts: dict[str, int] = defaultdict(int)
+        for row in working:
+            counts[bucket_for_hours(row.prediction_horizon_hours)] += 1
+        # Prefer a real bucket over "unknown" when possible.
+        ranked = sorted(
+            counts.items(),
+            key=lambda item: (item[0] == "unknown", -item[1], item[0]),
+        )
+        chosen = ranked[0][0]
+        working = [
+            row
+            for row in working
+            if bucket_for_hours(row.prediction_horizon_hours) == chosen
+        ]
+
     if holdout_size < 1:
         raise ValueError("holdout_size must be at least 1")
-    if len(rows) <= holdout_size:
+    if len(working) <= holdout_size:
         raise ValueError(
-            f"Need more than {holdout_size} validated rows; found {len(rows)}"
+            f"Need more than {holdout_size} validated rows; found {len(working)}"
         )
 
-    ordered = sorted(rows, key=lambda row: _stable_key(row.prediction_id))
+    ordered = sorted(working, key=lambda row: _stable_key(row.prediction_id))
     holdout = ordered[:holdout_size]
     training = ordered[holdout_size:]
     global_deltas = [

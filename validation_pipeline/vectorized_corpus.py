@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -338,30 +338,68 @@ async def bulk_import_vectorized_and_predict_async(
     skip_existing: bool = True,
     backtest: bool = False,
     validation_window_hours: float | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ):
     """Discover vectorized bundles, predict, and schedule validation.
 
-    When *backtest* is True, engagement metrics are zeroed out before
-    prediction and ``due_immediately`` is forced to True.
+    When multi-horizon is enabled (default), creates same-age + 24/48/72h
+    horizon rows under budget. Legacy *backtest* / *due_immediately* kwargs
+    remain for ``VALIDATION_MULTI_HORIZON_ENABLED=false``.
     """
-    from validation_pipeline.corpus_import import predict_on_posts_async
-    from validation_pipeline.schemas import strip_engagement_for_backtest
+    from validation_pipeline.corpus_import import (
+        predict_on_posts_async,
+        select_posts_for_predict,
+    )
+
+    if on_progress:
+        on_progress(0, max_posts or 0, "Loading vectorized corpus...")
 
     posts, datasets = load_all_vectorized_collected_posts(
         settings,
-        max_posts=max_posts,
+        max_posts=None,
     )
-    if backtest:
+    if on_progress:
+        on_progress(
+            0,
+            len(posts),
+            f"Loaded {len(posts)} unique post(s) from {len(datasets)} dataset(s)",
+        )
+
+    posts, skipped_existing = select_posts_for_predict(
+        posts,
+        settings,
+        max_posts=max_posts,
+        skip_existing=skip_existing,
+    )
+    if on_progress and skipped_existing:
+        on_progress(
+            0,
+            len(posts),
+            f"Skipped {skipped_existing} already complete; "
+            f"{len(posts)} remaining for this run",
+        )
+
+    if backtest and not settings.validation_multi_horizon_enabled:
+        from validation_pipeline.schemas import strip_engagement_for_backtest
+
         posts = strip_engagement_for_backtest(posts)
         due_immediately = True
+        if on_progress:
+            on_progress(
+                0,
+                len(posts),
+                f"Backtest: stripped engagement from {len(posts)} post(s)",
+            )
     result = await predict_on_posts_async(
         posts,
         settings,
         due_immediately=due_immediately,
         skip_existing=skip_existing,
-        is_backtest=backtest,
+        is_backtest=backtest and not settings.validation_multi_horizon_enabled,
         validation_window_hours=validation_window_hours,
+        on_progress=on_progress,
     )
+    result.skipped += skipped_existing
     result.source_files = [dataset.label for dataset in datasets]
     return result
 
@@ -382,5 +420,6 @@ def bulk_import_vectorized_and_predict(
             skip_existing=kwargs.get("skip_existing", True),
             backtest=kwargs.get("backtest", False),
             validation_window_hours=kwargs.get("validation_window_hours"),
+            on_progress=kwargs.get("on_progress"),
         )
     )

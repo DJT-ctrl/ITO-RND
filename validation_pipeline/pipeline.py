@@ -26,9 +26,15 @@ async def _predict_posts(
     validation_window_hours: float | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
+    """Legacy single-horizon predict path (used when multi-horizon is disabled)."""
     result = CollectPredictResult()
     result.scraped = len(posts)
     due_at = datetime.now(timezone.utc) if due_immediately else None
+    horizon = (
+        float(validation_window_hours)
+        if validation_window_hours is not None
+        else float(settings.validation_window_hours)
+    )
 
     for i, post in enumerate(posts, start=1):
         if on_progress:
@@ -36,20 +42,26 @@ async def _predict_posts(
         conn = get_connection(settings)
         try:
             create_schema(conn)
-            if prediction_exists(conn, post.linkedin_post_id):
+            if prediction_exists(conn, post.linkedin_post_id, horizon):
                 result.skipped += 1
                 continue
         finally:
             conn.close()
         try:
-            prediction = await predict_for_post(post, settings)
+            prediction = await predict_for_post(
+                post,
+                settings,
+                target_horizon_hours=horizon,
+                prediction_lane="fixed_horizon",
+            )
             saved = save_prediction(
                 post,
                 prediction,
                 settings,
                 validation_due_at=due_at,
                 is_backtest=is_backtest,
-                validation_window_hours=validation_window_hours,
+                validation_window_hours=horizon,
+                prediction_lane="fixed_horizon",
             )
             result.predicted += 1
             result.predictions.append(saved)
@@ -80,9 +92,9 @@ async def run_collect_and_predict(
         profile_url_limit=profile_url_limit,
         on_progress=on_progress,
     )
-    return await _predict_posts(
+    return await run_predict_on_posts(
         posts,
-        settings,
+        settings=settings,
         due_immediately=due_immediately,
         is_backtest=is_backtest,
         validation_window_hours=validation_window_hours,
@@ -101,6 +113,12 @@ async def run_predict_on_posts(
 ) -> CollectPredictResult:
     """Predict and schedule validation for already-loaded posts (no Apify scrape)."""
     settings = settings or load_settings()
+    if settings.validation_multi_horizon_enabled and not is_backtest:
+        from validation_pipeline.multi_horizon import run_multi_horizon_on_posts
+
+        return await run_multi_horizon_on_posts(
+            posts, settings=settings, on_progress=on_progress
+        )
     return await _predict_posts(
         posts,
         settings,

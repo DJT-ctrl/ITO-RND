@@ -1,14 +1,14 @@
 """Tests for validation_pipeline.predict LLM fallback."""
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import numpy as np
 from pydantic_ai import UnexpectedModelBehavior
 
 from config.settings import Settings
-from validation_pipeline.predict import predict_for_post
-from validation_pipeline.schemas import CollectedPost
+from validation_pipeline.predict import PredictionOutput, predict_for_post, save_prediction
+from validation_pipeline.schemas import CollectedPost, PredictionRecord, PredictionTelemetry
 
 
 def _settings() -> Settings:
@@ -24,12 +24,11 @@ def _settings() -> Settings:
         database_url="postgresql://fake/fake",
         validation_calibration_enabled=False,
         validation_feedback_injection_enabled=False,
+        validation_window_hours=48,
     )
 
 
 def _post() -> CollectedPost:
-    from datetime import datetime, timezone
-
     return CollectedPost(
         linkedin_post_id="7482042397649137666",
         linkedin_url="https://linkedin.com/post/1",
@@ -67,3 +66,55 @@ def test_predict_for_post_falls_back_on_malformed_gemini_response(
     assert result.predicted_engagement_percentile == 62.5
     assert result.predicted_total_engagement == 240
     assert "deterministic neighbor weighting" in result.reasoning.lower()
+
+
+@patch("validation_pipeline.predict.insert_prediction")
+@patch("validation_pipeline.predict.register_vector")
+@patch("validation_pipeline.predict.create_schema")
+@patch("validation_pipeline.predict.get_connection")
+def test_save_prediction_accepts_backtest_kwargs(
+    mock_get_connection,
+    _mock_schema,
+    _mock_register,
+    mock_insert,
+):
+    conn = MagicMock()
+    mock_get_connection.return_value = conn
+    due = datetime.now(timezone.utc)
+    mock_insert.return_value = PredictionRecord(
+        prediction_id="00000000-0000-0000-0000-000000000001",
+        linkedin_post_id="7482042397649137666",
+        linkedin_url="https://linkedin.com/post/1",
+        content="AI marketing trends for 2026.",
+        posted_at=due,
+        predicted_engagement_percentile=50.0,
+        validation_due_at=due,
+        is_backtest=True,
+        prediction_horizon_hours=72.0,
+    )
+
+    prediction = PredictionOutput(
+        predicted_engagement_percentile=50.0,
+        predicted_total_engagement=100,
+        predicted_likes=80,
+        predicted_comments=15,
+        predicted_shares=5,
+        prediction_method="audience_adjusted",
+        neighbor_count=8,
+        reasoning="test",
+        telemetry=PredictionTelemetry(),
+    )
+    saved = save_prediction(
+        _post(),
+        prediction,
+        _settings(),
+        validation_due_at=due,
+        is_backtest=True,
+        validation_window_hours=72,
+    )
+
+    new_pred = mock_insert.call_args.args[1]
+    assert new_pred.is_backtest is True
+    assert new_pred.prediction_horizon_hours == 72.0
+    assert saved.is_backtest is True
+    conn.close.assert_called_once()

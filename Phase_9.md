@@ -77,7 +77,8 @@ Recommended order: **T9.1 → T9.5 → T9.8 → T9.9** (T9.1 and T9.5 already ha
 
 **Feasibility:** Medium. Needs publish timestamps + scheduled follow-up scrapes.
 
-**Related:** [Phase 8](Phase_8.md) age-aware validation ([12_AGE_AWARE_VALIDATION.md](current%20md/12_AGE_AWARE_VALIDATION.md)).
+**Related:** [Phase 8](Phase_8.md) age-aware validation ([12_AGE_AWARE_VALIDATION.md](current%20md/12_AGE_AWARE_VALIDATION.md)).  
+**Related:** [Phase 11](Phase_11.md) multi-horizon graded snapshots (Lane A same-age + Lane B 24/48/72) — A4 can fit decay curves on top of those points.
 
 ---
 

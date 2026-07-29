@@ -30,6 +30,7 @@ from feedback.observability_ui import (  # noqa: E402
     render_cluster_accuracy,
     render_learning_status,
     render_offline_evaluation_panel,
+    render_stats_cheat_sheet,
 )
 
 st.set_page_config(page_title="Feedback loop", layout="wide")
@@ -151,6 +152,15 @@ if records:
 
 st.divider()
 render_how_this_connects(settings)
+
+st.divider()
+section_header(
+    "5 · Stats cheat sheet",
+    """
+Quick ranges for the Phase F numbers — MAE vs the 5% lift vs shadow.
+""",
+)
+render_stats_cheat_sheet()
 
 if coverage["validated"] == 0:
     st.info(
