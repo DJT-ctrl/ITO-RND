@@ -43,6 +43,10 @@ htmlcov/
 data/raw/
 data/pgdata/
 data/feedback_loop_overrides.json
+data/processed/corpus_benchmarks.json
+data/processed/*.meta.json
+data/pipeline_manifest.json
+data/validation/
 
 # Logs
 *.log
@@ -87,3 +91,8 @@ infra/envs/*.tfvars
 # Runtime secrets (ephemeral, never committed)
 /run/ito/runtime.env
 runtime.env
+
+data/processed/*.meta.json
+data/pipeline_manifest.json
+data/validation/
+data/processed/corpus_benchmarks.json
