@@ -31,6 +31,67 @@
         }
       }
     },
+    "/api/v1/agents": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List active backend agents",
+        "operationId": "list_agents_api_v1_agents_get",
+        "responses": {
+          "200": {
+            "description": "Current backend agent registry for frontend discovery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                },
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "message": "Failed to embed query text.",
+                  "retryable": true,
+                  "details": {
+                    "provider": "google"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/similar-posts": {
       "post": {
         "tags": [
@@ -65,7 +126,7 @@
                   "results": [
                     {
                       "post_id": "post-101",
-                      "content": "Three lessons from our AI launch week…",
+                      "content": "Three lessons from our AI launch week\u2026",
                       "likes": 120,
                       "comments": 18,
                       "shares": 4,
@@ -172,7 +233,7 @@
                   "similar_posts": [
                     {
                       "post_id": "post-101",
-                      "content": "Three lessons from our AI launch week…",
+                      "content": "Three lessons from our AI launch week\u2026",
                       "likes": 120,
                       "comments": 18,
                       "shares": 4,
@@ -204,7 +265,7 @@
                     "predicted_likes": 30,
                     "predicted_comments": 8,
                     "predicted_shares": 4,
-                    "reasoning": "Neighbors with similar hiring announcements scored in the 75–85 percentile band."
+                    "reasoning": "Neighbors with similar hiring announcements scored in the 75\u201385 percentile band."
                   },
                   "diagnostics": {
                     "seo": {
@@ -308,6 +369,72 @@
   },
   "components": {
     "schemas": {
+      "AgentCatalogResponse": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentDescriptor"
+            },
+            "type": "array",
+            "title": "Agents"
+          }
+        },
+        "type": "object",
+        "title": "AgentCatalogResponse",
+        "description": "Stable v1 contract for GET /api/v1/agents."
+      },
+      "AgentDescriptor": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stable machine id, e.g. predictor or seo."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable label for UI display."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "predictor",
+              "diagnostic",
+              "variant",
+              "system"
+            ],
+            "title": "Kind",
+            "description": "Agent category for iconography/grouping."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "evaluation",
+              "optimization",
+              "reporting",
+              "monitoring"
+            ],
+            "title": "Stage",
+            "description": "Primary workflow stage where the agent executes."
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Short plain-language purpose."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "stage",
+          "description"
+        ],
+        "title": "AgentDescriptor",
+        "description": "Agent exposed by backend for UI discovery and status mapping."
+      },
       "ApiErrorResponse": {
         "properties": {
           "code": {
