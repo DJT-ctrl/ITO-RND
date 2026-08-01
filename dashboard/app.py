@@ -17,6 +17,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
+from dashboard.dev_postgres_ui import render_dev_postgres_setup
 from dashboard.invite_gate import invite_configured, require_invite
 
 _PAGES = Path(__file__).resolve().parent / "pages"
@@ -27,6 +28,14 @@ st.set_page_config(page_title="ITO Test Harness", layout="wide")
 # Password first on shared demos; after unlock the harness below is unchanged.
 if invite_configured():
     require_invite()
+
+try:
+    with st.sidebar:
+        render_dev_postgres_setup(compact=True)
+except Exception as exc:
+    # Never blank the whole harness if local DB diagnostics fail.
+    with st.sidebar:
+        st.caption(f"Postgres check skipped: {exc}")
 
 pg = st.navigation(
     {
@@ -44,6 +53,11 @@ pg = st.navigation(
             ),
         ],
         "Build the corpus": [
+            st.Page(
+                str(_PAGES / "12_Keyword_Suggestions.py"),
+                title="Keyword suggestions",
+                icon=":material/key:",
+            ),
             st.Page(
                 str(_PAGES / "1_Scraper_Stage.py"),
                 title="Collect samples",

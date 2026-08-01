@@ -114,6 +114,34 @@ def existing_prediction_post_ids(
         return {row[0] for row in cur.fetchall()}
 
 
+def fetch_import_skip_post_ids(
+    conn: psycopg.Connection,
+    *,
+    multi_horizon: bool,
+    fixed_horizon_enabled: bool,
+) -> set[str]:
+    """Post ids safe to skip during vectorized import.
+
+    Lane A-only: any ``same_age`` row means done (hour drift ignored).
+    Multi-horizon + Lane B: skip when a ``same_age`` row exists (Lane B gaps
+    are filled on later imports when the planner still wants them).
+    Legacy: any predictions row.
+    """
+    with conn.cursor() as cur:
+        if not multi_horizon:
+            cur.execute("SELECT DISTINCT linkedin_post_id FROM predictions")
+            return {row[0] for row in cur.fetchall()}
+
+        cur.execute(
+            """
+            SELECT DISTINCT linkedin_post_id
+            FROM predictions
+            WHERE prediction_lane = 'same_age'
+            """
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
 def existing_prediction_keys(
     conn: psycopg.Connection,
     linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
@@ -133,6 +161,70 @@ def existing_prediction_keys(
             (ids,),
         )
         return {(row[0], float(row[1])) for row in cur.fetchall()}
+
+
+def prediction_post_coverage(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> dict[str, dict[str, bool]]:
+    """Per-post prediction coverage flags for Collect progress counters.
+
+    Returns ``{post_id: {has_any, has_same_age, has_scheduled, has_validated}}``.
+    """
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                linkedin_post_id,
+                BOOL_OR(prediction_lane = 'same_age') AS has_same_age,
+                BOOL_OR(status = 'scheduled') AS has_scheduled,
+                BOOL_OR(status = 'validated') AS has_validated,
+                BOOL_OR(TRUE) AS has_any
+            FROM predictions
+            WHERE linkedin_post_id = ANY(%s)
+            GROUP BY linkedin_post_id
+            """,
+            (ids,),
+        )
+        return {
+            row[0]: {
+                "has_same_age": bool(row[1]),
+                "has_scheduled": bool(row[2]),
+                "has_validated": bool(row[3]),
+                "has_any": bool(row[4]),
+            }
+            for row in cur.fetchall()
+        }
+
+
+def existing_prediction_lanes_and_keys(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> tuple[set[tuple[str, float]], set[str]]:
+    """Return (horizon keys, post ids that already have a same_age row)."""
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return set(), set()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT linkedin_post_id, prediction_horizon_hours, prediction_lane
+            FROM predictions
+            WHERE linkedin_post_id = ANY(%s)
+              AND prediction_horizon_hours IS NOT NULL
+            """,
+            (ids,),
+        )
+        keys: set[tuple[str, float]] = set()
+        same_age_posts: set[str] = set()
+        for post_id, horizon, lane in cur.fetchall():
+            keys.add((post_id, float(horizon)))
+            if lane == "same_age":
+                same_age_posts.add(post_id)
+        return keys, same_age_posts
 
 
 def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> PredictionRecord:

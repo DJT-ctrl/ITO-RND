@@ -24,7 +24,8 @@ from apify_client import ApifyClient
 from config.settings import Settings
 from scrapers.base_scraper import BaseScraper
 from scrapers.result import ScrapeResult
-from telemetry.apify import apify_run_as_dict, apify_run_record_from_response, save_apify_run
+from telemetry.apify_compat import apify_run_as_dict
+from telemetry.apify import apify_run_record_from_response, save_apify_run
 
 
 class LinkedInProfileScraper(BaseScraper):
@@ -33,6 +34,8 @@ class LinkedInProfileScraper(BaseScraper):
     # Apify's own guidance: scraping more than this per day from one LinkedIn
     # account risks it being logged out / flagged. Enforced here so a bad
     # input list can't silently take the account past that limit.
+    # Callers (sample collection) should cap before invoking; this remains a
+    # hard guard for direct / CLI use.
     MAX_PROFILES_PER_RUN = 500
 
     def __init__(self, settings: Settings, client: Optional[ApifyClient] = None):

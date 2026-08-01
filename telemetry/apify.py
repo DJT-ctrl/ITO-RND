@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from config.paths import resolve_telemetry_data_dir
 from config.settings import Settings
+from telemetry.apify_compat import apify_run_as_dict
 from telemetry.apify_schemas import ApifyCostSummary, ApifyRunRecord, ApifyScraperKind
 
 logger = logging.getLogger(__name__)
@@ -27,25 +28,6 @@ def _parse_apify_datetime(value: Any) -> Optional[datetime]:
         return datetime.fromisoformat(text)
     except (TypeError, ValueError):
         return None
-
-
-def apify_run_as_dict(run: Any) -> dict[str, Any]:
-    """Normalize an Apify ``.call()`` result to a camelCase dict.
-
-    apify-client 1.x returned plain dicts; 3.x returns a Pydantic ``Run``
-    model (attribute access / snake_case). Call sites and telemetry still
-    expect camelCase keys like ``defaultDatasetId``.
-    """
-    if run is None:
-        raise RuntimeError("Apify actor call returned no run.")
-    if isinstance(run, dict):
-        return run
-    model_dump = getattr(run, "model_dump", None)
-    if callable(model_dump):
-        dumped = model_dump(by_alias=True, mode="python")
-        if isinstance(dumped, dict):
-            return dumped
-    raise TypeError(f"Unexpected Apify run type: {type(run)!r}")
 
 
 def apify_run_record_from_response(

@@ -141,6 +141,9 @@ class Settings:
     validation_multi_horizon_enabled: bool = True
     validation_multi_horizon_learning: bool = True
     validation_multi_horizon_max_predicts_per_run: int = 40
+    # Lane B: schedule 24/48/72h predicts + Apify rescrapes. Off = Lane A only
+    # (same-age instant grades; no delayed rescrape — useful without a always-on DB).
+    validation_fixed_horizon_enabled: bool = True
     validation_fixed_horizons_hours: tuple[int, ...] = (24, 48, 72)
     validation_age_bucket_min_n: int = 30
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
@@ -178,6 +181,14 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # Streamlit often hot-reloads pages without reloading config.settings, so
+    # the process can keep a pre-Phase-11 Settings class. Reload once if needed.
+    if not hasattr(Settings, "validation_multi_horizon_enabled"):
+        import importlib
+        import sys
+
+        return importlib.reload(sys.modules[__name__]).load_settings()
+
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
     sync_google_api_key()
     settings = Settings(
@@ -270,6 +281,9 @@ def load_settings() -> Settings:
         ),
         validation_multi_horizon_max_predicts_per_run=int(
             os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "40")
+        ),
+        validation_fixed_horizon_enabled=_env_bool(
+            "VALIDATION_FIXED_HORIZON_ENABLED", default=True
         ),
         validation_fixed_horizons_hours=_env_int_tuple(
             "VALIDATION_FIXED_HORIZONS_HOURS", default=(24, 48, 72)

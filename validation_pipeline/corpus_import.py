@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -83,8 +84,10 @@ def partition_posts_by_existing_predictions(
 ) -> tuple[list[CollectedPost], list[CollectedPost]]:
     """Split posts into (pending, already_predicted) using the predictions table.
 
-    With multi-horizon enabled, a post is complete only when every planned
-    horizon row exists. Otherwise any predictions row ticks the post off.
+    Multi-horizon completeness:
+    - Lane A (``same_age``): satisfied if *any* same_age row exists for the post
+      (exact hour must not drift as wall-clock age ticks).
+    - Lane B (fixed horizons): each planned future fixed horizon must exist.
     """
     if not posts:
         return [], []
@@ -93,20 +96,27 @@ def partition_posts_by_existing_predictions(
         create_schema(conn)
         if settings.validation_multi_horizon_enabled:
             from validation_pipeline.multi_horizon import planned_horizons_for_post
-            from validation_pipeline.store import existing_prediction_keys
+            from validation_pipeline.age_buckets import LANE_FIXED_HORIZON, LANE_SAME_AGE
+            from validation_pipeline.store import existing_prediction_lanes_and_keys
 
-            keys = existing_prediction_keys(
+            keys, same_age_posts = existing_prediction_lanes_and_keys(
                 conn, [post.linkedin_post_id for post in posts]
             )
             pending: list[CollectedPost] = []
             already: list[CollectedPost] = []
             for post in posts:
                 planned = planned_horizons_for_post(post, settings)
-                missing = [
-                    h
-                    for _lane, h in planned
-                    if (post.linkedin_post_id, float(h)) not in keys
-                ]
+                missing = False
+                for lane, horizon in planned:
+                    if lane == LANE_SAME_AGE:
+                        if post.linkedin_post_id not in same_age_posts:
+                            missing = True
+                            break
+                        continue
+                    if lane == LANE_FIXED_HORIZON:
+                        if (post.linkedin_post_id, float(horizon)) not in keys:
+                            missing = True
+                            break
                 if missing:
                     pending.append(post)
                 else:
@@ -130,13 +140,68 @@ def partition_posts_by_existing_predictions(
     return pending, already
 
 
+@dataclass(frozen=True)
+class PredictionProgressCounts:
+    """Collect-page progress: mutually exclusive post buckets."""
+
+    total: int = 0
+    done: int = 0
+    waiting: int = 0
+    remaining: int = 0
+
+
+def prediction_progress_counts(
+    posts: list[CollectedPost],
+    settings: Settings,
+) -> PredictionProgressCounts:
+    """Count Done / Waiting / Remaining for vectorized posts.
+
+    - **Done**: has prediction(s) and nothing still ``scheduled`` (graded).
+    - **Waiting**: has at least one ``scheduled`` row (Lane B rescrape pending).
+    - **Remaining**: no predictions yet (still need Gemini predict).
+    """
+    if not posts:
+        return PredictionProgressCounts()
+    if not settings.database_url:
+        return PredictionProgressCounts(total=len(posts), remaining=len(posts))
+
+    from validation_pipeline.store import prediction_post_coverage
+
+    # Do not run create_schema here — Collect page loads this often, and schema
+    # migrate over a slow tunnel blocks the UI for minutes.
+    conn = get_connection(settings)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET statement_timeout = '8000'")
+        coverage = prediction_post_coverage(
+            conn, [post.linkedin_post_id for post in posts]
+        )
+    finally:
+        conn.close()
+
+    done = waiting = remaining = 0
+    for post in posts:
+        flags = coverage.get(post.linkedin_post_id)
+        if not flags or not flags.get("has_any"):
+            remaining += 1
+        elif flags.get("has_scheduled"):
+            waiting += 1
+        else:
+            done += 1
+    return PredictionProgressCounts(
+        total=len(posts),
+        done=done,
+        waiting=waiting,
+        remaining=remaining,
+    )
+
+
 def count_already_predicted(posts: list[CollectedPost], settings: Settings) -> int:
-    """How many of *posts* already have a predictions row."""
+    """How many of *posts* are complete for the current multi-horizon plan."""
     if not posts:
         return 0
     _, already = partition_posts_by_existing_predictions(posts, settings)
     return len(already)
-
 
 def select_posts_for_predict(
     posts: list[CollectedPost],
@@ -273,8 +338,30 @@ async def predict_on_posts_async(
     if settings.validation_multi_horizon_enabled and not is_backtest:
         from validation_pipeline.multi_horizon import run_multi_horizon_on_posts
 
+        last_completed = [0]
+
         def _mh_progress(message: str) -> None:
-            _report(0, message)
+            """Bridge multi-horizon str callbacks → (completed, total, message).
+
+            Batch loop emits ``Multi-horizon i/n: …`` at the start of each post
+            and ``Multi-horizon i/n done: …`` after it finishes. Per-horizon
+            lines keep the last completed count so the bar does not reset to 0.
+            """
+            if message.startswith("Multi-horizon ") and "/" in message:
+                try:
+                    head, _, tail = message.partition(":")
+                    nums = head[len("Multi-horizon ") :].replace(" done", "").strip()
+                    cur, _tot = (int(part) for part in nums.split("/", 1))
+                    completed = (
+                        cur if head.rstrip().endswith("done") else max(0, cur - 1)
+                    )
+                    last_completed[0] = completed
+                    label = tail.strip() or message
+                    _report(completed, f"{cur}/{_tot} — {label}")
+                    return
+                except (ValueError, IndexError):
+                    pass
+            _report(last_completed[0], message)
 
         mh = await run_multi_horizon_on_posts(
             posts, settings=settings, on_progress=_mh_progress

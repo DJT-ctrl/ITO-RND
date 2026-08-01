@@ -161,6 +161,17 @@ def run_due_validations(
     if not settings.database_url:
         raise ValueError("DATABASE_URL is not set (check your .env file).")
 
+    # Lane B Apify rescrapes only — skip when fixed horizons are disabled
+    # (Lane A grades at predict time with no rescrape).
+    if (
+        settings.validation_multi_horizon_enabled
+        and not settings.validation_fixed_horizon_enabled
+    ):
+        logger.info(
+            "Skipping due validations: VALIDATION_FIXED_HORIZON_ENABLED=false"
+        )
+        return ValidationBatchResult()
+
     conn = get_connection(settings)
     try:
         create_schema(conn)

@@ -21,6 +21,11 @@ def render_plan_panel() -> None:
     c2.metric("Seed accounts", len(plan.seed_accounts))
     c3.metric("Niche weights", len(plan.weights_by_niche))
 
+    st.caption(
+        "Rebuild refreshes **niche weights** from tagged subscriber posts only. "
+        "It does not clear seeds, scrape history, job schedule, or budget."
+    )
+
     if st.button("Rebuild plan", key="agentic_rebuild_plan"):
         try:
             plan = rebuild_search_plan()

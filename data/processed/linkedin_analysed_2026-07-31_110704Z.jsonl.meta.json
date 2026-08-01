@@ -1,0 +1,17 @@
+{
+  "bundle_id": "2026-07-31_110704Z",
+  "source_scans": [
+    "linkedin_2026-07-31_110116Z.json",
+    "linkedin_2026-07-31_105829Z.json",
+    "linkedin_2026-07-31_105724Z.json",
+    "linkedin_2026-07-31_105534Z.json"
+  ],
+  "source_profiles": [
+    "linkedin_profiles_2026-07-31_110116Z.json",
+    "linkedin_profiles_2026-07-31_105829Z.json",
+    "linkedin_profiles_2026-07-31_105724Z.json",
+    "linkedin_profiles_2026-07-31_105534Z.json"
+  ],
+  "with_gemini": true,
+  "post_count": 191
+}

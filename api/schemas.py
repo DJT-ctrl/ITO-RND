@@ -5,6 +5,7 @@ full OpenAPI spec (served at /docs and /openapi.json) directly from these
 models, so no separate contract document is needed.
 """
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -45,7 +46,11 @@ class SimilarPost(BaseModel):
     hashtag_count: Optional[int] = None
     word_count: Optional[int] = None
     topic: Optional[str] = None
+    niche: Optional[str] = None
     hook_type: Optional[str] = None
+    # Phase 11: age when neighbor engagement was measured (hours since publish).
+    posted_at: Optional[datetime] = None
+    engagement_age_hours: Optional[float] = None
 
 
 class SimilarPostsResponse(BaseModel):

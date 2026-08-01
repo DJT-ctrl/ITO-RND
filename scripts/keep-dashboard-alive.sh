@@ -54,6 +54,8 @@ run_loop() {
       --server.address localhost \
       --server.port "$PORT" \
       --server.fileWatcherType poll \
+      --server.enableXsrfProtection false \
+      --server.enableCORS false \
       >>"$LOG" 2>&1
     code=$?
     set -e

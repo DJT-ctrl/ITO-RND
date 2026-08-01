@@ -31,7 +31,6 @@ from validation_pipeline.scoring import (
     fetch_bucketed_corpus_engagement_totals,
 )
 from validation_pipeline.store import (
-    existing_prediction_keys,
     insert_snapshot,
     mark_failed,
     mark_validated,
@@ -199,6 +198,8 @@ def planned_horizons_for_post(
     now = scraped_at or post.scraped_at or _utcnow()
     age_h = _age_hours(post.posted_at, now)
     jobs: list[tuple[str, int]] = [(LANE_SAME_AGE, same_age_horizon_hours(age_h))]
+    if not getattr(settings, "validation_fixed_horizon_enabled", True):
+        return jobs
     fixed = parse_fixed_horizons(settings.validation_fixed_horizons_hours)
     ordered = [h for h in _FIXED_CREATE_ORDER if h in fixed]
     for h in fixed:
@@ -216,6 +217,7 @@ async def predict_multi_horizon_for_post(
     settings: Settings,
     *,
     existing_keys: set[tuple[str, float]] | None = None,
+    same_age_posts: set[str] | None = None,
     predict_budget_remaining: list[int] | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> tuple[list[PredictionRecord], list[str], int]:
@@ -230,11 +232,19 @@ async def predict_multi_horizon_for_post(
     blind = blind.model_copy(update={"scraped_at": scraped_at})
 
     keys = existing_keys
-    if keys is None:
+    same_age_done = set(same_age_posts or ())
+    if keys is None or same_age_posts is None:
         conn = get_connection(settings)
         try:
             create_schema(conn)
-            keys = existing_prediction_keys(conn, [post.linkedin_post_id])
+            from validation_pipeline.store import existing_prediction_lanes_and_keys
+
+            loaded_keys, loaded_same = existing_prediction_lanes_and_keys(
+                conn, [post.linkedin_post_id]
+            )
+            keys = keys if keys is not None else loaded_keys
+            if same_age_posts is None:
+                same_age_done = loaded_same
         finally:
             conn.close()
 
@@ -246,6 +256,8 @@ async def predict_multi_horizon_for_post(
         post, settings, scraped_at=scraped_at
     ):
         key = (post.linkedin_post_id, float(horizon))
+        if lane == LANE_SAME_AGE and post.linkedin_post_id in same_age_done:
+            continue
         if key in keys:
             continue
 
@@ -303,6 +315,7 @@ async def predict_multi_horizon_for_post(
                     settings,
                     age_hours=age_h,
                 )
+                same_age_done.add(post.linkedin_post_id)
 
             saved.append(record)
             keys.add(key)
@@ -318,7 +331,6 @@ async def predict_multi_horizon_for_post(
             )
 
     return saved, errors, budget_skipped
-
 
 async def run_multi_horizon_on_posts(
     posts: list[CollectedPost],
@@ -340,7 +352,9 @@ async def run_multi_horizon_on_posts(
     conn = get_connection(settings)
     try:
         create_schema(conn)
-        keys = existing_prediction_keys(
+        from validation_pipeline.store import existing_prediction_lanes_and_keys
+
+        keys, same_age_posts = existing_prediction_lanes_and_keys(
             conn, [p.linkedin_post_id for p in posts]
         )
     finally:
@@ -356,20 +370,29 @@ async def run_multi_horizon_on_posts(
             post = post.model_copy(update={"scraped_at": _utcnow()})
 
         # Skip entirely only when all planned horizons already exist.
+        # Lane A is satisfied by *any* same_age row (hour may drift with age).
         planned = planned_horizons_for_post(post, settings)
-        missing = [
-            (lane, h)
-            for lane, h in planned
-            if (post.linkedin_post_id, float(h)) not in keys
-        ]
+        missing: list[tuple[str, int]] = []
+        for lane, h in planned:
+            if lane == LANE_SAME_AGE:
+                if post.linkedin_post_id not in same_age_posts:
+                    missing.append((lane, h))
+                continue
+            if (post.linkedin_post_id, float(h)) not in keys:
+                missing.append((lane, h))
         if not missing:
             result.skipped += 1
+            if on_progress:
+                on_progress(
+                    f"Multi-horizon {i}/{len(posts)} done: {post.linkedin_post_id} (skipped)"
+                )
             continue
 
         saved, errors, budget_skipped = await predict_multi_horizon_for_post(
             post,
             settings,
             existing_keys=keys,
+            same_age_posts=same_age_posts,
             predict_budget_remaining=budget,
             on_progress=on_progress,
         )
@@ -380,12 +403,18 @@ async def run_multi_horizon_on_posts(
         for row in saved:
             if row.prediction_horizon_hours is not None:
                 keys.add((row.linkedin_post_id, float(row.prediction_horizon_hours)))
+            if row.prediction_lane == LANE_SAME_AGE:
+                same_age_posts.add(row.linkedin_post_id)
+
+        if on_progress:
+            on_progress(
+                f"Multi-horizon {i}/{len(posts)} done: {post.linkedin_post_id}"
+            )
 
         if i < len(posts):
             await asyncio.sleep(_INTER_POST_DELAY_S)
 
     return result
-
 
 def run_multi_horizon_on_posts_sync(
     posts: list[CollectedPost],

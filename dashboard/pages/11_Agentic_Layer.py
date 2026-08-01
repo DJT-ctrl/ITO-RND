@@ -7,7 +7,7 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
-from config.settings import load_settings  # noqa: E402
+from dashboard.dev_postgres_ui import require_postgres_for_page  # noqa: E402
 from phase_10.ui import render_agentic_layer  # noqa: E402
 
 st.set_page_config(page_title="Agentic Layer", layout="wide")
@@ -18,9 +18,7 @@ st.caption(
     "reimplement scrape or eval — it calls shared Phase 10 services."
 )
 
-settings = load_settings()
-if not settings.database_url:
-    st.warning("DATABASE_URL is not set — search plan seeds and rebuild need Postgres.")
+if not require_postgres_for_page():
     st.stop()
 
 render_agentic_layer()

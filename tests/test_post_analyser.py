@@ -245,3 +245,122 @@ def test_verify_gemini_api_reports_missing_key():
     ok, message = verify_gemini_api(make_settings(gemini_api_key=""))
     assert ok is False
     assert "GEMINI_API_KEY" in message
+
+
+# ── Stage 2 batch (map_gemini_features) ───────────────────────────────────────
+
+def _sample_post(post_id: str, content: str = "Hello world #ai") -> dict:
+    return {
+        **SAMPLE_POST,
+        "id": post_id,
+        "content": content,
+    }
+
+
+def _ok_features(topic: str) -> dict:
+    return {
+        "hook_type": "announcement",
+        "tone": "professional",
+        "topic": topic,
+        "has_explicit_cta": False,
+        "writing_style": "Short update.",
+        "niche": None,
+    }
+
+
+def test_map_gemini_features_preserves_order_with_workers():
+    import time
+
+    from processors.post_analyser import map_gemini_features
+
+    posts = [_sample_post(f"p{i}") for i in range(5)]
+    settings = make_settings()
+    analyser = PostAnalyser(settings)
+    python_records = [analyser.compute_python_features(p) for p in posts]
+
+    delays = {0: 0.05, 1: 0.01, 2: 0.04, 3: 0.02, 4: 0.03}
+
+    def fake_compute(self, post, python_features):
+        time.sleep(delays[int(str(post["id"]).lstrip("p"))])
+        self.last_error = None
+        return _ok_features(topic=f"topic-{post['id']}")
+
+    progress_calls: list[tuple[int, int]] = []
+
+    with patch.object(PostAnalyser, "compute_gemini_features", fake_compute):
+        results = map_gemini_features(
+            posts,
+            python_records,
+            settings,
+            max_workers=4,
+            on_progress=lambda done, total: progress_calls.append((done, total)),
+        )
+
+    assert [r["topic"] for r in results] == [f"topic-p{i}" for i in range(5)]
+    assert len(results) == len(posts)
+    assert progress_calls[-1] == (5, 5)
+    assert sorted(done for done, _ in progress_calls) == [1, 2, 3, 4, 5]
+
+
+def test_map_gemini_features_partial_failure_keeps_others():
+    from processors.post_analyser import map_gemini_features
+
+    posts = [_sample_post("ok1"), _sample_post("bad"), _sample_post("ok2")]
+    settings = make_settings()
+    analyser = PostAnalyser(settings)
+    python_records = [analyser.compute_python_features(p) for p in posts]
+    errors: list[str] = []
+
+    def fake_compute(self, post, python_features):
+        if post["id"] == "bad":
+            self.last_error = "Post bad: boom"
+            return PostAnalyser._empty_gemini_features()
+        self.last_error = None
+        return _ok_features(topic=f"topic-{post['id']}")
+
+    with patch.object(PostAnalyser, "compute_gemini_features", fake_compute):
+        results = map_gemini_features(
+            posts,
+            python_records,
+            settings,
+            max_workers=3,
+            on_error=errors.append,
+        )
+
+    assert results[0]["topic"] == "topic-ok1"
+    assert results[1]["hook_type"] is None
+    assert results[2]["topic"] == "topic-ok2"
+    assert errors == ["Post bad: boom"]
+
+
+def test_map_gemini_features_workers_one_is_sequential():
+    from processors.post_analyser import map_gemini_features
+
+    posts = [_sample_post(f"p{i}") for i in range(3)]
+    settings = make_settings()
+    analyser = PostAnalyser(settings)
+    python_records = [analyser.compute_python_features(p) for p in posts]
+    call_order: list[str] = []
+
+    def fake_compute(self, post, python_features):
+        call_order.append(post["id"])
+        self.last_error = None
+        return _ok_features(topic=f"topic-{post['id']}")
+
+    with patch.object(PostAnalyser, "compute_gemini_features", fake_compute):
+        results = map_gemini_features(
+            posts,
+            python_records,
+            settings,
+            max_workers=1,
+        )
+
+    assert call_order == ["p0", "p1", "p2"]
+    assert [r["topic"] for r in results] == ["topic-p0", "topic-p1", "topic-p2"]
+
+
+def test_map_gemini_features_rejects_length_mismatch():
+    from processors.post_analyser import map_gemini_features
+
+    with pytest.raises(ValueError, match="length mismatch"):
+        map_gemini_features([_sample_post("a")], [], make_settings(), max_workers=1)

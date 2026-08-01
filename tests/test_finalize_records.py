@@ -54,6 +54,14 @@ def test_is_analysed_dataset_filename():
     assert not is_analysed_dataset_filename("linkedin_2026-07-10_120000Z.jsonl")
 
 
+def test_is_finalized_dataset_filename():
+    from processors.finalize_records import is_finalized_dataset_filename
+
+    assert is_finalized_dataset_filename("linkedin_analysed_2026-07-10_120000Z.jsonl")
+    assert is_finalized_dataset_filename("linkedin_python_2026-07-10_120000Z.jsonl")
+    assert not is_finalized_dataset_filename("linkedin_2026-07-10_120000Z.jsonl")
+
+
 def test_finalize_adds_benchmark_and_validates():
     records = [
         _stage1_record(post_id="1", total_engagement=10),
@@ -66,6 +74,59 @@ def test_finalize_adds_benchmark_and_validates():
         NormalizedPost.model_validate(record)
     by_id = {r["post_id"]: r for r in clean}
     assert by_id["2"]["engagement_percentile"] > by_id["1"]["engagement_percentile"]
+
+
+def test_finalize_coerces_invalid_gemini_enums():
+    records = [
+        _stage1_record(
+            post_id="1",
+            total_engagement=10,
+            hook_type="curiosity",
+            tone="inspirational",
+            has_explicit_cta="true",
+            topic="AI SaaS",
+            writing_style="short paragraphs",
+        ),
+        _stage1_record(
+            post_id="2",
+            total_engagement=100,
+            hook_type="question",
+            tone="professional",
+            has_explicit_cta=False,
+            topic="SEO",
+            writing_style="list",
+        ),
+    ]
+    clean, flagged = finalize_analysed_records(records)
+    assert flagged == []
+    assert len(clean) == 2
+    by_id = {r["post_id"]: r for r in clean}
+    assert by_id["1"]["hook_type"] == "other"
+    assert by_id["1"]["tone"] == "emotional"
+    assert by_id["1"]["has_explicit_cta"] is True
+    assert by_id["2"]["hook_type"] == "question"
+
+
+def test_finalize_maps_quote_hook_type_to_other():
+    records = [
+        _stage1_record(post_id="1", total_engagement=10, hook_type="quote"),
+        _stage1_record(post_id="2", total_engagement=20, hook_type="question"),
+    ]
+    clean, _ = finalize_analysed_records(records)
+    assert len(clean) == 2
+    assert clean[0]["hook_type"] == "other"
+
+
+def test_finalize_does_not_abort_whole_batch_on_one_bad_row():
+    """Regression: one invalid Gemini label used to kill a 985-post save."""
+    records = [
+        _stage1_record(post_id=str(i), total_engagement=i * 10) for i in range(50)
+    ]
+    records[25]["hook_type"] = "curiosity"
+    records[25]["tone"] = "inspirational"
+    clean, _ = finalize_analysed_records(records)
+    assert len(clean) == 50
+    assert clean[25]["hook_type"] == "other"
 
 
 def test_finalize_maps_author_followers_and_strips_display_fields():
@@ -94,6 +155,18 @@ def test_load_analysed_jsonl_rejects_wrong_filename(tmp_path):
     path.write_text(json.dumps(_stage1_record()) + "\n")
     with pytest.raises(ValueError, match="Expected a `linkedin_analysed_"):
         load_analysed_jsonl(path)
+
+
+def test_load_finalized_jsonl_accepts_python_prefix(tmp_path):
+    from processors.finalize_records import load_finalized_jsonl
+
+    clean, _ = finalize_analysed_records(
+        [_stage1_record(post_id="1", total_engagement=10)]
+    )
+    path = tmp_path / "linkedin_python_2026-07-10_120000Z.jsonl"
+    path.write_text(json.dumps(clean[0]) + "\n")
+    loaded = load_finalized_jsonl(path)
+    assert loaded[0]["post_id"] == "1"
 
 
 def test_list_analysed_datasets_newest_first(tmp_path):

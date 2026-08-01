@@ -45,6 +45,7 @@ data/pgdata/
 data/feedback_loop_overrides.json
 data/agentic_layer_seeds.json
 data/agentic_job_flags.json
+data/agentic_tick_control.json
 data/agentic_digests.jsonl
 
 # Logs

@@ -150,6 +150,63 @@ def test_no_database_url_scrapes_all_personal_urls(mock_scraper_cls):
     assert len(records) == 2
 
 
+@patch("processors.run_sample_collection.LinkedInProfileScraper")
+def test_profile_urls_capped_at_safety_limit_without_raising(mock_scraper_cls):
+    """Large collects must not abort — only scrape up to MAX_PROFILES_PER_RUN."""
+    from scrapers.linkedin_profile_scraper import LinkedInProfileScraper
+
+    n = LinkedInProfileScraper.MAX_PROFILES_PER_RUN + 50
+    posts = [_personal_post(f"user{i}") for i in range(n)]
+    scraper = MagicMock()
+    scraper.fetch_samples.return_value = ScrapeResult(
+        items=[{"publicIdentifier": f"user{i}", "followerCount": i} for i in range(500)]
+    )
+    mock_scraper_cls.return_value = scraper
+    # Expose the real class constant through the mock for callers that read it
+    mock_scraper_cls.MAX_PROFILES_PER_RUN = LinkedInProfileScraper.MAX_PROFILES_PER_RUN
+
+    warnings: list[str] = []
+    records, urls_to_scrape, fresh_records = _resolve_profile_records(
+        posts,
+        _settings(database_url=""),
+        use_profile_cache=True,
+        profile_url_limit=None,
+        warnings=warnings,
+    )
+
+    scraper.fetch_samples.assert_called_once()
+    sent = scraper.fetch_samples.call_args.args[0]["profileUrls"]
+    assert len(sent) == LinkedInProfileScraper.MAX_PROFILES_PER_RUN
+    assert len(urls_to_scrape) == LinkedInProfileScraper.MAX_PROFILES_PER_RUN
+    assert len(fresh_records) == 500
+    assert len(records) == 500
+    assert warnings
+    assert "Capped profile scrape" in warnings[0]
+    assert "50 personal author(s) deferred" in warnings[0]
+
+
+@patch("processors.run_sample_collection.LinkedInProfileScraper")
+def test_explicit_profile_limit_still_respected_under_safety_cap(mock_scraper_cls):
+    posts = [_personal_post(f"user{i}") for i in range(80)]
+    scraper = MagicMock()
+    scraper.fetch_samples.return_value = ScrapeResult(
+        items=[{"publicIdentifier": f"user{i}", "followerCount": i} for i in range(20)]
+    )
+    mock_scraper_cls.return_value = scraper
+
+    warnings: list[str] = []
+    _, urls_to_scrape, _ = _resolve_profile_records(
+        posts,
+        _settings(database_url=""),
+        use_profile_cache=True,
+        profile_url_limit=20,
+        warnings=warnings,
+    )
+
+    assert len(urls_to_scrape) == 20
+    assert warnings == []
+
+
 @patch("processors.run_sample_collection.upsert_profile")
 @patch("processors.run_sample_collection.LinkedInProfileScraper")
 @patch("processors.run_sample_collection.get_connection")

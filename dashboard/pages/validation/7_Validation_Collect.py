@@ -12,7 +12,16 @@ import streamlit as st
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
-from config.settings import load_settings, pydantic_ai_gemini_model  # noqa: E402
+import importlib  # noqa: E402
+
+import config.settings as _settings_mod  # noqa: E402
+
+# Streamlit often keeps a pre-Phase-11 Settings class after hot-reload.
+if not hasattr(_settings_mod.Settings, "validation_multi_horizon_enabled"):
+    _settings_mod = importlib.reload(_settings_mod)
+
+load_settings = _settings_mod.load_settings
+pydantic_ai_gemini_model = _settings_mod.pydantic_ai_gemini_model
 from dashboard.chrome import (  # noqa: E402
     page_header,
     pipeline_flow_strip,
@@ -23,16 +32,18 @@ from telemetry.apify import load_apify_runs  # noqa: E402
 from telemetry.apify_ui import render_apify_cost_history, render_apify_session_cost  # noqa: E402
 from validation_pipeline.corpus_import import (  # noqa: E402
     collected_posts_from_saved_collection,
-    count_already_predicted,
     list_saved_collections,
 )
 from validation_pipeline.pipeline import run_collect_and_predict, run_predict_on_posts  # noqa: E402
-from validation_pipeline.reset import reset_validation_data_for_settings  # noqa: E402
+import validation_pipeline.reset as _reset_mod  # noqa: E402
+
+# Force-reload so Streamlit does not keep a pre-feedback_jobs wipe.
+_reset_mod = importlib.reload(_reset_mod)
+reset_validation_data_for_settings = _reset_mod.reset_validation_data_for_settings
 from validation_pipeline.ui import load_predictions, render_predictions_table  # noqa: E402
 from validation_pipeline.vectorized_corpus import (  # noqa: E402
     bulk_import_vectorized_and_predict,
     discover_vectorized_datasets,
-    load_all_vectorized_collected_posts,
 )
 
 st.set_page_config(page_title="Collect and predict", layout="wide")
@@ -63,11 +74,19 @@ scheduled rows (blind predict). Cap: `VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_
 )
 st.caption(f"Predictor model: `{pydantic_ai_gemini_model()}`")
 if settings.validation_multi_horizon_enabled:
-    st.caption(
-        f"Multi-horizon ON — max {settings.validation_multi_horizon_max_predicts_per_run} "
-        f"Gemini predicts/run · fixed horizons "
-        f"{list(settings.validation_fixed_horizons_hours)}"
-    )
+    if settings.validation_fixed_horizon_enabled:
+        st.caption(
+            f"Multi-horizon ON — max {settings.validation_multi_horizon_max_predicts_per_run} "
+            f"Gemini predicts/run · Lane B fixed horizons "
+            f"{list(settings.validation_fixed_horizons_hours)} "
+            "(set `VALIDATION_FIXED_HORIZON_ENABLED=false` to skip delayed Apify rescrapes)"
+        )
+    else:
+        st.caption(
+            "Multi-horizon ON — **Lane A only** (same-age instant grades). "
+            "Lane B 24/48/72h predicts + rescrapes are OFF "
+            "(`VALIDATION_FIXED_HORIZON_ENABLED=false`)."
+        )
 
 vectorized_datasets = discover_vectorized_datasets(settings)
 if vectorized_datasets:
@@ -79,47 +98,54 @@ else:
         "**Make embeddings** under Build the corpus first."
     )
 
-posts_ready, _ = (
-    load_all_vectorized_collected_posts(settings)
-    if vectorized_datasets
-    else ([], [])
-)
-already_predicted = 0
-if posts_ready and settings.database_url:
-    try:
-        already_predicted = count_already_predicted(posts_ready, settings)
-    except Exception:
-        already_predicted = 0
-
-remaining_to_predict = max(len(posts_ready) - already_predicted, 0)
-metric_cols = st.columns(3)
+# File metrics only — do not load thousands of posts or scan Postgres on page open.
+embedding_rows = sum(dataset.vector_count for dataset in vectorized_datasets)
+metric_cols = st.columns(2)
 with metric_cols[0]:
-    st.metric("Unique vectorized posts", len(posts_ready))
+    st.metric("Vectorized datasets", len(vectorized_datasets))
 with metric_cols[1]:
-    st.metric("Already complete", already_predicted)
-with metric_cols[2]:
-    st.metric("Remaining to predict", remaining_to_predict)
-if already_predicted:
-    st.caption(
-        "Posts with all planned horizon rows are skipped automatically — "
-        "each import run picks the next incomplete posts up to Max posts."
+    st.metric(
+        "Embedding rows (sum)",
+        embedding_rows,
+        help="Sum of .npy row counts (may double-count the same post across files).",
     )
+st.caption(
+    "This **runs Gemini predictions** (Phase 11 same-age grades with your timing). "
+    "**Max posts** = how many to predict this run — it scans datasets until that "
+    "batch is full, then predicts (it does not need to load all 6000 first)."
+)
 
-col_reset, col_max = st.columns(2)
+col_reset, col_redo, col_max = st.columns(3)
 with col_reset:
     if st.button(
         "Reset validation data",
-        help="Clear predictions, snapshots, feedback rows, and cluster stats.",
+        help="Clear predictions, snapshots, feedback rows, and cluster stats. "
+        "Does not delete corpus posts.",
     ):
         reset = reset_validation_data_for_settings(settings)
         st.session_state["validation_reset_counts"] = reset
+        st.session_state.pop("vectorized_import_result", None)
         st.rerun()
+with col_redo:
+    can_redo = bool(
+        settings.database_url
+        and settings.gemini_api_key
+        and vectorized_datasets
+    )
+    if st.button(
+        "Reset and redo predictions",
+        type="primary",
+        disabled=not can_redo,
+        help="Wipe validation/feedback rows (posts stay), then re-predict the "
+        "vectorized corpus under current Phase 11 settings (Lane A / Lane B).",
+    ):
+        st.session_state["validation_redo_requested"] = True
 with col_max:
     bulk_max = st.number_input(
         "Max posts",
         min_value=1,
         max_value=2000,
-        value=min(remaining_to_predict or len(posts_ready) or 1, 500),
+        value=min(50, embedding_rows or 1),
         key="vectorized_import_max",
     )
 
@@ -134,26 +160,57 @@ can_bulk = bool(
     settings.database_url
     and settings.gemini_api_key
     and vectorized_datasets
-    and remaining_to_predict
+)
+horizon_hint = (
+    "same-age only"
+    if (
+        settings.validation_multi_horizon_enabled
+        and not settings.validation_fixed_horizon_enabled
+    )
+    else "up to four Gemini predictions per post (same-age + fixed horizons)"
 )
 st.caption(
-    "This step runs **up to four Gemini predictions per post** (same-age + fixed "
-    "horizons) under the per-run budget — expect a few seconds each, plus a 1s "
-    "pause between posts. Feedback is written later after you grade in "
-    "**Validation queue** (Lane A grades immediately)."
+    f"This step runs **{horizon_hint}** under the per-run budget — expect a few "
+    "seconds each, plus a 1s pause between posts. Feedback is written later after "
+    "you grade in **Validation queue** (Lane A grades immediately)."
 )
+
+if st.session_state.pop("validation_redo_requested", False):
+    reset = reset_validation_data_for_settings(settings)
+    st.session_state["validation_reset_counts"] = reset
+    progress = st.progress(0, text="Reset done — re-predicting vectorized corpus...")
+
+    def on_redo_progress(completed: int, total: int, message: str) -> None:
+        fraction = (completed / total) if total else 1.0
+        label = f"{completed}/{total} — {message}" if total else message
+        progress.progress(min(max(fraction, 0.0), 1.0), text=label)
+
+    result = bulk_import_vectorized_and_predict(
+        settings,
+        max_posts=int(bulk_max),
+        on_progress=on_redo_progress,
+    )
+    progress.progress(
+        1.0,
+        text=(
+            f"Redo done — imported={result.imported} skipped={result.skipped} "
+            f"errors={len(result.errors)}"
+        ),
+    )
+    st.session_state["vectorized_import_result"] = result
+    st.rerun()
+
 if st.button(
     "Import vectorized posts and predict",
     type="primary",
     disabled=not can_bulk,
 ):
     progress = st.progress(0, text="Multi-horizon predict on vectorized corpus...")
-    status = st.empty()
 
     def on_bulk_progress(completed: int, total: int, message: str) -> None:
         fraction = (completed / total) if total else 1.0
-        progress.progress(min(max(fraction, 0.0), 1.0), text=message)
-        status.caption(message)
+        label = f"{completed}/{total} — {message}" if total else message
+        progress.progress(min(max(fraction, 0.0), 1.0), text=label)
 
     result = bulk_import_vectorized_and_predict(
         settings,
@@ -169,7 +226,6 @@ if st.button(
     )
     st.session_state["vectorized_import_result"] = result
     st.rerun()
-
 if "vectorized_import_result" in st.session_state:
     bulk = st.session_state["vectorized_import_result"]
     st.success(
@@ -273,7 +329,7 @@ if run_clicked:
                     on_progress=on_progress,
                 )
             )
-            st.session_state["last_apify_runs"] = load_apify_runs(limit=20)
+            st.session_state["last_apify_runs"] = load_apify_runs(settings, limit=20)
         else:
             from config.paths import resolve_data_path
 
@@ -306,5 +362,7 @@ if "validation_last_result" in st.session_state:
         render_predictions_table(last.predictions)
 
 st.divider()
-render_apify_session_cost()
-render_apify_cost_history()
+_session_runs = st.session_state.get("last_apify_runs") or []
+if _session_runs:
+    render_apify_session_cost(_session_runs)
+render_apify_cost_history(settings)

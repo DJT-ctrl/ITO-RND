@@ -31,6 +31,7 @@ section_header(
     "What this page does",
     """
 **Input:** search keywords / filters (or load a previous JSON collection).
+Put **one phrase per line** in the sidebar — paste from Keyword suggestions.
 
 **Output:** saved `linkedin_*.json` files under the raw data folder, ready for
 **Analyse posts**.
@@ -106,11 +107,23 @@ with st.sidebar:
         ["linkedin"],
         help="More platforms plug in later via the BaseScraper interface.",
     )
-    search_term = st.text_input(
-        "Search query",
+    search_queries_raw = st.text_area(
+        "Search queries (one per line)",
         value="ai marketing",
-        help="LinkedIn search query (supports Boolean operators)",
+        height=140,
+        help=(
+            "Each line is a separate LinkedIn search. Paste keywords from "
+            "Keyword suggestions here — one phrase per line. Boolean operators "
+            "still work within a single line."
+        ),
     )
+    search_queries = [
+        line.strip()
+        for line in search_queries_raw.splitlines()
+        if line.strip()
+    ]
+    if search_queries:
+        st.caption(f"{len(search_queries)} quer{'y' if len(search_queries) == 1 else 'ies'} ready")
     limit = st.number_input(
         "Max posts", min_value=1, max_value=500, value=settings.default_search_limit
     )
@@ -132,14 +145,20 @@ if run_clicked:
         status_area.error("Missing APIFY_API_TOKEN or APIFY_ACTOR_ID. Check your .env file.")
     elif not settings.apify_profile_actor_id:
         status_area.error("Missing APIFY_PROFILE_ACTOR_ID. Check your .env file.")
+    elif not search_queries:
+        status_area.error("Add at least one search query (one phrase per line).")
     else:
         try:
+            preview = ", ".join(f"'{q}'" for q in search_queries[:5])
+            if len(search_queries) > 5:
+                preview += f", … (+{len(search_queries) - 5} more)"
             status_area.info(
-                f"Phase 1/2: Starting {platform} post search for '{search_term}' "
-                f"(limit={limit})..."
+                f"Phase 1/2: Starting {platform} post search for {preview} "
+                f"({len(search_queries)} quer{'y' if len(search_queries) == 1 else 'ies'}, "
+                f"limit={limit})..."
             )
             params = {
-                "searchQueries": [search_term],
+                "searchQueries": search_queries,
                 "maxPosts": int(limit),
                 "sortBy": sort_by,
             }
@@ -175,6 +194,8 @@ if run_clicked:
             if result.apify_runs:
                 summary += f" Apify cost: ${total_cost:.4f}."
             status_area.success(summary)
+            for warning in result.warnings:
+                st.warning(warning)
         except Exception as exc:  # surfaced in the UI on purpose for a test harness
             status_area.error(f"Collection failed: {exc}")
 

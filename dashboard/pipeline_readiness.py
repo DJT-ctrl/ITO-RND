@@ -169,9 +169,9 @@ def compute_corpus_readiness(
             f"{pg_posts} posts in DB" if pg_posts else f"{len(ingested)} ingested",
         )
     elif embedded:
-        steps["search"] = StepReadiness("ready", len(embedded), "Embed done · needs ingest")
+        steps["search"] = StepReadiness("ready", len(embedded), "Embed done · waiting for Postgres")
     else:
-        steps["search"] = StepReadiness("blocked", 0, "need Embed + ingest")
+        steps["search"] = StepReadiness("blocked", 0, "need Embed (auto-ingests)")
 
     # Mark current page (overrides done/ready styling in the strip renderer).
     if current in steps:
@@ -191,7 +191,7 @@ def compute_corpus_readiness(
             caption_parts.append(info.hint)
             break
     if not caption_parts and current == "embed" and embedded and not (ingested or pg_posts):
-        caption_parts.append("Embed done · Search needs ingest")
+        caption_parts.append("Embed done · Search needs Postgres ingest")
     if not caption_parts and analysed_only and current in ("analyse", "patterns"):
         caption_parts.append(f"{len(analysed_only)} analysed → Embed")
     # Upstream data waiting to be consumed on an earlier step.

@@ -17,8 +17,9 @@ Two deliberate stages keep costs down and hallucinations out:
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from google import genai
 from google.genai import types as genai_types
@@ -34,6 +35,8 @@ from config.settings import GEMINI_MODEL, Settings
 from processors.post_timing import build_post_timing_fields, infer_timezone_from_location
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_GEMINI_WORKERS = 10
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -282,8 +285,11 @@ class PostAnalyser:
                 )
 
             from phase_10.tagging import apply_niche
+            from processors.finalize_records import sanitize_gemini_fields
 
-            features = {key: parsed.get(key) for key in _GEMINI_FEATURE_KEYS}
+            features = sanitize_gemini_fields(
+                {key: parsed.get(key) for key in _GEMINI_FEATURE_KEYS}
+            )
             return apply_niche(features)
         except json.JSONDecodeError as exc:
             return self._fail(
@@ -292,6 +298,74 @@ class PostAnalyser:
             )
         except Exception as exc:  # noqa: BLE001 — one bad post must not kill the batch
             return self._fail(f"Post {post_id}: Gemini Stage 2 failed — {type(exc).__name__}: {exc}")
+
+
+def map_gemini_features(
+    posts: list[dict[str, Any]],
+    python_records: list[dict[str, Any]],
+    settings: Settings,
+    *,
+    max_workers: int = DEFAULT_GEMINI_WORKERS,
+    on_progress: Optional[Callable[[int, int], None]] = None,
+    on_error: Optional[Callable[[str], None]] = None,
+) -> list[dict[str, Any]]:
+    """Run Stage 2 for many posts, preserving input order.
+
+    Each worker uses its own ``PostAnalyser`` so ``last_error`` / lazy client
+    init cannot race. ``on_progress`` / ``on_error`` are invoked only from the
+    calling thread (safe for Streamlit). ``max_workers <= 1`` stays sequential.
+    """
+    if len(posts) != len(python_records):
+        raise ValueError(
+            f"posts ({len(posts)}) and python_records ({len(python_records)}) length mismatch"
+        )
+    total = len(posts)
+    if total == 0:
+        return []
+
+    workers = max(1, int(max_workers))
+    results: list[Optional[dict[str, Any]]] = [None] * total
+
+    def _one(index: int) -> tuple[int, dict[str, Any], Optional[str]]:
+        analyser = PostAnalyser(settings)
+        try:
+            features = analyser.compute_gemini_features(posts[index], python_records[index])
+            return index, features, analyser.last_error
+        except Exception as exc:  # noqa: BLE001 — one bad post must not kill the batch
+            post_id = (
+                posts[index].get("id")
+                or python_records[index].get("post_id")
+                or "unknown"
+            )
+            message = (
+                f"Post {post_id}: Gemini Stage 2 failed — {type(exc).__name__}: {exc}"
+            )
+            logger.error(message)
+            return index, PostAnalyser._empty_gemini_features(), message
+
+    def _record(index: int, features: dict[str, Any], error: Optional[str], done: int) -> None:
+        results[index] = features
+        if error and features.get("hook_type") is None and on_error is not None:
+            on_error(error)
+        if on_progress is not None:
+            on_progress(done, total)
+
+    if workers <= 1:
+        for i in range(total):
+            index, features, error = _one(i)
+            _record(index, features, error, i + 1)
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_one, i) for i in range(total)]
+            done = 0
+            for fut in as_completed(futures):
+                index, features, error = fut.result()
+                done += 1
+                _record(index, features, error, done)
+
+    if any(item is None for item in results):
+        raise RuntimeError("Stage 2 batch finished with missing results — internal error")
+    return results  # type: ignore[return-value]
 
 
 def verify_gemini_api(settings: Settings) -> tuple[bool, str]:

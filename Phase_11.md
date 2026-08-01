@@ -109,7 +109,8 @@ flowchart TD
 | `VALIDATION_MULTI_HORIZON_ENABLED` | `true` | Master switch for auto Lane A+B |
 | `VALIDATION_MULTI_HORIZON_LEARNING` | `true` | Same-bucket only for cal / injection / eval |
 | `VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN` | `40` | Cap Gemini predicts per Collect/import run |
-| `VALIDATION_FIXED_HORIZONS_HOURS` | `24,48,72` | Lane B horizons |
+| `VALIDATION_FIXED_HORIZON_ENABLED` | `true` | Lane B predicts + delayed Apify rescrape; `false` = Lane A only |
+| `VALIDATION_FIXED_HORIZONS_HOURS` | `24,48,72` | Lane B horizons (when enabled) |
 | `VALIDATION_AGE_BUCKET_MIN_N` | `30` | Min posts before bucketed percentile (else fallback) |
 | `VALIDATION_AGE_AWARE_ENABLED` | `false` | Existing forced_early exclusion (unchanged) |
 
@@ -119,11 +120,12 @@ Budget: job id `multi_horizon_predict` → Gemini daily/monthly caps (Phase 10 l
 
 ## Operator notes
 
-1. Import/collect creates up to **4 predictions per post** (1 same-age + 3 fixed) under the per-run + Gemini caps.
+1. Import/collect creates up to **4 predictions per post** (1 same-age + 3 fixed) under the per-run + Gemini caps. Set `VALIDATION_FIXED_HORIZON_ENABLED=false` for **Lane A only** (no delayed Apify rescrape — useful without an always-on DB).
 2. Lane A appears in Queue as **validated** immediately (no rescrape).
 3. Lane B rows wait until `posted_at + horizon` (or are due immediately if already past).
 4. Prefer turning `VALIDATION_MULTI_HORIZON_LEARNING=true` so 5h and 72h grades do not mix in calibration.
 5. Populate `posts.posted_at` / `engagement_age_hours` on ingest for better bucketed neighbors; until then neighbors may be mixed-age with ages labeled in the prompt when known.
+6. Collect UI **Reset and redo predictions** clears validation/feedback rows (posts stay) and re-predicts the vectorized corpus.
 
 ---
 

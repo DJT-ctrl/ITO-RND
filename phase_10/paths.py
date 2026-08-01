@@ -10,6 +10,7 @@ _DATA = project_root() / "data"
 
 SEEDS_PATH = _DATA / "agentic_layer_seeds.json"
 JOB_FLAGS_PATH = _DATA / "agentic_job_flags.json"
+TICK_CONTROL_PATH = _DATA / "agentic_tick_control.json"
 DIGESTS_PATH = _DATA / "agentic_digests.jsonl"
 
 

@@ -90,6 +90,7 @@ async def _gather_similar_posts(
     settings: Settings,
     user_id: Optional[str] = None,
     prefer_niche: Optional[str] = None,
+    prefer_age_hours: Optional[float] = None,
     collector: Optional[RunMetadataCollector] = None,
     neighbor_limit: int = 10,
 ) -> None:
@@ -155,7 +156,12 @@ async def _gather_similar_posts(
         try:
             register_vector(conn)
             return find_similar(
-                conn, query_vector, limit=limit, user_id=user_id, prefer_niche=prefer_niche
+                conn,
+                query_vector,
+                limit=limit,
+                user_id=user_id,
+                prefer_niche=prefer_niche,
+                prefer_age_hours=prefer_age_hours,
             )
         finally:
             conn.close()

@@ -9,7 +9,7 @@ directly rather than going through an HTTP layer.
 
 What this visualises:
   - A draft post's embedding (task_type="RETRIEVAL_QUERY") compared against
-    the 250 already-ingested posts via pgvector cosine distance.
+    posts already in Postgres via pgvector cosine distance.
   - The exact JSON shape the real API endpoint returns (T2.3's contract).
   - Timing broken into the Gemini embedding call vs. the SQL query alone —
     Erdal's T2.2 "under 150ms" success criterion applies to the SQL step
@@ -50,8 +50,8 @@ pipeline_flow_strip("corpus", "search")
 section_header(
     "What you need",
     """
-Requires **GEMINI_API_KEY** and **DATABASE_URL**, plus posts already ingested
-into Postgres with embeddings. The sidebar shows corpus status.
+Requires **GEMINI_API_KEY** and **DATABASE_URL**, plus posts already in
+Postgres (Make embeddings auto-ingests after each batch). The sidebar shows corpus status.
 """,
 )
 
@@ -160,7 +160,7 @@ if st.session_state.similar_result:
             use_container_width=True,
         )
     else:
-        st.info("No posts found — has the database been ingested? (`python -m processors.run_db_ingest`)")
+        st.info("No posts found — run **Make embeddings** (it auto-ingests into Postgres).")
 
     st.subheader("Raw API response shape (matches SimilarPostsResponse in api/schemas.py)")
     st.json(

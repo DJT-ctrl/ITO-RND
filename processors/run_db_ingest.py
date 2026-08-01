@@ -15,12 +15,17 @@ Usage:
 NOTE: requires a reachable Postgres+pgvector instance (DATABASE_URL in .env).
 See T1.4_DATABASE_PLAN.md - this script is Phase 1 code, meant to be run
 once Phase 2 (docker-compose up, on EC2 or locally) has a live database.
+
+The Streamlit **Make embeddings** page also calls ``ingest_embedded_records``
+right after a successful embed so the retrieval corpus stays in sync without
+a separate CLI step.
 """
 
 import argparse
 import glob
+import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -30,6 +35,8 @@ from storage.db_backup import create_backup
 from storage.pipeline_registry import register_ingest_bundle
 from storage.vector_store import create_schema, get_connection, insert_posts
 
+logger = logging.getLogger(__name__)
+
 
 def _latest_npy(embeddings_dir: str = "data/embeddings") -> Path:
     """Return the most recent linkedin_gemini_*.npy file under embeddings_dir."""
@@ -37,6 +44,67 @@ def _latest_npy(embeddings_dir: str = "data/embeddings") -> Path:
     if not files:
         raise ValueError(f"No embedding files found under {embeddings_dir}/linkedin_gemini_*.npy")
     return Path(files[-1])
+
+
+def _maybe_backup(settings: Settings, *, skip_backup: bool) -> None:
+    """Take a pre-ingest dump when possible; soft-skip if Compose ``db`` is down."""
+    if skip_backup:
+        return
+    try:
+        backup_path = create_backup(settings)
+        print(f"Backed up posts table to {backup_path} before ingesting.")
+    except RuntimeError as exc:
+        # Local Postgres often runs outside docker-compose; backup requires
+        # `docker compose exec db pg_dump`. Don't block ingest for that.
+        msg = str(exc)
+        if "is not running" in msg or "pg_dump failed" in msg:
+            warning = f"Pre-ingest backup skipped ({exc}). Continuing without backup."
+            print(warning)
+            logger.warning(warning)
+            return
+        raise
+
+
+def ingest_embedded_records(
+    records: list[dict[str, Any]],
+    vectors: np.ndarray,
+    *,
+    settings: Optional[Settings] = None,
+    bundle_id: Optional[str] = None,
+    skip_backup: bool = True,
+) -> int:
+    """Upsert an already-embedded batch (records[i] ↔ vectors[i]) into Postgres.
+
+    Used by the dashboard right after ``embed_batch`` so subset runs and full
+    runs both land in the retrieval corpus without re-loading a .npy that may
+    not match every eligible row in the analysed JSONL.
+
+    Returns the number of rows upserted.
+    """
+    settings = settings or load_settings()
+    if not settings.database_url:
+        raise ValueError("DATABASE_URL is not set — cannot ingest into Postgres.")
+    if len(records) != len(vectors):
+        raise ValueError(
+            f"records ({len(records)}) and vectors ({len(vectors)}) length mismatch"
+        )
+    if not records:
+        return 0
+
+    _maybe_backup(settings, skip_backup=skip_backup)
+
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        count = insert_posts(conn, records, vectors)
+    finally:
+        conn.close()
+
+    if bundle_id:
+        register_ingest_bundle(bundle_id=bundle_id, ingested_count=count)
+
+    print(f"Upserted {count} embedded posts into Postgres")
+    return count
 
 
 def run_db_ingest(
@@ -54,13 +122,14 @@ def run_db_ingest(
     Set ``skip_backup=True`` to skip this (e.g. fast local iteration/tests
     against a throwaway DB) — real runs should not pass this.
 
+    If Compose ``db`` is not running, the backup is skipped with a warning
+    and ingest still proceeds (common for local Postgres outside Docker).
+
     Returns the number of rows upserted.
     """
     settings = settings or load_settings()
 
-    if not skip_backup:
-        backup_path = create_backup(settings)
-        print(f"Backed up posts table to {backup_path} before ingesting.")
+    _maybe_backup(settings, skip_backup=skip_backup)
 
     joined_records, jsonl_path, _ = load_and_join(processed_file, settings)
 
@@ -81,12 +150,12 @@ def run_db_ingest(
             f"has {len(vectors)} vectors - they must come from the same embedding run."
         )
 
-    conn = get_connection(settings)
-    try:
-        create_schema(conn)
-        count = insert_posts(conn, valid_records, vectors)
-    finally:
-        conn.close()
+    count = ingest_embedded_records(
+        valid_records,
+        vectors,
+        settings=settings,
+        skip_backup=True,  # already handled above
+    )
 
     print(f"Upserted {count} posts from {jsonl_path.name} + {npy_path.name} into Postgres")
 

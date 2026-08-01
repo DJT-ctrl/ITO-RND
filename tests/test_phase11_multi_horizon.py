@@ -68,6 +68,7 @@ def test_planned_horizons_includes_same_age_and_fixed():
         total_engagement=11,
     )
     settings = MagicMock()
+    settings.validation_fixed_horizon_enabled = True
     settings.validation_fixed_horizons_hours = (24, 48, 72)
     jobs = planned_horizons_for_post(post, settings)
     assert jobs[0][0] == LANE_SAME_AGE
@@ -75,6 +76,26 @@ def test_planned_horizons_includes_same_age_and_fixed():
     assert (LANE_FIXED_HORIZON, 48) in jobs
     assert (LANE_FIXED_HORIZON, 24) in jobs
     assert (LANE_FIXED_HORIZON, 72) in jobs
+
+
+def test_planned_horizons_lane_a_only_when_fixed_disabled():
+    now = datetime.now(timezone.utc)
+    post = CollectedPost(
+        linkedin_post_id="abc",
+        linkedin_url="https://linkedin.com/feed/update/urn:li:activity:1",
+        content="hello",
+        posted_at=now - timedelta(hours=10),
+        scraped_at=now,
+        likes=10,
+        comments=1,
+        shares=0,
+        total_engagement=11,
+    )
+    settings = MagicMock()
+    settings.validation_fixed_horizon_enabled = False
+    settings.validation_fixed_horizons_hours = (24, 48, 72)
+    jobs = planned_horizons_for_post(post, settings)
+    assert jobs == [(LANE_SAME_AGE, 10)]
 
 
 def test_planned_horizons_skips_elapsed_fixed_horizons_for_old_posts():
@@ -98,6 +119,7 @@ def test_planned_horizons_skips_elapsed_fixed_horizons_for_old_posts():
         total_engagement=11,
     )
     settings = MagicMock()
+    settings.validation_fixed_horizon_enabled = True
     settings.validation_fixed_horizons_hours = (24, 48, 72)
     jobs = planned_horizons_for_post(post, settings)
     assert jobs == [(LANE_SAME_AGE, 500)]
@@ -117,6 +139,7 @@ def test_planned_horizons_keeps_only_future_fixed_horizons():
         total_engagement=11,
     )
     settings = MagicMock()
+    settings.validation_fixed_horizon_enabled = True
     settings.validation_fixed_horizons_hours = (24, 48, 72)
     jobs = planned_horizons_for_post(post, settings)
     assert (LANE_SAME_AGE, 30) in jobs

@@ -100,7 +100,8 @@ def get_connection(settings: Settings) -> psycopg.Connection:
     """
     if not settings.database_url:
         raise ValueError("DATABASE_URL is not set (check your .env file).")
-    return psycopg.connect(settings.database_url)
+    # Fail fast on half-open tunnels instead of hanging Streamlit page loads.
+    return psycopg.connect(settings.database_url, connect_timeout=5)
 
 
 def create_schema(conn: psycopg.Connection) -> None:
