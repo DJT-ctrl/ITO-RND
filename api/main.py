@@ -27,6 +27,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from agents.diagnostics import build_diagnostic_agents
+from agents.diagnostics import list_diagnostic_specs
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
@@ -43,6 +44,8 @@ from api.openapi_examples import (
 from api.rate_limit import limiter, optional_rate_limit, rate_limit_exceeded_handler
 from api.schemas import (
     API_VERSION,
+    AgentCatalogResponse,
+    AgentDescriptor,
     ApiErrorResponse,
     EvaluateRequest,
     EvaluateResponse,
@@ -183,6 +186,52 @@ def _ensure_eval_agents() -> tuple[str, Any, Any]:
 )
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get(
+    "/api/v1/agents",
+    response_model=AgentCatalogResponse,
+    tags=["v1"],
+    summary="List active backend agents",
+    responses={
+        200: {
+            "description": "Current backend agent registry for frontend discovery.",
+        },
+        **_COMMON_ERROR_RESPONSES,
+    },
+)
+@optional_rate_limit(settings.api_rate_limit)
+def list_agents(request: Request) -> AgentCatalogResponse:
+    diagnostics = list_diagnostic_specs()
+    agents = [
+        AgentDescriptor(
+            id="predictor",
+            name="Predictor",
+            kind="predictor",
+            stage="evaluation",
+            description="Forecasts engagement from nearest-neighbor evidence.",
+        )
+    ]
+    for key, spec in diagnostics.items():
+        agents.append(
+            AgentDescriptor(
+                id=key,
+                name=spec.get("title", key).title(),
+                kind="diagnostic",
+                stage="evaluation",
+                description=spec.get("focus", "Diagnostic quality check."),
+            )
+        )
+    agents.append(
+        AgentDescriptor(
+            id="variant",
+            name="Variant Engine",
+            kind="variant",
+            stage="optimization",
+            description="Generates and ranks optimized rewrite variants.",
+        )
+    )
+    return AgentCatalogResponse(agents=agents)
 
 
 @app.post(

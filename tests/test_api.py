@@ -75,6 +75,19 @@ def test_health_check():
     assert response.json() == {"status": "ok", "api_version": "v1"}
 
 
+def test_agents_catalog_lists_core_and_diagnostics():
+    response = client.get("/api/v1/agents")
+    assert response.status_code == 200
+    body = response.json()
+
+    ids = [a["id"] for a in body["agents"]]
+    assert "predictor" in ids
+    assert "seo" in ids
+    assert "clarity" in ids
+    assert "tone" in ids
+    assert "variant" in ids
+
+
 @patch("api.main.register_vector")
 @patch("api.main.get_connection")
 @patch("api.main.find_similar")
