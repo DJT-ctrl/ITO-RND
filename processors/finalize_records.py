@@ -6,7 +6,7 @@ Pattern Analysis or Vectorisation it still needs the batch-only steps from
 ``processors/benchmark.py`` (engagement percentile/z-score, anomaly flags) and
 validation against ``NormalizedPost``.
 
-Both ``dashboard/pages/2_Post_Analyser.py`` and ``processors/run_pipeline.py``
+Both the dashboard-for-devs Post Analyser page and ``processors/run_pipeline.py``
 call into here so every ``linkedin_analysed_*`` artifact has the same shape.
 """
 

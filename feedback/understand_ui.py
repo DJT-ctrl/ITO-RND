@@ -5,8 +5,8 @@ from __future__ import annotations
 import streamlit as st
 
 from config.settings import Settings
-from dashboard.chrome import render_phase_badges, section_header as _section_header
 from feedback.dashboard_queries import list_recent_feedback
+from feedback.streamlit_chrome import render_phase_badges, section_header as _section_header
 from feedback.observability_ui import render_cluster_accuracy
 from feedback.schemas import FeedbackRecord
 from feedback.ui import (
