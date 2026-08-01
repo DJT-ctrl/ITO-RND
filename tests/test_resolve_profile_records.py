@@ -3,7 +3,6 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from config.settings import Settings
 from processors.run_sample_collection import _resolve_profile_records

@@ -1,0 +1,28 @@
+{
+  "issue": 19,
+  "ec2": {
+    "instance_type": "t3.small",
+    "vcpus": 2,
+    "memory_gib": 2,
+    "rationale": "Single-node Compose MVP (API + Postgres + light telemetry); burstable CPU for evaluate spikes without t3.medium cost."
+  },
+  "ebs": {
+    "root": { "size_gb": 30, "type": "gp3", "rationale": "OS + Docker images + logs." },
+    "data": {
+      "size_gb": 50,
+      "type": "gp3",
+      "tag_ito_role": "postgres-data",
+      "rationale": "Postgres + embeddings headroom; grow after disk pressure alarms."
+    }
+  },
+  "upsizing_signals": [
+    "cpu_credit_exhaustion",
+    "memory_sustained_above_85_percent",
+    "data_volume_above_70_percent_7d"
+  ],
+  "downsizing_signals": [
+    "cpu_p95_below_20_percent_14d",
+    "memory_below_50_percent_14d_nonprod"
+  ],
+  "aligns_with_terraform_issue": 12
+}

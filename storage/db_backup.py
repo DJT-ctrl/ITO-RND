@@ -50,20 +50,28 @@ def _parse_dsn(database_url: str) -> tuple[str, str]:
     return user, dbname
 
 
-def create_backup(settings: Settings, backup_dir: str = _DEFAULT_BACKUP_DIR) -> Path:
+def create_backup(
+    settings: Settings,
+    backup_dir: str = _DEFAULT_BACKUP_DIR,
+    *,
+    prefix: str = "posts_pre_ingest",
+) -> Path:
     """Dump the whole database via `docker compose exec db pg_dump` (custom format).
 
     Returns the path to the new timestamped .dump file. Raises RuntimeError
     if the docker compose subprocess exits non-zero (e.g. the db container
     isn't running) — callers (processors/run_db_ingest.py) should let this
     propagate rather than silently skipping the backup.
+
+    ``prefix`` defaults to ``posts_pre_ingest`` (ingest rollback). Scheduled
+    DR dumps (issue #15) use ``posts_daily``.
     """
     user, dbname = _parse_dsn(settings.database_url)
 
     directory = Path(backup_dir)
     directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    dump_path = directory / f"posts_pre_ingest_{timestamp}.dump"
+    dump_path = directory / f"{prefix}_{timestamp}.dump"
 
     command = [
         "docker", "compose", "exec", "-T", _COMPOSE_SERVICE,
@@ -104,12 +112,16 @@ def restore_backup(settings: Settings, backup_path: Path) -> None:
         )
 
 
-def list_backups(backup_dir: str = _DEFAULT_BACKUP_DIR) -> list[Path]:
-    """Return every backup under backup_dir, oldest first (filenames sort chronologically)."""
+def list_backups(
+    backup_dir: str = _DEFAULT_BACKUP_DIR,
+    *,
+    pattern: str = "posts_*.dump",
+) -> list[Path]:
+    """Return matching dumps under backup_dir, oldest first."""
     directory = Path(backup_dir)
     if not directory.exists():
         return []
-    return sorted(directory.glob("posts_pre_ingest_*.dump"))
+    return sorted(directory.glob(pattern))
 
 
 def _parse_args() -> argparse.Namespace:

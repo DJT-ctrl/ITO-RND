@@ -124,3 +124,13 @@ docker compose down -v          # stop AND wipe telemetry volumes
 - **cAdvisor / node-exporter** rely on Linux host mounts (`/sys`, `/proc`,
   `/var/lib/docker`). They are intended for the Linux EC2 host; on macOS/
   colima their host-level metrics may be partial, but the stack still starts.
+
+## Rightsizing & idle non-prod (issue #19)
+
+Baseline `t3.small` + gp3 volumes, non-prod office-hours stop/start, monthly
+review: [`docs/ops/RIGHTSIZING.md`](../docs/ops/RIGHTSIZING.md).
+
+```bash
+python scripts/apply_nonprod_idle_policy.py --action auto --simulate
+python scripts/run_rightsizing_review.py --month YYYY-MM --simulate
+```

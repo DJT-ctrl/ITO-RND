@@ -1,0 +1,23 @@
+{
+  "mode": "simulate",
+  "month": "2026-06",
+  "currency": "USD",
+  "total": 57.6,
+  "by_service": {
+    "Amazon Elastic Compute Cloud - Compute": 42.0,
+    "Amazon Elastic Block Store": 10.0,
+    "Amazon CloudWatch": 4.25,
+    "AWS Secrets Manager": 1.2,
+    "Amazon Simple Notification Service": 0.15,
+    "Tax": 0.0
+  },
+  "budget_overall": 80.0,
+  "budget_split": {
+    "overall": 80.0,
+    "Amazon Elastic Compute Cloud - Compute": 45.0,
+    "Amazon Elastic Block Store": 15.0,
+    "Amazon CloudWatch": 12.0,
+    "Other": 8.0
+  },
+  "within_budget": true
+}

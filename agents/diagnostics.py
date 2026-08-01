@@ -64,6 +64,15 @@ _DIAGNOSTIC_SPECS = {
 }
 
 
+def list_diagnostic_specs() -> dict[str, dict[str, str]]:
+    """Return a shallow copy of diagnostic registry metadata.
+
+    Frontends and API wrappers use this to discover currently configured
+    diagnostic workers without hardcoding names.
+    """
+    return {k: dict(v) for k, v in _DIAGNOSTIC_SPECS.items()}
+
+
 def build_diagnostic_prompt(name: str, deps: EvaluationDeps) -> str:
     """Build one diagnostic worker's prompt."""
     spec = _DIAGNOSTIC_SPECS[name]
