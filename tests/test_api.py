@@ -13,6 +13,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from api.security import configure_api_security
+from config.settings import load_settings
 
 client = TestClient(app)
 
@@ -29,6 +31,21 @@ _VARIANT_STUB_OUTPUT = {
     "predicted_engagement_percentile": 55.0,
     "predicted_total_engagement": 10,
 }
+
+
+@pytest.fixture(autouse=True)
+def _disable_api_auth_for_unit_tests():
+    """Keep route tests independent of local API_AUTH_ENABLED=.env."""
+    from dataclasses import replace
+
+    open_settings = replace(
+        load_settings(),
+        api_auth_enabled=False,
+        api_keys_json="",
+        api_rate_limit="",
+    )
+    configure_api_security(open_settings)
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -277,7 +294,13 @@ def test_evaluate_endpoint_passes_neighbor_limit(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(
+        {
+            "predicted_engagement_percentile": 81.0,
+            "predicted_total_engagement": 42,
+            "reasoning": "Stub predictor reasoning for unit tests.",
+        }
+    )
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -389,7 +412,13 @@ def test_evaluate_accepts_visual_diagnostics_fields(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(
+        {
+            "predicted_engagement_percentile": 81.0,
+            "predicted_total_engagement": 42,
+            "reasoning": "Stub predictor reasoning for unit tests.",
+        }
+    )
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):

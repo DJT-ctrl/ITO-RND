@@ -106,6 +106,15 @@ class VariantResult(BaseModel):
 
 class EvaluateRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Draft post text to evaluate")
+    neighbor_limit: int = Field(
+        default=10,
+        ge=10,
+        le=100,
+        description=(
+            "How many nearest historical posts to retrieve for grounding and the "
+            "comparison surface (default 10, max 100)."
+        ),
+    )
     variant_strategy: Literal["dimension", "narrative", "tiered"] = Field(
         default="dimension",
         description=(
@@ -230,6 +239,7 @@ class EvaluateResponse(BaseModel):
     run_metadata: Optional[RunMetadata] = None
     query_embedding: Optional[list[float]] = None
     embedding_model_version: Optional[str] = None
+    visual_diagnostics_requested: bool = False
 
 
 class AgentDescriptor(BaseModel):
