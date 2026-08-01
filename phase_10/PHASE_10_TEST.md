@@ -74,7 +74,7 @@ export AGENTIC_PRO_DIGEST_DRY_RUN=1
 
 **Manual**
 
-1. `streamlit run dashboard/app.py`
+1. From [dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs): `streamlit run dashboard/app.py` (backend installed editable)
 2. Open **Agentic → Agentic layer**
 3. Confirm panels render: seeds, plan, flags, schedule, budget, scrape proof, Pro digests
 4. Edit seed terms → save → reload page → values persist

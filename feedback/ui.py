@@ -36,7 +36,7 @@ from storage.vector_store import create_schema, get_connection
 from validation_pipeline.store import list_predictions
 
 
-from dashboard.chrome import render_phase_badges, section_header as _section_header
+from feedback.streamlit_chrome import render_phase_badges, section_header as _section_header
 
 
 def _metric(col, label: str, value, *, help_text: str, **kwargs) -> None:

@@ -19,7 +19,7 @@ This document is the **build and reproduction guide**. For production deployment
 7. [Reproduce the corpus pipeline](#reproduce-the-corpus-pipeline)
 8. [Reproduce the validation pipeline](#reproduce-the-validation-pipeline)
 9. [Reproduce the feedback loop](#reproduce-the-feedback-loop)
-10. [Streamlit dashboard](#streamlit-dashboard)
+10. [Developer dashboard](#developer-dashboard)
 11. [API endpoints](#api-endpoints)
 12. [Tests](#tests)
 13. [Troubleshooting](#troubleshooting)
@@ -39,8 +39,8 @@ This document is the **build and reproduction guide**. For production deployment
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Runtime services                                │
-│  FastAPI (similarity + evaluation)  │  Streamlit dev harness            │
-│  Postgres 16 + pgvector               │  Prometheus / Grafana            │
+│  FastAPI (similarity + evaluation)  │  Prometheus / Grafana             │
+│  Postgres 16 + pgvector               │  (Streamlit UI: dashboard-for-devs) │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -59,7 +59,6 @@ This document is the **build and reproduction guide**. For production deployment
 | `validation_pipeline/` | Ground-truth collection, prediction, and rescrape |
 | `feedback/` | Calibration, cluster feedback, and evaluation loop |
 | `storage/` | Postgres schema, vector store, backups |
-| `dashboard/` | Streamlit dev harness and validation UI |
 | `telemetry/` | Cost and evaluation telemetry |
 | `deploy/` | Docker Compose stack and deployment notes |
 | `tests/` | Unit and integration tests (mocked external APIs) |
@@ -91,9 +90,13 @@ cd intotheopen-backend
 
 python3.12 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e .
 pip install -r requirements.txt
 ```
 
+Ops/dev Streamlit UI (optional): clone
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
+as a sibling and follow that README.
 ---
 
 ## Environment configuration
@@ -139,8 +142,13 @@ Full list and defaults: `.env.example`.
 
 ```bash
 source .venv/bin/activate
+pip install -e .
 pip install -r requirements.txt
 ```
+
+Editable install (`pip install -e .`) exposes backend packages for the separate
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs) Streamlit
+repo and for local imports.
 
 ### Docker API image
 
@@ -152,8 +160,8 @@ docker compose build api
 ```
 
 The image uses `python:3.12-slim`, installs `requirements.txt`, and runs
-`uvicorn api.main:app` on port 8000. Data files and the Streamlit dashboard
-are excluded via `.dockerignore` — host-side scripts read from `data/` directly.
+`uvicorn api.main:app` on port 8000. Data files are excluded via
+`.dockerignore` — host-side scripts read from `data/` directly.
 
 ---
 
@@ -370,12 +378,10 @@ Re-scrapes due predictions, computes deltas, and persists scores.
 
 ### Dashboard alternative
 
-```bash
-streamlit run dashboard/app.py
-```
-
-Navigate to **Validation Pipeline → Collect & Predict**, **Validation Queue**,
-and **Accuracy History** for interactive control and charts.
+Use the separate ops UI repo
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
+(sibling checkout + `pip install -e .` on this backend). Navigate to
+**Check and learn** for interactive validation control and charts.
 
 ---
 
@@ -441,21 +447,24 @@ If MAE worsens after enabling calibration:
 
 ---
 
-## Streamlit dashboard
+## Developer dashboard
 
-Local dev harness for every pipeline stage:
+The Streamlit ops/dev harness lives in a **separate** repository:
+
+**[intotheopen/dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)**
 
 ```bash
+# sibling checkouts
+git clone https://github.com/intotheopen/intotheopen-backend.git
+git clone https://github.com/intotheopen/dashboard-for-devs.git
+cd intotheopen-backend && pip install -e . && pip install -r requirements.txt
+cd ../dashboard-for-devs && pip install -r requirements.txt
 streamlit run dashboard/app.py
 ```
 
-| Section | Pages |
-| ------- | ----- |
-| **Corpus Pipeline** | Scraper → Post Analyser → Pattern Analysis → Vectorisation → Similarity Search |
-| **Validation Pipeline** | Collect & Predict → Validation Queue → Accuracy History → Feedback Loop |
-| **Evaluation** | Evaluation Cycle (multi-agent draft scoring) |
-
-The dashboard reads `.env` from the repo root regardless of working directory.
+That UI is for developers/ops (corpus, validation, feedback, agentic). Ade’s
+product frontend is separate and should consume this backend’s FastAPI/OpenAPI
+surface (`/docs`), not Streamlit.
 
 ---
 
@@ -550,14 +559,11 @@ DATABASE_URL=postgresql://ito:<password>@localhost:5432/ito_posts
 - Check Apify actor IDs match your account's actors
 - For profile scraping, `LINKEDIN_COOKIES` may be required
 
-### Streamlit import errors
+### Streamlit / dashboard
 
-Run from the repo root (or any directory — `dashboard/app.py` adds the project
-root to `sys.path`):
-
-```bash
-streamlit run dashboard/app.py
-```
+Streamlit is no longer in this repo. Clone and run
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
+with this backend installed editable (`pip install -e .`).
 
 ### Docker rebuild after code changes
 

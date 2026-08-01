@@ -16,7 +16,7 @@
 - Feedback loop: [`feedback/`](../feedback/)
 - Telemetry / cost: [`telemetry/`](../telemetry/)
 - Live eval cycle: [`agents/orchestrator.py`](../agents/orchestrator.py)
-- Dashboard pages 1–10 under [`dashboard/pages/`](../dashboard/pages/)
+- Dashboard pages live in [dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs) (`dashboard/pages/`)
 
 **Related phases:**
 - [Phase 7](../Phase_7.md) — on-demand multi-agent evaluation (T7.1–T7.16)
@@ -134,7 +134,7 @@ flowchart TB
 **Do not:** Duplicate Scraper Stage / Evaluation Cycle logic — call shared services and job entrypoints.
 
 **Shipped:**
-- Nav: **Agentic → Agentic layer** via [`dashboard/app.py`](../dashboard/app.py) + [`dashboard/pages/11_Agentic_Layer.py`](../dashboard/pages/11_Agentic_Layer.py)
+- Nav: **Agentic → Agentic layer** via [dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs) (`dashboard/app.py` + `dashboard/pages/11_Agentic_Layer.py`)
 - Package: [`phase_10/`](.) — small modules (`search_plan`, `job_flags`, `budget`, `schedule`, `digests`) + [`phase_10/ui/`](ui/) panels
 - Persist: seeds/weights in Postgres `agentic_search_plan` (JSON seeds migrated once); job flags still `data/agentic_job_flags.json`
 - Contracts: frozen dataclasses in [`models.py`](models.py)
