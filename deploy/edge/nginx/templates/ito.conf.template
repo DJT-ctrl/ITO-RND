@@ -1,0 +1,91 @@
+# ITO API edge routing — rendered by the nginx image's envsubst step
+# (templates/*.template → conf.d/*.conf) so the domain, upstream and cert
+# paths come from the environment. Substituted vars:
+#   ${SERVER_NAME}   public hostname behind Cloudflare, e.g. api.example.com
+#   ${UPSTREAM_API}  where FastAPI/Uvicorn listens, e.g. api:8000 (compose)
+#                    or 127.0.0.1:8000 (host Nginx)
+#   ${TLS_CERT}      origin certificate (fullchain) path
+#   ${TLS_KEY}       origin private key path
+#
+# Only the FastAPI service is published here. Prometheus/Grafana/cAdvisor/
+# node-exporter stay bound to 127.0.0.1 on the box and are reached over an SSH
+# tunnel — the security-guard default is "telemetry is never on the public
+# internet". /metrics is additionally hard-blocked below.
+
+upstream ito_api {
+    server ${UPSTREAM_API};
+    keepalive 32;             # reuse upstream connections
+}
+
+# ── Port 80 ────────────────────────────────────────────────────────────────
+# Serves the ACME HTTP-01 challenge (fallback path; DNS-01 is the primary,
+# see certbot/) and redirects everything else to HTTPS. Intentionally NOT
+# behind the Cloudflare-only lockdown: a 301 leaks nothing, and Let's Encrypt's
+# validation servers connect here directly for HTTP-01.
+server {
+    listen      80;
+    listen      [::]:80;
+    server_name ${SERVER_NAME};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ── Port 443 ───────────────────────────────────────────────────────────────
+server {
+    listen      443 ssl;
+    listen      [::]:443 ssl;
+    http2       on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     ${TLS_CERT};
+    ssl_certificate_key ${TLS_KEY};
+
+    # Origin lockdown: reject any connection that did not arrive via a
+    # Cloudflare edge node (see snippets/cloudflare-allowlist.conf). This is
+    # the guard that makes discovering the origin IP useless to an attacker.
+    if ($from_cloudflare = 0) {
+        return 403;
+    }
+
+    include /etc/nginx/snippets/security-headers.conf;
+
+    # Cap concurrent connections per client IP (slow-loris / socket-exhaustion).
+    limit_conn conn_per_ip 20;
+
+    # Prometheus metrics are internal-only — never serve them to the public
+    # edge even though the app exposes them on the same port.
+    location = /metrics {
+        return 403;
+    }
+
+    # Liveness probe — no rate limit so Cloudflare health checks / uptime
+    # monitors are never throttled.
+    location = /health {
+        proxy_pass http://ito_api;
+        include /etc/nginx/snippets/proxy-backend.conf;
+        access_log off;
+    }
+
+    # The evaluation endpoint fans out to Gemini (real cost per call) — throttle
+    # it hard and independently of the rest of the API.
+    location = /api/v1/evaluate {
+        limit_req zone=api_expensive burst=5 nodelay;
+        proxy_pass http://ito_api;
+        include /etc/nginx/snippets/proxy-backend.conf;
+    }
+
+    # Everything else (retrieval, OpenAPI docs, root) → the API under the
+    # general rate limit.
+    location / {
+        limit_req zone=api_general burst=40 nodelay;
+        proxy_pass http://ito_api;
+        include /etc/nginx/snippets/proxy-backend.conf;
+    }
+}

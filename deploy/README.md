@@ -42,9 +42,30 @@ dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
 > Only the API (`:8000`) and Grafana (`:3000`) publish beyond localhost.
-> Postgres and the raw telemetry ports bind to `127.0.0.1`. On EC2, restrict
-> even `:8000`/`:3000` via the security group and/or front them with the Nginx
-> config in `deploy/nginx.conf.example`.
+> Postgres and the raw telemetry ports bind to `127.0.0.1`. On EC2, put the
+> public **edge** in front (see below) — it terminates HTTPS, restricts the
+> origin to Cloudflare, and rebinds the API to localhost so Nginx is the only
+> public entry point. Grafana stays localhost-only (reach it via SSH tunnel).
+
+## Public edge — Cloudflare + Nginx (HTTPS)
+
+Everything above binds to localhost or an internal port. To serve the API on a
+real domain over HTTPS, add the **Web Traffic & Security Guard** layer in
+[edge/](edge/): a free Cloudflare proxy in front of an Nginx origin that
+terminates TLS, locks itself to Cloudflare's IP ranges, rate-limits, and blocks
+`/metrics`. Automated HTTPS uses Let's Encrypt via the Cloudflare DNS-01
+challenge (auto-renewed).
+
+```bash
+set -a; source .env; set +a                       # CF_*/EDGE_*/LETSENCRYPT_* — see .env.example
+deploy/edge/cloudflare/cloudflare-setup.sh        # proxied DNS + Full(strict) SSL + Always-HTTPS
+deploy/edge/cloudflare/update-cloudflare-ips.sh   # refresh CF IP snippets
+docker compose -f docker-compose.yml -f deploy/edge/docker-compose.edge.yml run --rm certbot
+docker compose -f docker-compose.yml -f deploy/edge/docker-compose.edge.yml up -d
+```
+
+Full runbook, security model, cert options, and the self-contained test suite
+(`deploy/edge/tests/run-all.sh`): **[edge/README.md](edge/README.md)**.
 
 ### Port conflicts
 

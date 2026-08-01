@@ -1,19 +1,23 @@
-# Reference only — NOT wired up or tested (no EC2 instance exists yet).
+# SUPERSEDED — this bare reference has been replaced by the real, tested edge
+# layer in deploy/edge/. It is kept only as a minimal illustration.
 #
-# This mirrors the same deployment blocker documented in T1.4_DATABASE_PLAN.md
-# for Phase 2 (EC2 + EBS). Once an EC2 instance exists, this config forwards
-# web traffic to the Uvicorn process serving api.main:app on port 8000
-# (T2.1's "Configure Nginx on the EC2 instance to forward web traffic to
-# Uvicorn").
+# For the production setup — Cloudflare free proxy + Nginx with automated HTTPS
+# (Let's Encrypt DNS-01), origin lockdown to Cloudflare IPs, real client-IP
+# restoration, rate limiting, security headers, and a self-contained test
+# suite — use deploy/edge/ instead:
 #
-# Example usage once deployed:
-#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/ito-api
-#   sudo ln -s /etc/nginx/sites-available/ito-api /etc/nginx/sites-enabled/
-#   sudo nginx -t && sudo systemctl reload nginx
+#     deploy/edge/README.md              full runbook + security model
+#     deploy/edge/nginx/                 the real Nginx config
+#     deploy/edge/cloudflare/            Cloudflare API setup + IP updater
+#     deploy/edge/certbot/               automated HTTPS (Let's Encrypt DNS-01)
+#     deploy/edge/docker-compose.edge.yml   nginx + certbot overlay
+#     deploy/edge/tests/run-all.sh       verify it all (Docker + mock CF API)
+#
+# Minimal illustrative config (NOT hardened — see deploy/edge/ for the real one):
 
 server {
     listen 80;
-    server_name _;  # replace with the EC2 instance's public IP or domain
+    server_name _;  # replace with the domain; the edge/ config redirects to HTTPS
 
     location / {
         proxy_pass http://127.0.0.1:8000;

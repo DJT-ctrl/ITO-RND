@@ -1,0 +1,83 @@
+# Edge overlay — the Web Traffic & Security Guard layer.
+#
+# Merges with the base stack so Nginx can reach the API over the compose
+# network by service name:
+#
+#   docker compose -f docker-compose.yml \
+#     -f deploy/edge/docker-compose.edge.yml up -d
+#
+# Adds:
+#   nginx    the public entry point (:80/:443). Terminates the origin TLS,
+#            enforces the Cloudflare-only lockdown, rate-limits, and proxies to
+#            the `api` service. This is the ONLY thing that should be exposed to
+#            0.0.0.0 on the box; keep api/grafana/telemetry bound to localhost.
+#   certbot  on-demand Let's Encrypt DNS-01 issuance/renewal (profile: certbot;
+#            does not start with `up`). Run it explicitly to get/renew a cert.
+#
+# Before first `up`, create an origin cert so Nginx can bind :443 — either
+# self-signed for a smoke test:
+#     deploy/edge/certbot/gen-selfsigned.sh
+# or a real Let's Encrypt cert (see certbot service + README).
+
+services:
+  # Don't publish the API straight to the internet once the edge is in front —
+  # bind it to loopback so the ONLY public path is through Nginx (which does
+  # the TLS, lockdown and rate-limiting). Overriding just this key is safe;
+  # compose deep-merges it over the base service definition.
+  api:
+    ports: !override
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: ito-edge
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Feed the conf template (rendered by the image's envsubst entrypoint).
+      SERVER_NAME: ${EDGE_DOMAIN:-localhost}
+      UPSTREAM_API: ${EDGE_UPSTREAM_API:-api:8000}
+      TLS_CERT: /etc/nginx/certs/fullchain.pem
+      TLS_KEY: /etc/nginx/certs/privkey.pem
+    volumes:
+      - ./deploy/edge/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/edge/nginx/snippets:/etc/nginx/snippets:ro
+      - ./deploy/edge/nginx/templates:/etc/nginx/templates:ro
+      - ./deploy/edge/certs:/etc/nginx/certs:ro
+      - edge_acme_www:/var/www/certbot
+    # conf.d is a writable tmpfs: the entrypoint renders the template here, and
+    # mounting over it masks the image's default.conf (which would otherwise
+    # add an unwanted default :80 server).
+    tmpfs:
+      - /etc/nginx/conf.d
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --no-check-certificate https://127.0.0.1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  certbot:
+    image: certbot/dns-cloudflare:latest
+    profiles: ["certbot"]          # opt-in: does not start with plain `up`
+    environment:
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      EDGE_DOMAIN: ${EDGE_DOMAIN:-}
+      LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL:-}
+      CERTBOT_STAGING: ${CERTBOT_STAGING:-false}
+      LIVE_CERT_DIR: /etc/nginx/certs
+    entrypoint: ["/bin/sh", "/scripts/issue-cert.sh"]
+    volumes:
+      - ./deploy/edge/certbot:/scripts:ro
+      - ./deploy/edge/certs:/etc/nginx/certs
+      - edge_letsencrypt:/etc/letsencrypt
+      - edge_acme_www:/var/www/certbot
+
+volumes:
+  edge_letsencrypt:
+  edge_acme_www:
