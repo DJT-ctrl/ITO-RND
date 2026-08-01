@@ -33,7 +33,6 @@ data/
 
 # Not needed inside the API image
 tests/
-dashboard/
 deploy/
 First Ideas/
 *.md

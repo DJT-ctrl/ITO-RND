@@ -20,7 +20,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application packages. The build context is trimmed by
-# .dockerignore (no data/, tests/, dashboard/, .venv/, .git/, ...), so this
+# .dockerignore (no data/, tests/, .venv/, .git/, ...), so this
 # only pulls in the code the API actually imports at runtime.
 COPY . .
 

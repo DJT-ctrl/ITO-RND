@@ -74,7 +74,7 @@ Validated rows → mean_delta → calibrate percentile (A)
 
 **Code landed:**
 - `feedback/retrieve.py`, `feedback/ui.py`
-- `dashboard/pages/validation/10_Feedback_Loop.py`
+- dashboard-for-devs Feedback Loop page (`pages/validation/10_Feedback_Loop.py`)
 - `agents/schemas.py` / `agents/predictor.py` injection
 - Settings for injection enable + limit
 
