@@ -7,6 +7,11 @@ from typing import Optional, Sequence
 
 import psycopg
 
+from validation_pipeline.age_buckets import (
+    DEFAULT_AGE_BUCKET_MIN_N,
+    bucket_for_hours,
+    sql_engagement_age_filter,
+)
 from validation_pipeline.schemas import EngagementActuals, PredictionRecord, ValidationScores
 
 MIN_CORPUS_SIZE = 30
@@ -27,6 +32,43 @@ def fetch_corpus_engagement_totals(conn: psycopg.Connection) -> list[int]:
         )
         rows = cur.fetchall()
     return [int(row[0]) for row in rows]
+
+
+def fetch_bucketed_corpus_engagement_totals(
+    conn: psycopg.Connection,
+    *,
+    horizon_hours: float | None,
+    min_n: int = DEFAULT_AGE_BUCKET_MIN_N,
+) -> tuple[list[int], str, str]:
+    """Return (totals, age_bucket, percentile_source).
+
+    Prefers posts whose engagement_age_hours falls in the horizon's bucket.
+    Falls back to the full corpus when the bucket is thinner than *min_n*.
+    """
+    bucket = bucket_for_hours(horizon_hours)
+    if bucket == "unknown" or horizon_hours is None:
+        totals = fetch_corpus_engagement_totals(conn)
+        return totals, bucket, "corpus_fallback"
+
+    age_clause, age_params = sql_engagement_age_filter(bucket_id=bucket, alias="")
+    # sql helper uses "AND col ..." — strip leading AND for WHERE composition.
+    age_where = age_clause[4:].strip() if age_clause.startswith("AND ") else age_clause
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT total_engagement FROM posts
+            WHERE engagement_anomaly_flag = FALSE
+              AND {age_where}
+            """,
+            tuple(age_params),
+        )
+        bucket_totals = [int(row[0]) for row in cur.fetchall()]
+
+    if len(bucket_totals) >= min_n:
+        return bucket_totals, bucket, "age_bucket"
+
+    totals = fetch_corpus_engagement_totals(conn)
+    return totals, bucket, "corpus_fallback"
 
 
 def compute_corpus_percentile(
@@ -51,10 +93,19 @@ def compute_validation_scores(
     actuals: EngagementActuals,
     prediction: PredictionRecord,
     corpus_totals: Sequence[int],
+    *,
+    age_bucket: str | None = None,
+    percentile_source: str | None = None,
+    horizon_hours: float | None = None,
 ) -> ValidationScores:
     actual_percentile = compute_corpus_percentile(actuals.total_engagement, corpus_totals)
     delta = round(actual_percentile - prediction.predicted_engagement_percentile, 2)
     accuracy = round(max(0.0, 100.0 - abs(delta)), 2)
+    resolved_bucket = age_bucket or bucket_for_hours(
+        horizon_hours
+        if horizon_hours is not None
+        else prediction.prediction_horizon_hours
+    )
     return ValidationScores(
         actual_engagement_percentile=actual_percentile,
         prediction_delta=delta,
@@ -66,6 +117,8 @@ def compute_validation_scores(
         total_engagement_delta=_metric_delta(
             actuals.total_engagement, prediction.predicted_total_engagement
         ),
+        age_bucket=resolved_bucket,
+        percentile_source=percentile_source or "corpus_fallback",
     )
 
 

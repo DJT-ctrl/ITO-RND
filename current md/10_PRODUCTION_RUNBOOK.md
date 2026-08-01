@@ -227,6 +227,22 @@ calibration/injection.
 
 Dashboard toggles: Feedback Loop → Shadow mode / Injectability mode / Soft blend weight.
 
+### Phase 11 — multi-horizon validation
+
+See [Phase_11.md](../Phase_11.md). Default ON:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `VALIDATION_MULTI_HORIZON_ENABLED` | `true` | Auto Lane A (same-age) + Lane B (24/48/72) |
+| `VALIDATION_MULTI_HORIZON_LEARNING` | `true` | Same age-bucket only for cal / injection / eval |
+| `VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN` | `40` | Gemini predict cap per Collect/import |
+| `VALIDATION_FIXED_HORIZONS_HOURS` | `24,48,72` | Lane B horizons |
+| `VALIDATION_AGE_BUCKET_MIN_N` | `30` | Min posts for bucketed percentile |
+
+Budget job id `multi_horizon_predict` uses Gemini caps. Due Lane B rescrapes
+still use `validation_worker` (Apify). Collect no longer needs Due immediately /
+Backtest checkboxes when multi-horizon is ON.
+
 ### Hybrid cost per 100 validations
 
 Hybrid writes store `input_tokens`, `output_tokens`, and estimated `cost_usd`

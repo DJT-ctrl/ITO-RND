@@ -40,6 +40,8 @@ _SIMILAR_COLUMNS = [
     "topic",
     "niche",
     "hook_type",
+    "posted_at",
+    "engagement_age_hours",
 ]
 
 
@@ -54,6 +56,8 @@ def find_similar(
     prefer_niche: Optional[str] = None,
     soft_topic_prefer: bool = True,
     overfetch_factor: int = 3,
+    prefer_age_hours: Optional[float] = None,
+    soft_age_prefer: bool = True,
 ) -> list[dict[str, Any]]:
     """Return the ``limit`` posts closest to ``query_vector`` (cosine distance).
 
@@ -64,19 +68,32 @@ def find_similar(
     T10.8: when ``prefer_niche`` is a valid taxonomy id and soft prefer is on,
     over-fetch then re-rank same-niche neighbors ahead of others. Never
     hard-filters to niche-only results.
+
+    Phase 11: when ``prefer_age_hours`` is set and soft age prefer is on,
+    over-fetch then re-rank same age-bucket neighbors ahead of others.
     """
     niche = prefer_niche if is_valid_niche(prefer_niche) else None
-    use_soft = bool(soft_topic_prefer and niche)
+    use_soft_topic = bool(soft_topic_prefer and niche)
+    use_soft_age = bool(soft_age_prefer and prefer_age_hours is not None)
     fetch_limit = limit
-    if use_soft:
+    if use_soft_topic or use_soft_age:
         fetch_limit = min(max(limit * max(1, overfetch_factor), limit), _SOFT_TOPIC_OVERFETCH_CAP)
 
     rows = _find_similar_query(conn, query_vector, fetch_limit, user_id)
     if user_id is not None and len(rows) < min_user_results and fallback_to_global:
         rows = _find_similar_query(conn, query_vector, fetch_limit, user_id=None)
 
-    if use_soft:
-        return apply_soft_topic_prefer(rows, niche, limit)
+    if use_soft_topic and use_soft_age:
+        # Applying these as two independent sequential stable-sorts would let
+        # the second sort's key dominate and silently discard the first
+        # preference's effect on the final order (see
+        # apply_soft_topic_and_age_prefer's docstring). Combine into one key
+        # instead so niche and age preference are both honored.
+        rows = apply_soft_topic_and_age_prefer(rows, niche, float(prefer_age_hours), limit)
+    elif use_soft_topic:
+        rows = apply_soft_topic_prefer(rows, niche, limit)
+    elif use_soft_age:
+        rows = apply_soft_age_prefer(rows, float(prefer_age_hours), limit)
     return rows[:limit] if len(rows) > limit else rows
 
 
@@ -129,15 +146,93 @@ def apply_soft_topic_prefer(
         return rows[:limit]
 
     def _sort_key(row: dict[str, Any]) -> tuple[int, float]:
-        niche = row.get("niche")
-        match = 0 if isinstance(niche, str) and niche == prefer_niche else 1
-        distance = row.get("cosine_distance")
-        try:
-            dist_f = float(distance) if distance is not None else float("inf")
-        except (TypeError, ValueError):
-            dist_f = float("inf")
-        return match, dist_f
+        return _niche_match(row, prefer_niche), _distance(row)
 
     # Stable: Python's sort is stable; we only add niche priority as primary key.
     ranked = sorted(rows, key=_sort_key)
     return ranked[:limit]
+
+
+def apply_soft_age_prefer(
+    rows: list[dict[str, Any]],
+    prefer_age_hours: float,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Stable re-rank: same age-bucket first, then cosine_distance."""
+    if limit <= 0:
+        return []
+    if not rows:
+        return []
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, float]:
+        return _age_match(row, prefer_age_hours), _distance(row)
+
+    ranked = sorted(rows, key=_sort_key)
+    return ranked[:limit]
+
+
+def apply_soft_topic_and_age_prefer(
+    rows: list[dict[str, Any]],
+    prefer_niche: str | None,
+    prefer_age_hours: float,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Stable re-rank preferring niche match *and* age-bucket match together.
+
+    Niche prefer and age prefer are each single-key stable sorts. Calling
+    them back-to-back (sort by niche, then re-sort the result by age) does
+    not compose: the second sort re-orders every row by its own key alone,
+    so it silently overrides — not augments — the first sort's effect on
+    the final order. Whenever both a niche and a horizon are supplied (the
+    normal Phase 11 predict-time case, since posts usually have a niche),
+    that regressed niche soft-prefer back to age-only ranking.
+
+    Instead, rank by how many of the two preferences each row matches (0, 1,
+    or 2 mismatches) as a single combined key, then cosine_distance as the
+    tie-breaker. Neither preference is treated as more important than the
+    other; a row matching both outranks a row matching only one, which
+    outranks a row matching neither.
+    """
+    if limit <= 0:
+        return []
+    if not rows:
+        return []
+    niche = prefer_niche if is_valid_niche(prefer_niche) else None
+
+    def _sort_key(row: dict[str, Any]) -> tuple[int, float]:
+        mismatches = _niche_match(row, niche) + _age_match(row, prefer_age_hours)
+        return mismatches, _distance(row)
+
+    ranked = sorted(rows, key=_sort_key)
+    return ranked[:limit]
+
+
+def _niche_match(row: dict[str, Any], niche: str | None) -> int:
+    """0 if row's niche matches (a valid) *niche*, else 1."""
+    if not niche:
+        return 1
+    row_niche = row.get("niche")
+    return 0 if isinstance(row_niche, str) and row_niche == niche else 1
+
+
+def _age_match(row: dict[str, Any], prefer_age_hours: float) -> int:
+    """0 if row's engagement age falls in the same bucket as *prefer_age_hours*."""
+    from validation_pipeline.age_buckets import bucket_for_hours
+
+    age = row.get("engagement_age_hours")
+    try:
+        age_f = float(age) if age is not None else None
+    except (TypeError, ValueError):
+        age_f = None
+    if age_f is None:
+        return 1
+    return 0 if bucket_for_hours(age_f) == bucket_for_hours(prefer_age_hours) else 1
+
+
+def _distance(row: dict[str, Any]) -> float:
+    """cosine_distance as a float, or +inf when missing/invalid (sorts last)."""
+    distance = row.get("cosine_distance")
+    try:
+        return float(distance) if distance is not None else float("inf")
+    except (TypeError, ValueError):
+        return float("inf")

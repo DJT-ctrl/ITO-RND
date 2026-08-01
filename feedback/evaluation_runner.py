@@ -30,6 +30,9 @@ def run_and_save_offline_evaluation(
         holdout_size=holdout_size,
         global_n_min=settings.validation_calibration_n_min,
         cluster_n_min=settings.validation_cluster_n_min,
+        stratify_by_horizon_bucket=bool(
+            settings.validation_multi_horizon_learning
+        ),
     )
     output_dir = resolve_data_path(settings.telemetry_data_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

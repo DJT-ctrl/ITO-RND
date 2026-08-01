@@ -23,7 +23,8 @@ What it does, in order:
      --with-profile-enrichment, an additional audience-adjusted benchmark
      (follower-normalized) is computed alongside the raw one.
   5. Stage 2 — Gemini qualitative tags (optional, one API call per post,
-     only runs with --with-gemini since it costs money).
+     only runs with --with-gemini since it costs money). Parallelised via
+     --gemini-workers (default 10); use 1 for sequential.
   6. Flag statistically implausible engagement ratios
      (processors/benchmark.py::flag_engagement_anomalies) — flagged posts
      are held out of the main dataset into a separate review file.
@@ -51,7 +52,7 @@ from config.settings import Settings, load_settings
 from processors.corpus_benchmarks import build_snapshot, save_snapshot
 from processors.dedup import dedupe_posts
 from processors.finalize_records import analysed_dataset_label, finalize_analysed_records
-from processors.post_analyser import PostAnalyser
+from processors.post_analyser import DEFAULT_GEMINI_WORKERS, PostAnalyser, map_gemini_features
 from processors.profile_enricher import enrich_posts_with_follower_data
 from processors.profile_sources import load_profile_records
 from storage.pipeline_registry import register_analysed_bundle
@@ -83,6 +84,7 @@ def run_pipeline(
     profile_file: Optional[str] = None,
     raw_posts: Optional[list[dict]] = None,
     source_scans: Optional[list[str]] = None,
+    gemini_workers: int = DEFAULT_GEMINI_WORKERS,
 ) -> tuple[Path, Path]:
     """Run the full T1.2 batch pipeline and return (csv_path, jsonl_path).
 
@@ -150,10 +152,16 @@ def run_pipeline(
     stage1_records = [analyser.compute_python_features(post) for post in raw_posts]
     records = list(stage1_records)
 
-    # Stage 2: optional, costs one Gemini API call per post.
+    # Stage 2: optional, costs one Gemini API call per post (parallelisable).
     if with_gemini:
-        for post, record in zip(raw_posts, records):
-            record.update(analyser.compute_gemini_features(post, record))
+        gemini_records = map_gemini_features(
+            raw_posts,
+            records,
+            settings,
+            max_workers=max(1, int(gemini_workers)),
+        )
+        for record, gemini in zip(records, gemini_records):
+            record.update(gemini)
 
     # Batch benchmark + anomaly flags + schema validation (shared with Step 2 UI).
     validated_records, flagged_records = finalize_analysed_records(records)
@@ -197,6 +205,15 @@ def _parse_args() -> argparse.Namespace:
         help="Also run Stage 2 (Gemini qualitative tags) — one API call per post.",
     )
     parser.add_argument(
+        "--gemini-workers",
+        type=int,
+        default=DEFAULT_GEMINI_WORKERS,
+        help=(
+            "Parallel Stage 2 Gemini requests (default %(default)s). "
+            "Same call count/cost; use 1 for sequential."
+        ),
+    )
+    parser.add_argument(
         "--with-profile-enrichment",
         action="store_true",
         help=(
@@ -220,6 +237,7 @@ if __name__ == "__main__":
         with_gemini=args.with_gemini,
         with_profile_enrichment=args.with_profile_enrichment,
         profile_file=args.profile_file,
+        gemini_workers=max(1, int(args.gemini_workers)),
     )
     print(f"Wrote {csv_path}")
     print(f"Wrote {jsonl_path}")

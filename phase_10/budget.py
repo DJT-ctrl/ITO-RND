@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 # Paid provider per job (None = no budget gate).
 JOB_PROVIDER: dict[str, Provider | None] = {
     "validation_worker": "apify",
+    "multi_horizon_predict": "gemini",
     "niche_scrape": "apify",
     "general_refresh": "apify",
     "feedback_worker": "gemini",

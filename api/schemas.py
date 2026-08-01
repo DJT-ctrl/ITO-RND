@@ -5,6 +5,7 @@ full OpenAPI spec (served at /docs and /openapi.json) directly from these
 models, so no separate contract document is needed.
 """
 
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -45,9 +46,11 @@ class SimilarPost(BaseModel):
     hashtag_count: Optional[int] = None
     word_count: Optional[int] = None
     topic: Optional[str] = None
-    # T10.6/T10.8 coarse niche enum when tagged; used for soft topic prefer.
     niche: Optional[str] = None
     hook_type: Optional[str] = None
+    # Phase 11: age when neighbor engagement was measured (hours since publish).
+    posted_at: Optional[datetime] = None
+    engagement_age_hours: Optional[float] = None
 
 
 class SimilarPostsResponse(BaseModel):
@@ -57,6 +60,15 @@ class SimilarPostsResponse(BaseModel):
 
 class EvaluateRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Draft post text to evaluate")
+    neighbor_limit: int = Field(
+        default=10,
+        ge=10,
+        le=100,
+        description=(
+            "How many nearest historical posts to retrieve for grounding and the "
+            "comparison surface (default 10, max 100)."
+        ),
+    )
     variant_strategy: Literal["dimension", "narrative", "tiered"] = Field(
         default="dimension",
         description=(
@@ -107,3 +119,66 @@ class EvaluateRequest(BaseModel):
             "Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
         ),
     )
+    use_visual_diagnostics: Optional[bool] = Field(
+        default=None,
+        description=(
+            "T7.9+T7.10: run Gemini multimodal visual diagnostics (hierarchy + OCR/copy alignment). "
+            "Defaults to settings.visual_diagnostics_enabled (off unless enabled in env). "
+            "Requires image_url when enabled; skipped with a note if no image is provided."
+        ),
+    )
+    image_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional draft image URL for visual diagnostics (jpeg/png/webp, max ~5MB). "
+            "Ignored when visual diagnostics are off."
+        ),
+    )
+
+
+class CritiqueRequest(BaseModel):
+    """Independent synthetic-audience critic (T7.11–T7.13). Not part of /evaluate."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Draft post text to critique through C-suite, practitioner, and peer lenses.",
+    )
+
+
+
+class OptimiseRequest(BaseModel):
+    """Independent Stage 5 synthesis (T7.14–T7.16). Not part of /evaluate finalize."""
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        description="Draft post text to optimise into maximizer / counter / brand_purist rewrites.",
+    )
+    primary_objection: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional C-suite objection (e.g. from /critique). Used by the Strategic Counter "
+            "variant. When omitted, a generic executive-skepticism brief is used."
+        ),
+    )
+    baseline_percentile: Optional[float] = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Optional original-draft predicted percentile for delta display.",
+    )
+    baseline_total_engagement: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Optional original-draft predicted total engagement for score fallbacks.",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional subscriber id for neighbor scoping / voice profile.",
+    )
+    use_voice_profile: bool = Field(
+        default=True,
+        description="When user_id is set, derive and apply the subscriber voice profile.",
+    )
+

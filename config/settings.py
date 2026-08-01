@@ -90,6 +90,8 @@ class Settings:
     google_trends_enabled: bool = False
     google_trends_cache_ttl_hours: int = 12
     google_trends_geo: str = ""
+    # T7.9 + T7.10: Gemini multimodal visual diagnostics (opt-in; off by default).
+    visual_diagnostics_enabled: bool = False
     # T6.6: re-scrape cached author profiles after this many days.
     profile_cache_staleness_days: int = 30
     # Prediction validation pipeline (validation_pipeline/).
@@ -130,6 +132,20 @@ class Settings:
     validation_feedback_auto_approve_enabled: bool = False
     validation_feedback_auto_approve_max_per_day: int = 20
     validation_feedback_auto_approve_delta_max: float = 40.0
+    # Age-aware learning filter (default off): record age/mode always; when ON,
+    # exclude forced_early from calibration / feedback learning.
+    validation_age_aware_enabled: bool = False
+    validation_age_window_tolerance_hours: float = 6.0
+    validation_backtest_mature_min_hours: int = 72
+    # Phase 11: multi-horizon age-aware validation.
+    validation_multi_horizon_enabled: bool = True
+    validation_multi_horizon_learning: bool = True
+    validation_multi_horizon_max_predicts_per_run: int = 40
+    # Lane B: schedule 24/48/72h predicts + Apify rescrapes. Off = Lane A only
+    # (same-age instant grades; no delayed rescrape — useful without a always-on DB).
+    validation_fixed_horizon_enabled: bool = True
+    validation_fixed_horizons_hours: tuple[int, ...] = (24, 48, 72)
+    validation_age_bucket_min_n: int = 30
     # harvestapi/linkedin-profile-posts — direct post URL re-scrape for validation.
     apify_post_url_actor_id: str = "harvestapi/linkedin-profile-posts"
     # Evaluation-cycle telemetry (telemetry/).
@@ -152,7 +168,7 @@ class Settings:
     agentic_general_max_posts: int = 20
     agentic_niche_max_posts_total: int = 40
     agentic_niche_stale_hours: float = 20.0
-    agentic_scrape_with_gemini: bool = False
+    agentic_scrape_with_gemini: bool = True
     # T10.10: Dev AI workflow critic (Gemini Pro).
     agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
     agentic_pro_digest_dry_run: bool = False
@@ -165,6 +181,14 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # Streamlit often hot-reloads pages without reloading config.settings, so
+    # the process can keep a pre-Phase-11 Settings class. Reload once if needed.
+    if not hasattr(Settings, "validation_multi_horizon_enabled"):
+        import importlib
+        import sys
+
+        return importlib.reload(sys.modules[__name__]).load_settings()
+
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
     sync_google_api_key()
     settings = Settings(
@@ -184,6 +208,7 @@ def load_settings() -> Settings:
         google_trends_enabled=_env_bool("GOOGLE_TRENDS_ENABLED", default=False),
         google_trends_cache_ttl_hours=int(os.getenv("GOOGLE_TRENDS_CACHE_TTL_HOURS", "12")),
         google_trends_geo=os.getenv("GOOGLE_TRENDS_GEO", ""),
+        visual_diagnostics_enabled=_env_bool("VISUAL_DIAGNOSTICS_ENABLED", default=False),
         profile_cache_staleness_days=int(os.getenv("PROFILE_CACHE_STALENESS_DAYS", "30")),
         validation_window_hours=int(os.getenv("VALIDATION_WINDOW_HOURS", "48")),
         validation_dev_window_minutes=_env_optional_int("VALIDATION_DEV_WINDOW_MINUTES"),
@@ -238,6 +263,33 @@ def load_settings() -> Settings:
         ),
         validation_feedback_auto_approve_delta_max=float(
             os.getenv("VALIDATION_FEEDBACK_AUTO_APPROVE_DELTA_MAX", "40")
+        ),
+        validation_age_aware_enabled=_env_bool(
+            "VALIDATION_AGE_AWARE_ENABLED", default=False
+        ),
+        validation_age_window_tolerance_hours=float(
+            os.getenv("VALIDATION_AGE_WINDOW_TOLERANCE_HOURS", "6")
+        ),
+        validation_backtest_mature_min_hours=int(
+            os.getenv("VALIDATION_BACKTEST_MATURE_MIN_HOURS", "72")
+        ),
+        validation_multi_horizon_enabled=_env_bool(
+            "VALIDATION_MULTI_HORIZON_ENABLED", default=True
+        ),
+        validation_multi_horizon_learning=_env_bool(
+            "VALIDATION_MULTI_HORIZON_LEARNING", default=True
+        ),
+        validation_multi_horizon_max_predicts_per_run=int(
+            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "40")
+        ),
+        validation_fixed_horizon_enabled=_env_bool(
+            "VALIDATION_FIXED_HORIZON_ENABLED", default=True
+        ),
+        validation_fixed_horizons_hours=_env_int_tuple(
+            "VALIDATION_FIXED_HORIZONS_HOURS", default=(24, 48, 72)
+        ),
+        validation_age_bucket_min_n=int(
+            os.getenv("VALIDATION_AGE_BUCKET_MIN_N", "30")
         ),
         telemetry_data_dir=os.getenv("TELEMETRY_DATA_DIR", "data/telemetry"),
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
@@ -331,6 +383,28 @@ def _env_optional_int(name: str) -> Optional[int]:
     if raw is None or not raw.strip():
         return None
     return int(raw)
+
+
+def _env_int_tuple(
+    name: str,
+    *,
+    default: tuple[int, ...] = (24, 48, 72),
+) -> tuple[int, ...]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    parts: list[int] = []
+    for piece in raw.split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        try:
+            value = int(piece)
+        except ValueError:
+            continue
+        if value > 0:
+            parts.append(value)
+    return tuple(parts) if parts else default
 
 
 def _parse_cookies(raw: str) -> list[dict[str, Any]]:

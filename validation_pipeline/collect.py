@@ -85,6 +85,7 @@ def raw_posts_to_collected(
                 comments=int(features.get("comments") or 0),
                 shares=int(features.get("shares") or 0),
                 total_engagement=int(features.get("total_engagement") or 0),
+                scraped_at=now,
             )
         )
     return collected

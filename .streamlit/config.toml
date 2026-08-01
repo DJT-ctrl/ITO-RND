@@ -1,0 +1,21 @@
+[theme]
+base = "light"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+address = "localhost"
+port = 8501
+# Local: leave XSRF off so enableCORS=false stays valid (otherwise Streamlit
+# forces CORS on and the browser can stick at PINGING_SERVER / blank white).
+# Re-enable both for Vercel / reverse-proxy deploys.
+enableCORS = false
+enableXsrfProtection = false
+# Polling is more stable than watchdog on macOS when many files change.
+fileWatcherType = "poll"
+
+[runner]
+# Avoid killing the process on script exceptions; show errors in-app instead.
+fastReruns = true

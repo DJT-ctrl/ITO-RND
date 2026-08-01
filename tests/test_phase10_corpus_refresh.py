@@ -136,7 +136,7 @@ def test_corpus_refresh_no_queries(mock_gate, mock_persist) -> None:
 
 @patch("phase_10.corpus_refresh.run_db_ingest", return_value=2)
 @patch("phase_10.corpus_refresh.run_embeddings", return_value=Path("/tmp/x.npy"))
-@patch("phase_10.corpus_refresh.load_analysed_jsonl")
+@patch("phase_10.corpus_refresh.load_finalized_jsonl")
 @patch("phase_10.corpus_refresh.run_pipeline")
 @patch("phase_10.corpus_refresh.run_sample_collection")
 @patch("phase_10.corpus_refresh.record_agentic_spend")

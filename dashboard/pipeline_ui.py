@@ -42,10 +42,26 @@ def render_bundle_multiselect(
     """Multi-select registered pipeline bundles that completed ``min_stage``."""
     bundles = bundle_options(min_stage=min_stage, require_gemini=require_gemini)
     if not bundles:
-        st.warning(
-            f"No pipeline bundles at stage `{min_stage}` or beyond. "
-            "Complete the previous dashboard step first."
-        )
+        if require_gemini:
+            analysed_any = bundle_options(min_stage=min_stage, require_gemini=False)
+            if analysed_any:
+                st.warning(
+                    f"No **Gemini** pipeline bundles at stage `{min_stage}` or beyond. "
+                    f"Found {len(analysed_any)} Stage-1-only bundle(s), but this step "
+                    "needs Stage 1 + 2. Re-run **Analyse posts** with "
+                    "**Stage 1 + 2 (Python + Gemini)**."
+                )
+            else:
+                st.warning(
+                    f"No pipeline bundles at stage `{min_stage}` or beyond with Gemini tags. "
+                    "Complete **Analyse posts** (Stage 1 + 2) first — and confirm it "
+                    "saved (`linkedin_analysed_*.jsonl` under data/processed)."
+                )
+        else:
+            st.warning(
+                f"No pipeline bundles at stage `{min_stage}` or beyond. "
+                "Complete the previous dashboard step first."
+            )
         return []
 
     labels = [format_bundle_option(b) for b in bundles]
@@ -109,7 +125,7 @@ def render_corpus_sidebar(settings) -> None:
         if len(ingested) > 8:
             st.caption(f"…and {len(ingested) - 8} more.")
     else:
-        st.caption("No bundles marked ingested yet. Run `python -m processors.run_db_ingest`.")
+        st.caption("No bundles marked ingested yet. Run **Make embeddings** (auto-ingests) or `python -m processors.run_db_ingest`.")
 
     if not settings.database_url:
         st.warning("DATABASE_URL not set — corpus size unknown.")

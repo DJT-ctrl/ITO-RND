@@ -28,6 +28,8 @@ This document is the **build and reproduction guide**. For production deployment
 
 ## Architecture overview
 
+**Phase indexes (planning):** [Phase 7 — evaluation agents](Phase_7.md) · [Phase 8 — feedback loop](Phase_8.md) · [Phase 9 — offline modules A1–A4](Phase_9.md) · [Phase 10 — agentic layer](phase_10/Phase_10.md) · [Phase 11 — multi-horizon validation](Phase_11.md)
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Corpus pipeline (offline)                       │
@@ -388,7 +390,13 @@ feedback for future predictions.
 VALIDATION_FEEDBACK_ENABLED=true
 VALIDATION_CALIBRATION_ENABLED=false
 VALIDATION_FEEDBACK_INJECTION_ENABLED=false
+VALIDATION_AGE_AWARE_ENABLED=false
 ```
+
+Age/mode (`validation_age_hours`, `validation_mode`) are recorded on every
+validation. When `VALIDATION_AGE_AWARE_ENABLED=true`, `forced_early` rows
+(graded too soon after publish) are excluded from calibration averages and
+lesson learning. Toggle also available on **Feedback Loop**.
 
 Dashboard overrides in **Validation Pipeline → Feedback Loop** take precedence
 over `.env` values.

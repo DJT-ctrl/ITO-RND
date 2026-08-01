@@ -22,10 +22,16 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path, utc_artifact_stamp  # noqa: E402
 from config.settings import GEMINI_MODEL, load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from processors.corpus_benchmarks import build_snapshot, save_snapshot  # noqa: E402
 from processors.dedup import dedupe_posts  # noqa: E402
-from processors.finalize_records import analysed_dataset_label, finalize_analysed_records  # noqa: E402
-from processors.post_analyser import PostAnalyser, verify_gemini_api  # noqa: E402
+from processors.finalize_records import analysed_dataset_label  # noqa: E402
+from processors.post_analyser import (  # noqa: E402
+    DEFAULT_GEMINI_WORKERS,
+    PostAnalyser,
+    map_gemini_features,
+    verify_gemini_api,
+)
 from processors.profile_sources import load_profile_lookup_from_post_scan  # noqa: E402
 from storage.pipeline_registry import register_analysed_bundle  # noqa: E402
 from storage.processed_store import ProcessedStore  # noqa: E402
@@ -101,11 +107,99 @@ def _strip_join_keys(records: list[dict]) -> list[dict]:
     return [{k: v for k, v in r.items() if k not in skip} for r in records]
 
 
+def _persist_analysed_bundle(
+    records: list[dict],
+    *,
+    with_gemini: bool,
+    processed_dir: Path,
+) -> tuple[list[dict], list[dict], Path, Path, Optional[Path]]:
+    """Finalize, save CSV/JSONL, register manifest. Returns validated + paths.
+
+    Always reloads ``finalize_records`` so a long-lived Streamlit process cannot
+    keep a stale validator that rejects Gemini labels like ``quote``.
+    """
+    import importlib
+
+    import processors.finalize_records as finalize_mod
+
+    importlib.reload(finalize_mod)
+    sanitize = finalize_mod.sanitize_gemini_fields
+    finalize = finalize_mod.finalize_analysed_records
+    label_fn = finalize_mod.analysed_dataset_label
+
+    # Defense in depth: coerce Gemini enums before finalize, even if the
+    # imported finalize helper is somehow stale.
+    cleaned = [sanitize(dict(r)) for r in records]
+    validated_records, flagged_records = finalize(cleaned)
+    if not validated_records:
+        raise ValueError(
+            "Finalize produced 0 clean records "
+            f"({len(flagged_records)} flagged). Nothing to save for Pattern Analysis."
+        )
+    store = ProcessedStore(base_dir=str(processed_dir))
+    stamp = utc_artifact_stamp()
+    save_label = label_fn(with_gemini=with_gemini)
+    csv_path = store.save(save_label, validated_records, timestamp=stamp)
+    jsonl_path = store.save_jsonl(save_label, validated_records, timestamp=stamp)
+    flagged_path = None
+    if flagged_records:
+        flagged_path = store.save_jsonl(
+            f"{save_label}_flagged", flagged_records, timestamp=stamp
+        )
+        _append_log(
+            "WARNING",
+            f"Held out {len(flagged_records)} post(s) with anomalous engagement "
+            f"for review: {flagged_path.name}",
+        )
+    register_analysed_bundle(
+        bundle_id=stamp,
+        source_scans=st.session_state.get("source_scans", []),
+        source_profiles=st.session_state.get("source_profiles", []),
+        analysed_jsonl=jsonl_path.name,
+        analysed_csv=csv_path.name,
+        flagged_jsonl=flagged_path.name if flagged_path else None,
+        with_gemini=with_gemini,
+        post_count=len(validated_records),
+    )
+    try:
+        snapshot = build_snapshot(validated_records)
+        snapshot_path = save_snapshot(snapshot)
+        _append_log("INFO", f"Corpus benchmarks for Pattern Analysis: {snapshot_path.name}")
+    except ValueError:
+        pass
+    _append_log("INFO", f"Saved CSV: {csv_path.name}")
+    _append_log("INFO", f"Saved JSONL: {jsonl_path.name}")
+    _append_log(
+        "INFO",
+        f"finalize_records loaded from {finalize_mod.__file__} "
+        f"(quote→{sanitize({'hook_type': 'quote'}).get('hook_type')})",
+    )
+    return validated_records, flagged_records, csv_path, jsonl_path, flagged_path
+
+
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Post Analysis Test Harness", layout="wide")
-st.title("Step 2: Make Sense of Samples — Analysis Pipeline")
-st.caption("Throwaway visual tool for testing the analysis pipeline. Not the product UI.")
+st.set_page_config(page_title="Analyse posts", layout="wide")
+page_header(
+    "Analyse posts",
+    "Turn raw scraped JSON into structured features. "
+    "**Stage 1** is free Python (fast). **Stage 2** calls Gemini per post "
+    "(paid and slow) — keep “Max posts” small while testing.",
+    step_hint="Corpus step 2 of 5 · Previous: Collect samples · Next: Find patterns",
+)
+pipeline_flow_strip("corpus", "analyse")
+
+section_header(
+    "How to test without burning budget",
+    """
+1. Load one saved collection from the sidebar.
+2. Set **Max posts** low (e.g. 5–20) while iterating.
+3. Prefer **Stage 1 only** until the free features look right.
+4. Run **Stage 1 + 2** only when you need Gemini tags (hook type, etc.).
+
+Stage 2 is the slow/expensive step — that is expected, not a UI bug.
+""",
+)
 
 settings = load_settings()
 
@@ -123,6 +217,8 @@ if "paired_profile_path" not in st.session_state:
     st.session_state.paired_profile_path = None
 if "saved_analysis_paths" not in st.session_state:
     st.session_state.saved_analysis_paths = None
+if "analysis_with_gemini" not in st.session_state:
+    st.session_state.analysis_with_gemini = False
 if "source_scans" not in st.session_state:
     st.session_state.source_scans = []
 if "source_profiles" not in st.session_state:
@@ -174,7 +270,7 @@ with st.sidebar:
             else:
                 st.caption("No paired profile data for these collections.")
     else:
-        st.warning("No saved collections. Run Scraper Stage first.")
+        st.warning("No saved collections. Run **Collect samples** first.")
 
     st.markdown("---")
     st.header("2. Run analysis")
@@ -193,19 +289,34 @@ with st.sidebar:
             st.error(message)
             _append_log("ERROR", message)
     st.caption("Restart Streamlit after code changes (Ctrl+C, then re-run).")
+    default_max = min(10, len(posts)) if posts else 1
     max_posts = st.number_input(
-        "Max posts to analyse",
+        "Max posts to analyse (keep small for Stage 2 tests)",
         min_value=1,
-        value=len(posts) if posts else 1,
-        help="Limits Gemini calls. Stage 1 is always instant.",
+        value=default_max,
+        help=(
+            "Caps how many posts run. Stage 1 is free/fast; Stage 2 = one "
+            "Gemini call per post. Use a low number while testing."
+        ),
     )
-    run_python = st.button("▶ Stage 1 only (Python, free)", disabled=not posts)
+    gemini_workers = st.number_input(
+        "Parallel Gemini calls",
+        min_value=1,
+        max_value=20,
+        value=DEFAULT_GEMINI_WORKERS,
+        help=(
+            "How many Stage 2 Gemini requests to run at once. Same number of "
+            "API calls (and cost) either way — only wall time changes. "
+            "Use 1 to force sequential (old behaviour)."
+        ),
+    )
+    run_python = st.button("▶ Stage 1 only (Python, free / fast)", disabled=not posts)
     run_full = st.button(
-        "▶ Stage 1 + 2 (Python + Gemini)",
+        "▶ Stage 1 + 2 (Python + Gemini — slow / paid)",
         disabled=not posts or not settings.gemini_api_key,
     )
     if not settings.gemini_api_key:
-        st.caption("⚠️ GEMINI_API_KEY not set — Stage 2 disabled.")
+        st.caption("GEMINI_API_KEY not set — Stage 2 disabled.")
 
     _render_pipeline_log(expanded=bool(st.session_state.get("terminal_log")))
 
@@ -215,7 +326,9 @@ status = st.empty()
 
 if run_python or run_full:
     st.session_state.terminal_log = []  # fresh log each run
-    first_gemini_error: Optional[str] = None
+    # Mutable box — Streamlit pages run at module scope, so nested
+    # callbacks cannot use ``nonlocal`` for a sibling assignment.
+    first_gemini_error: list[Optional[str]] = [None]
     try:
         analyser = PostAnalyser(settings)
         subset = posts[: int(max_posts)]
@@ -229,21 +342,31 @@ if run_python or run_full:
 
         if run_full:
             progress.progress(0, text="Stage 2 — Gemini features...")
-            for i, (post, pf) in enumerate(zip(subset, python_records)):
-                gemini_records.append(analyser.compute_gemini_features(post, pf))
-                if gemini_records[-1].get("hook_type") is None and analyser.last_error:
-                    _append_log("ERROR", analyser.last_error)
-                    if first_gemini_error is None:
-                        first_gemini_error = analyser.last_error
-                progress.progress((i + 1) / len(subset), text=f"Stage 2: {i + 1}/{len(subset)}")
+
+            def _on_stage2_progress(done: int, total: int) -> None:
+                progress.progress(done / total, text=f"Stage 2: {done}/{total}")
+
+            def _on_stage2_error(message: str) -> None:
+                _append_log("ERROR", message)
+                if first_gemini_error[0] is None:
+                    first_gemini_error[0] = message
+
+            gemini_records = map_gemini_features(
+                subset,
+                python_records,
+                settings,
+                max_workers=int(gemini_workers),
+                on_progress=_on_stage2_progress,
+                on_error=_on_stage2_error,
+            )
 
             ok = _gemini_success_count(gemini_records)
             if ok == 0:
                 summary = (
                     f"Stage 2 complete but 0/{len(gemini_records)} posts returned Gemini features."
                 )
-                if first_gemini_error:
-                    summary += f" First error: {first_gemini_error}"
+                if first_gemini_error[0]:
+                    summary += f" First error: {first_gemini_error[0]}"
                 _append_log("ERROR", summary)
             elif ok < len(gemini_records):
                 _append_log(
@@ -259,81 +382,62 @@ if run_python or run_full:
         progress.empty()
         st.session_state.python_features = python_records
         st.session_state.gemini_features = gemini_records
+        st.session_state.analysis_with_gemini = bool(run_full)
         st.session_state.combined_records = _build_combined(
             python_records, gemini_records, st.session_state.profile_lookup
         )
+        # Clear saved paths until persist succeeds — if finalize/save fails,
+        # recovery UI can re-save from session combined_records.
+        st.session_state.saved_analysis_paths = None
 
-        validated_records, flagged_records = finalize_analysed_records(
-            st.session_state.combined_records
+        validated_records, flagged_records, csv_path, jsonl_path, _flagged = (
+            _persist_analysed_bundle(
+                st.session_state.combined_records,
+                with_gemini=bool(run_full),
+                processed_dir=PROCESSED_DIR,
+            )
         )
         st.session_state.combined_records = validated_records
-
-        store = ProcessedStore(base_dir=str(PROCESSED_DIR))
-        stamp = utc_artifact_stamp()
-        save_label = analysed_dataset_label(with_gemini=run_full)
-        csv_path = store.save(save_label, validated_records, timestamp=stamp)
-        jsonl_path = store.save_jsonl(save_label, validated_records, timestamp=stamp)
-        flagged_path = None
-        if flagged_records:
-            flagged_path = store.save_jsonl(
-                f"{save_label}_flagged", flagged_records, timestamp=stamp
-            )
-            _append_log(
-                "WARNING",
-                f"Held out {len(flagged_records)} post(s) with anomalous engagement "
-                f"for review: {flagged_path.name}",
-            )
-        register_analysed_bundle(
-            bundle_id=stamp,
-            source_scans=st.session_state.get("source_scans", []),
-            source_profiles=st.session_state.get("source_profiles", []),
-            analysed_jsonl=jsonl_path.name,
-            analysed_csv=csv_path.name,
-            flagged_jsonl=flagged_path.name if flagged_path else None,
-            with_gemini=run_full,
-            post_count=len(validated_records),
-        )
-        try:
-            snapshot = build_snapshot(validated_records)
-            snapshot_path = save_snapshot(snapshot)
-            _append_log("INFO", f"Corpus benchmarks for Pattern Analysis: {snapshot_path.name}")
-        except ValueError:
-            pass
         st.session_state.saved_analysis_paths = {
             "csv": str(csv_path),
             "jsonl": str(jsonl_path),
-            "label": save_label,
+            "label": analysed_dataset_label(with_gemini=bool(run_full)),
         }
-        _append_log("INFO", f"Saved CSV: {csv_path.name}")
-        _append_log("INFO", f"Saved JSONL: {jsonl_path.name}")
 
         if run_full:
             ok = _gemini_success_count(gemini_records)
             if ok == 0:
-                detail = first_gemini_error or "See Pipeline log in the sidebar."
+                detail = first_gemini_error[0] or "See Pipeline log in the sidebar."
                 status.error(
-                    f"Stage 1 done, but Gemini returned no features for any of "
-                    f"{len(gemini_records)} post(s). {detail}"
+                    f"Gemini returned no features for any of "
+                    f"{len(gemini_records)} post(s). {detail} "
+                    f"Bundle still saved as `{jsonl_path.name}` "
+                    "(may have empty tags)."
                 )
             elif ok < len(gemini_records):
                 status.warning(
-                    f"Done — {len(python_records)} post(s) analysed. "
+                    f"Done — {len(validated_records)} post(s) saved "
+                    f"(`{jsonl_path.name}`). "
                     f"Gemini features for {ok}/{len(gemini_records)} post(s)."
                 )
             else:
                 status.success(
-                    f"Done — {len(python_records)} post(s) analysed with Gemini features. "
+                    f"Done — {len(validated_records)} post(s) analysed with Gemini. "
                     f"Saved `{csv_path.name}` + `{jsonl_path.name}`."
                 )
         else:
             status.success(
-                f"Done — {len(python_records)} post(s) analysed. "
+                f"Done — {len(validated_records)} post(s) analysed. "
                 f"Saved `{csv_path.name}` + `{jsonl_path.name}`."
             )
 
     except Exception as exc:
         _append_log("ERROR", f"Pipeline exception: {type(exc).__name__}: {exc}")
-        status.error(f"Analysis failed: {exc}")
+        status.error(
+            f"Analysis failed before save: {exc}. "
+            "If Output tables below still show results, use "
+            "**Save pending analysis to disk** to recover."
+        )
 
 _render_pipeline_log(
     expanded=bool(st.session_state.get("terminal_log"))
@@ -365,9 +469,47 @@ if st.session_state.gemini_features:
 
 # ── Combined ──────────────────────────────────────────────────────────────────
 
+pending_unsaved = (
+    bool(st.session_state.combined_records)
+    and not st.session_state.get("saved_analysis_paths")
+)
+if pending_unsaved:
+    st.warning(
+        f"**Unsaved analysis in this browser session:** "
+        f"{len(st.session_state.combined_records)} post(s) are in memory but "
+        "were not written to `data/processed/` / the pipeline manifest. "
+        "Find patterns only lists saved Gemini bundles — click save below."
+    )
+    if st.button("Save pending analysis to disk", type="primary", key="save_pending_analysis"):
+        try:
+            with_gemini = bool(st.session_state.get("analysis_with_gemini")) or bool(
+                st.session_state.gemini_features
+            )
+            validated_records, _, csv_path, jsonl_path, _ = _persist_analysed_bundle(
+                st.session_state.combined_records,
+                with_gemini=with_gemini,
+                processed_dir=PROCESSED_DIR,
+            )
+            st.session_state.combined_records = validated_records
+            st.session_state.analysis_with_gemini = with_gemini
+            st.session_state.saved_analysis_paths = {
+                "csv": str(csv_path),
+                "jsonl": str(jsonl_path),
+                "label": analysed_dataset_label(with_gemini=with_gemini),
+            }
+            st.success(
+                f"Saved {len(validated_records)} post(s) → `{jsonl_path.name}`. "
+                "Reload **Find patterns** to see the bundle."
+            )
+        except Exception as exc:
+            _append_log("ERROR", f"Pending save failed: {type(exc).__name__}: {exc}")
+            st.error(f"Could not save pending analysis: {exc}")
+
 if st.session_state.combined_records:
     has_profiles = st.session_state.profile_lookup and any(
-        r.get("author_followers") is not None for r in st.session_state.combined_records
+        r.get("author_followers") is not None
+        or r.get("follower_count") is not None
+        for r in st.session_state.combined_records
     )
     label = "Stage 1 + Stage 2" + (" + author profile enrichment" if has_profiles else "")
     st.subheader("Combined — All Features Merged")
@@ -379,6 +521,6 @@ if st.session_state.combined_records:
             f"({saved['label']}) — ready for Pattern Analysis and Vectorisation."
         )
     else:
-        st.caption(label + ". Saved to data/processed/")
+        st.caption(label + ". Not saved to disk yet.")
     st.dataframe(_strip_join_keys(st.session_state.combined_records), use_container_width=True)
 

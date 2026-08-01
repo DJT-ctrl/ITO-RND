@@ -52,21 +52,179 @@ _PREDICTION_COLUMNS = [
     "total_engagement_delta",
     "validation_error",
     "created_at",
+    "is_backtest",
+    "prediction_horizon_hours",
+    "validation_age_hours",
+    "validation_mode",
+    "prediction_lane",
+    "scraped_at_predict",
 ]
 
 
 def _row_to_prediction(row: tuple[Any, ...], columns: list[str]) -> PredictionRecord:
     data = dict(zip(columns, row))
-    return PredictionRecord(**data)
+    # Older SELECT shapes / partial rows should still hydrate age-aware defaults.
+    data.setdefault("validation_age_hours", None)
+    data.setdefault("validation_mode", None)
+    data.setdefault("prediction_horizon_hours", None)
+    data.setdefault("is_backtest", False)
+    data.setdefault("prediction_lane", None)
+    data.setdefault("scraped_at_predict", None)
+    return PredictionRecord.model_validate(data)
 
 
-def prediction_exists(conn: psycopg.Connection, linkedin_post_id: str) -> bool:
+def prediction_exists(
+    conn: psycopg.Connection,
+    linkedin_post_id: str,
+    horizon_hours: float | int | None = None,
+) -> bool:
+    """True if any row exists for post, or specifically for (post, horizon)."""
+    with conn.cursor() as cur:
+        if horizon_hours is None:
+            cur.execute(
+                "SELECT 1 FROM predictions WHERE linkedin_post_id = %s LIMIT 1",
+                (linkedin_post_id,),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT 1 FROM predictions
+                WHERE linkedin_post_id = %s
+                  AND prediction_horizon_hours = %s
+                LIMIT 1
+                """,
+                (linkedin_post_id, float(horizon_hours)),
+            )
+        return cur.fetchone() is not None
+
+
+def existing_prediction_post_ids(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> set[str]:
+    """Return post ids that already have at least one predictions row."""
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return set()
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM predictions WHERE linkedin_post_id = %s LIMIT 1",
-            (linkedin_post_id,),
+            "SELECT DISTINCT linkedin_post_id FROM predictions WHERE linkedin_post_id = ANY(%s)",
+            (ids,),
         )
-        return cur.fetchone() is not None
+        return {row[0] for row in cur.fetchall()}
+
+
+def fetch_import_skip_post_ids(
+    conn: psycopg.Connection,
+    *,
+    multi_horizon: bool,
+    fixed_horizon_enabled: bool,
+) -> set[str]:
+    """Post ids safe to skip during vectorized import.
+
+    Lane A-only: any ``same_age`` row means done (hour drift ignored).
+    Multi-horizon + Lane B: skip when a ``same_age`` row exists (Lane B gaps
+    are filled on later imports when the planner still wants them).
+    Legacy: any predictions row.
+    """
+    with conn.cursor() as cur:
+        if not multi_horizon:
+            cur.execute("SELECT DISTINCT linkedin_post_id FROM predictions")
+            return {row[0] for row in cur.fetchall()}
+
+        cur.execute(
+            """
+            SELECT DISTINCT linkedin_post_id
+            FROM predictions
+            WHERE prediction_lane = 'same_age'
+            """
+        )
+        return {row[0] for row in cur.fetchall()}
+
+
+def existing_prediction_keys(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> set[tuple[str, float]]:
+    """Return (linkedin_post_id, horizon_hours) pairs already predicted."""
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return set()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT linkedin_post_id, prediction_horizon_hours
+            FROM predictions
+            WHERE linkedin_post_id = ANY(%s)
+              AND prediction_horizon_hours IS NOT NULL
+            """,
+            (ids,),
+        )
+        return {(row[0], float(row[1])) for row in cur.fetchall()}
+
+
+def prediction_post_coverage(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> dict[str, dict[str, bool]]:
+    """Per-post prediction coverage flags for Collect progress counters.
+
+    Returns ``{post_id: {has_any, has_same_age, has_scheduled, has_validated}}``.
+    """
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                linkedin_post_id,
+                BOOL_OR(prediction_lane = 'same_age') AS has_same_age,
+                BOOL_OR(status = 'scheduled') AS has_scheduled,
+                BOOL_OR(status = 'validated') AS has_validated,
+                BOOL_OR(TRUE) AS has_any
+            FROM predictions
+            WHERE linkedin_post_id = ANY(%s)
+            GROUP BY linkedin_post_id
+            """,
+            (ids,),
+        )
+        return {
+            row[0]: {
+                "has_same_age": bool(row[1]),
+                "has_scheduled": bool(row[2]),
+                "has_validated": bool(row[3]),
+                "has_any": bool(row[4]),
+            }
+            for row in cur.fetchall()
+        }
+
+
+def existing_prediction_lanes_and_keys(
+    conn: psycopg.Connection,
+    linkedin_post_ids: list[str] | set[str] | tuple[str, ...],
+) -> tuple[set[tuple[str, float]], set[str]]:
+    """Return (horizon keys, post ids that already have a same_age row)."""
+    ids = [post_id for post_id in linkedin_post_ids if post_id]
+    if not ids:
+        return set(), set()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT linkedin_post_id, prediction_horizon_hours, prediction_lane
+            FROM predictions
+            WHERE linkedin_post_id = ANY(%s)
+              AND prediction_horizon_hours IS NOT NULL
+            """,
+            (ids,),
+        )
+        keys: set[tuple[str, float]] = set()
+        same_age_posts: set[str] = set()
+        for post_id, horizon, lane in cur.fetchall():
+            keys.add((post_id, float(horizon)))
+            if lane == "same_age":
+                same_age_posts.add(post_id)
+        return keys, same_age_posts
 
 
 def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> PredictionRecord:
@@ -77,9 +235,11 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
             predicted_likes, predicted_comments, predicted_shares,
             baseline_likes, baseline_comments, baseline_shares, baseline_total_engagement,
             prediction_method, neighbor_count, prediction_telemetry, validation_due_at,
-            embedding, embedding_model_version
+            embedding, embedding_model_version, is_backtest, prediction_horizon_hours,
+            prediction_lane, scraped_at_predict
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s
         )
         RETURNING prediction_id, created_at
     """
@@ -107,6 +267,10 @@ def insert_prediction(conn: psycopg.Connection, prediction: NewPrediction) -> Pr
                 prediction.validation_due_at,
                 prediction.embedding,
                 prediction.embedding_model_version,
+                prediction.is_backtest,
+                prediction.prediction_horizon_hours,
+                prediction.prediction_lane,
+                prediction.scraped_at_predict,
             ),
         )
         row = cur.fetchone()
@@ -131,7 +295,9 @@ def fetch_due_predictions(
     sql = f"""
         SELECT {select_clause}
         FROM predictions
-        WHERE status = 'scheduled' AND validation_due_at <= %s
+        WHERE status = 'scheduled'
+          AND validation_due_at <= %s
+          AND (prediction_lane IS NULL OR prediction_lane = 'fixed_horizon')
         ORDER BY validation_due_at ASC
         LIMIT %s
     """
@@ -208,7 +374,12 @@ def mark_validated(
     prediction_id: UUID,
     actuals: EngagementActuals,
     scores: ValidationScores,
+    *,
+    validation_age_hours: float | None = None,
+    validation_mode: str | None = None,
+    validated_at: datetime | None = None,
 ) -> None:
+    validated_at = validated_at or datetime.now(timezone.utc)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -226,11 +397,13 @@ def mark_validated(
                 comments_delta = %s,
                 shares_delta = %s,
                 total_engagement_delta = %s,
+                validation_age_hours = %s,
+                validation_mode = %s,
                 validation_error = NULL
             WHERE prediction_id = %s
             """,
             (
-                datetime.now(timezone.utc),
+                validated_at,
                 actuals.likes,
                 actuals.comments,
                 actuals.shares,
@@ -242,6 +415,8 @@ def mark_validated(
                 scores.comments_delta,
                 scores.shares_delta,
                 scores.total_engagement_delta,
+                validation_age_hours,
+                validation_mode,
                 prediction_id,
             ),
         )

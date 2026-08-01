@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -11,11 +12,13 @@ from pgvector.psycopg import register_vector
 from config.settings import Settings, load_settings
 from feedback.batch import try_enqueue_feedback_after_validation
 from storage.vector_store import create_schema, get_connection
+from validation_pipeline.age_aware import classify_validation_mode
 from validation_pipeline.rescrape import fetch_engagement_by_urls
 from validation_pipeline.schemas import ValidationBatchResult, ValidationResult
 from validation_pipeline.scoring import (
     compute_validation_scores,
     corpus_size_warning,
+    fetch_bucketed_corpus_engagement_totals,
     fetch_corpus_engagement_totals,
 )
 from validation_pipeline.store import (
@@ -26,6 +29,9 @@ from validation_pipeline.store import (
     mark_validated,
     mark_validating,
 )
+
+logger = logging.getLogger(__name__)
+
 
 def _validate_predictions(
     predictions: list,
@@ -58,15 +64,64 @@ def _validate_predictions(
                     f"after the batch URL scrape. "
                     f"The post is treated as deleted, private, or no longer public."
                 )
-            scores = compute_validation_scores(actuals, prediction, corpus_totals)
+            validated_at = datetime.now(timezone.utc)
+            horizon_hours = (
+                prediction.prediction_horizon_hours
+                if prediction.prediction_horizon_hours is not None
+                else settings.validation_window().total_seconds() / 3600.0
+            )
             conn = get_connection(settings)
             try:
-                mark_validated(conn, prediction.prediction_id, actuals, scores)
+                create_schema(conn)
+                bucket_totals, age_bucket, percentile_source = (
+                    fetch_bucketed_corpus_engagement_totals(
+                        conn,
+                        horizon_hours=float(horizon_hours),
+                        min_n=settings.validation_age_bucket_min_n,
+                    )
+                )
+                score_totals = (
+                    bucket_totals
+                    if percentile_source == "age_bucket"
+                    else corpus_totals
+                )
+                scores = compute_validation_scores(
+                    actuals,
+                    prediction,
+                    score_totals,
+                    age_bucket=age_bucket,
+                    percentile_source=percentile_source,
+                    horizon_hours=float(horizon_hours),
+                )
+                age_hours, mode = classify_validation_mode(
+                    posted_at=prediction.posted_at,
+                    validated_at=validated_at,
+                    horizon_hours=float(horizon_hours),
+                    is_backtest=bool(prediction.is_backtest),
+                    tolerance_hours=settings.validation_age_window_tolerance_hours,
+                    mature_min_hours=float(settings.validation_backtest_mature_min_hours),
+                )
+                enriched = prediction.model_copy(
+                    update={
+                        "validated_at": validated_at,
+                        "validation_age_hours": age_hours,
+                        "validation_mode": mode,
+                    }
+                )
+                mark_validated(
+                    conn,
+                    prediction.prediction_id,
+                    actuals,
+                    scores,
+                    validation_age_hours=age_hours,
+                    validation_mode=mode,
+                    validated_at=validated_at,
+                )
                 insert_snapshot(conn, prediction.prediction_id, actuals)
             finally:
                 conn.close()
             # Thin enqueue: async feedback job after successful validate (fail open).
-            try_enqueue_feedback_after_validation(prediction, settings)
+            try_enqueue_feedback_after_validation(enriched, settings)
             batch.validated += 1
             batch.results.append(
                 ValidationResult(
@@ -105,6 +160,17 @@ def run_due_validations(
     settings = settings or load_settings()
     if not settings.database_url:
         raise ValueError("DATABASE_URL is not set (check your .env file).")
+
+    # Lane B Apify rescrapes only — skip when fixed horizons are disabled
+    # (Lane A grades at predict time with no rescrape).
+    if (
+        settings.validation_multi_horizon_enabled
+        and not settings.validation_fixed_horizon_enabled
+    ):
+        logger.info(
+            "Skipping due validations: VALIDATION_FIXED_HORIZON_ENABLED=false"
+        )
+        return ValidationBatchResult()
 
     conn = get_connection(settings)
     try:

@@ -59,6 +59,15 @@ def build_prediction_telemetry(
         shadow_feedback_count=max(0, int(inj.get("shadow_feedback_count") or 0)),
         injectability_mode=inj.get("injectability_mode"),
         soft_blend_weight=_optional_float(inj.get("soft_blend_weight")),
+        target_horizon_hours=_optional_float(inj.get("target_horizon_hours")),
+        prediction_lane=inj.get("prediction_lane"),
+        age_bucket=inj.get("age_bucket"),
+        percentile_source=inj.get("percentile_source"),
+        neighbor_age_prefer=(
+            bool(inj["neighbor_age_prefer"])
+            if inj.get("neighbor_age_prefer") is not None
+            else None
+        ),
     )
 
 

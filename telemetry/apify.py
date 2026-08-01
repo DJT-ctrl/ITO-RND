@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 from config.paths import resolve_telemetry_data_dir
 from config.settings import Settings
+from telemetry.apify_compat import apify_run_as_dict
 from telemetry.apify_schemas import ApifyCostSummary, ApifyRunRecord, ApifyScraperKind
 
 logger = logging.getLogger(__name__)
@@ -30,23 +31,29 @@ def _parse_apify_datetime(value: Any) -> Optional[datetime]:
 
 
 def apify_run_record_from_response(
-    run: dict[str, Any],
+    run: Any,
     *,
     actor_id: str,
     scraper: ApifyScraperKind,
     item_count: int,
     context: Optional[str] = None,
 ) -> ApifyRunRecord:
-    """Build a run record from an Apify actor .call() response dict."""
+    """Build a run record from an Apify actor .call() response (dict or Run)."""
+    run = apify_run_as_dict(run)
     stats = run.get("stats") or {}
+    if hasattr(stats, "model_dump"):
+        stats = stats.model_dump(by_alias=True, mode="python")
     usage_total = run.get("usageTotalUsd")
     cost_usd = float(usage_total) if usage_total is not None else 0.0
-    compute_units = stats.get("computeUnits")
+    compute_units = stats.get("computeUnits") if isinstance(stats, dict) else None
+    status = run.get("status") or "UNKNOWN"
+    if hasattr(status, "value"):
+        status = status.value
     return ApifyRunRecord(
         run_id=str(run.get("id") or ""),
         actor_id=actor_id,
         scraper=scraper,
-        status=str(run.get("status") or "UNKNOWN"),
+        status=str(status),
         cost_usd=round(cost_usd, 6),
         compute_units=float(compute_units) if compute_units is not None else None,
         started_at=_parse_apify_datetime(run.get("startedAt")),

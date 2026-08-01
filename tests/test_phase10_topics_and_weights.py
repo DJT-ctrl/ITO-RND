@@ -89,5 +89,24 @@ def test_apply_niche_on_record() -> None:
 
     out = apply_niche({"topic": "creator economy tips"})
     assert out["niche"] == "creator"
+    assert out["topic"] == "creator economy tips"
     out2 = apply_niche({"topic": "x", "niche": "fintech"})
     assert out2["niche"] == "fintech"
+    assert out2["topic"] == "x"
+
+
+def test_apply_niche_tags_other_for_unmatched_topic() -> None:
+    from phase_10.tagging import apply_niche
+
+    # Preserve free-text topic under niche=other for future taxonomy expansion.
+    out = apply_niche({"topic": "obscure pottery club"})
+    assert out["niche"] == DEFAULT_NICHE
+    assert out["topic"] == "obscure pottery club"
+
+    empty = apply_niche({"topic": None})
+    assert empty["niche"] == DEFAULT_NICHE
+    assert empty["topic"] == DEFAULT_NICHE
+
+    already = apply_niche({"topic": "random", "niche": "other"})
+    assert already["niche"] == DEFAULT_NICHE
+    assert already["topic"] == "random"

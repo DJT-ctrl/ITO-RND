@@ -24,6 +24,29 @@ def _rows(count: int = 40) -> list[ReplayRow]:
     ]
 
 
+def test_replay_stratify_by_horizon_bucket_keeps_largest_bucket():
+    mixed = []
+    for index in range(40):
+        mixed.append(
+            ReplayRow(
+                prediction_id=UUID(int=index + 1),
+                actual_percentile=60.0,
+                raw_percentile=50.0,
+                prediction_horizon_hours=48.0 if index < 30 else 5.0,
+            )
+        )
+    report = run_offline_replay(
+        mixed,
+        holdout_size=10,
+        global_n_min=10,
+        cluster_n_min=100,
+        stratify_by_horizon_bucket=True,
+    )
+    # Largest bucket is 48h (30 rows) → training 20 after holdout 10
+    assert report.holdout_rows == 10
+    assert report.training_rows == 20
+
+
 def test_replay_builds_four_arms_without_holdout_leakage():
     report = run_offline_replay(
         _rows(),

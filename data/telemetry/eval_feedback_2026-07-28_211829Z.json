@@ -1,0 +1,165 @@
+{
+  "schema_version": "1.2",
+  "generated_at": "2026-07-28T21:18:29.322762Z",
+  "total_rows": 1564,
+  "training_rows": 1534,
+  "holdout_rows": 30,
+  "global_mean_delta": 4.8625,
+  "global_calibration_ready": true,
+  "arms": [
+    {
+      "arm": "raw_no_feedback",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": false,
+      "sample_count": 30,
+      "mae": 19.1413,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "long_prose_unknown": 33.2533,
+        "medium_list_unknown": 7.32,
+        "medium_prose_unknown": 23.4013,
+        "medium_question_unknown": 17.32,
+        "short_prose_unknown": 26.7,
+        "unknown": 13.7079
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "raw_with_feedback",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 19.1415,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "long_prose_unknown": 33.2538,
+        "medium_list_unknown": 7.32,
+        "medium_prose_unknown": 23.4009,
+        "medium_question_unknown": 17.32,
+        "short_prose_unknown": 26.7,
+        "unknown": 13.7083
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "calibrated_no_feedback",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": false,
+      "sample_count": 30,
+      "mae": 18.9081,
+      "pct_within_10": 26.67,
+      "per_cluster_mae": {
+        "long_prose_unknown": 29.8419,
+        "medium_list_unknown": 2.4575,
+        "medium_prose_unknown": 23.4376,
+        "medium_question_unknown": 11.4995,
+        "short_prose_unknown": 26.7,
+        "unknown": 15.0972
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "calibrated_with_feedback",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 18.9083,
+      "pct_within_10": 26.67,
+      "per_cluster_mae": {
+        "long_prose_unknown": 29.8424,
+        "medium_list_unknown": 2.4575,
+        "medium_prose_unknown": 23.4372,
+        "medium_question_unknown": 11.4995,
+        "short_prose_unknown": 26.7,
+        "unknown": 15.0976
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "raw_with_feedback_v1",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 19.1415,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "long_prose_unknown": 33.2538,
+        "medium_list_unknown": 7.32,
+        "medium_prose_unknown": 23.4009,
+        "medium_question_unknown": 17.32,
+        "short_prose_unknown": 26.7,
+        "unknown": 13.7083
+      },
+      "preferred_feedback_version": "v1"
+    },
+    {
+      "arm": "raw_with_feedback_v2",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 19.1415,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "long_prose_unknown": 33.2538,
+        "medium_list_unknown": 7.32,
+        "medium_prose_unknown": 23.4009,
+        "medium_question_unknown": 17.32,
+        "short_prose_unknown": 26.7,
+        "unknown": 13.7083
+      },
+      "preferred_feedback_version": "v2"
+    },
+    {
+      "arm": "calibrated_with_feedback_v1",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 18.9083,
+      "pct_within_10": 26.67,
+      "per_cluster_mae": {
+        "long_prose_unknown": 29.8424,
+        "medium_list_unknown": 2.4575,
+        "medium_prose_unknown": 23.4372,
+        "medium_question_unknown": 11.4995,
+        "short_prose_unknown": 26.7,
+        "unknown": 15.0976
+      },
+      "preferred_feedback_version": "v1"
+    },
+    {
+      "arm": "calibrated_with_feedback_v2",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 18.9083,
+      "pct_within_10": 26.67,
+      "per_cluster_mae": {
+        "long_prose_unknown": 29.8424,
+        "medium_list_unknown": 2.4575,
+        "medium_prose_unknown": 23.4372,
+        "medium_question_unknown": 11.4995,
+        "short_prose_unknown": 26.7,
+        "unknown": 15.0976
+      },
+      "preferred_feedback_version": "v2"
+    }
+  ],
+  "version_preference": {
+    "holdout_rows": 30,
+    "holdout_with_approved_v2": 0,
+    "holdout_v1_only": 30,
+    "preferred_v2_share_pct": 0.0
+  },
+  "shadow_live": {
+    "sample_count": 21,
+    "live_mae": 16.9671,
+    "shadow_mae": 16.9674,
+    "mae_delta": -0.0003
+  },
+  "notes": [
+    "Holdout rows are excluded from all calibration statistics.",
+    "Holdout approved-v2 availability: 0/30 (0.0%).",
+    "Phase J shadow telemetry on 21/30 holdout rows: live_mae=16.9671 shadow_mae=16.9674 delta=-0.0003.",
+    "Injection arms use shadow_percentile when present so MAE can diverge from non-injection arms after Phase J."
+  ]
+}

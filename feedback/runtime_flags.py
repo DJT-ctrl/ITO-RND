@@ -38,6 +38,7 @@ ALLOWED_KEYS = frozenset(
         "validation_feedback_auto_approve_enabled",
         "validation_feedback_auto_approve_max_per_day",
         "validation_feedback_auto_approve_delta_max",
+        "validation_age_aware_enabled",
     }
 )
 

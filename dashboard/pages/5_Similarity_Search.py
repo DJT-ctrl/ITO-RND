@@ -9,7 +9,7 @@ directly rather than going through an HTTP layer.
 
 What this visualises:
   - A draft post's embedding (task_type="RETRIEVAL_QUERY") compared against
-    the 250 already-ingested posts via pgvector cosine distance.
+    posts already in Postgres via pgvector cosine distance.
   - The exact JSON shape the real API endpoint returns (T2.3's contract).
   - Timing broken into the Gemini embedding call vs. the SQL query alone —
     Erdal's T2.2 "under 150ms" success criterion applies to the SQL step
@@ -30,19 +30,29 @@ from pgvector.psycopg import register_vector
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from dashboard.pipeline_ui import render_corpus_sidebar  # noqa: E402
 from processors.embedder import embed_query  # noqa: E402
 from storage.vector_store import find_similar, get_connection  # noqa: E402
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Similarity Search Test Harness", layout="wide")
-st.title("Step 4: Similar Posts — RAG Retrieval (T2)")
-st.caption(
-    "Throwaway visual tool for the T2 retrieval endpoint. Calls the real "
-    "Gemini embedding endpoint (task_type=RETRIEVAL_QUERY) and the real "
-    "Postgres+pgvector `posts` table — same code path as "
-    "`POST /api/v1/similar-posts` in api/main.py."
+st.set_page_config(page_title="Search similar", layout="wide")
+page_header(
+    "Search similar",
+    "Paste a draft and find the closest historical posts in the database. "
+    "Same path as the API (`POST /api/v1/similar-posts`): embed the query, "
+    "then pgvector cosine search.",
+    step_hint="Corpus step 5 of 5 · Previous: Make embeddings · Also used by Draft evaluator",
+)
+pipeline_flow_strip("corpus", "search")
+
+section_header(
+    "What you need",
+    """
+Requires **GEMINI_API_KEY** and **DATABASE_URL**, plus posts already in
+Postgres (Make embeddings auto-ingests after each batch). The sidebar shows corpus status.
+""",
 )
 
 settings = load_settings()
@@ -150,7 +160,7 @@ if st.session_state.similar_result:
             use_container_width=True,
         )
     else:
-        st.info("No posts found — has the database been ingested? (`python -m processors.run_db_ingest`)")
+        st.info("No posts found — run **Make embeddings** (it auto-ingests into Postgres).")
 
     st.subheader("Raw API response shape (matches SimilarPostsResponse in api/schemas.py)")
     st.json(

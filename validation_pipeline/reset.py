@@ -14,6 +14,7 @@ from storage.vector_store import create_schema, get_connection
 class ValidationResetResult:
     """Counts of rows removed from each validation/feedback table."""
 
+    feedback_jobs: int = 0
     prediction_feedback: int = 0
     prediction_engagement_snapshots: int = 0
     predictions: int = 0
@@ -21,6 +22,7 @@ class ValidationResetResult:
 
 
 _RESET_SQL = (
+    ("feedback_jobs", "DELETE FROM feedback_jobs"),
     ("prediction_feedback", "DELETE FROM prediction_feedback"),
     ("prediction_engagement_snapshots", "DELETE FROM prediction_engagement_snapshots"),
     ("predictions", "DELETE FROM predictions"),
@@ -33,11 +35,18 @@ def reset_validation_data(conn: psycopg.Connection) -> ValidationResetResult:
     create_schema(conn)
     counts: dict[str, int] = {}
     with conn.cursor() as cur:
+        # Explicit child wipe first — also covers Streamlit holding a stale
+        # module that might skip feedback_jobs in _RESET_SQL ordering.
+        cur.execute("DELETE FROM feedback_jobs")
+        counts["feedback_jobs"] = cur.rowcount
         for table, sql in _RESET_SQL:
+            if table == "feedback_jobs":
+                continue
             cur.execute(sql)
             counts[table] = cur.rowcount
     conn.commit()
     return ValidationResetResult(
+        feedback_jobs=counts.get("feedback_jobs", 0),
         prediction_feedback=counts["prediction_feedback"],
         prediction_engagement_snapshots=counts["prediction_engagement_snapshots"],
         predictions=counts["predictions"],

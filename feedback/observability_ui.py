@@ -39,32 +39,48 @@ def render_learning_status(settings: Settings) -> None:
     )
 
     st.subheader("Learning active?")
+    st.caption(
+        "Plain English: are we allowed to nudge scores / show lessons right now? "
+        "Phase F go/no-go appears below when an offline eval report exists."
+    )
     columns = st.columns(4)
-    columns[0].metric("Validated N", status.n_validated)
+    columns[0].metric(
+        "Graded posts",
+        status.n_validated,
+        help="How many predictions have been checked against real engagement.",
+    )
     columns[1].metric(
-        "Calibration",
-        "active" if calibration_active else "inactive",
+        "Score nudge (calibration)",
+        "ON" if calibration_active else "OFF",
         help=(
-            f"Flag={'on' if settings.validation_calibration_enabled else 'off'}; "
-            f"gate={status.n_validated}/{settings.validation_calibration_n_min}."
+            f"Phase A · Flag={'on' if settings.validation_calibration_enabled else 'off'}; "
+            f"need {settings.validation_calibration_n_min} graded posts "
+            f"(have {status.n_validated})."
         ),
     )
     columns[2].metric(
-        "Prompt injection",
-        "active" if injection_active else "inactive",
+        "Show lessons to AI",
+        "ON" if injection_active else "OFF",
+        help="Phase D · Prompt injection flag.",
     )
-    columns[3].metric("Cluster refresh", refreshed)
+    columns[3].metric(
+        "Buckets last refreshed",
+        refreshed,
+        help="When cluster / bucket stats were last recomputed.",
+    )
 
     if settings.validation_calibration_enabled and not calibration_ready:
         st.warning(
-            "Calibration is enabled but the sample gate is closed; "
-            "new predictions remain raw."
+            "Score nudge is enabled but we do not have enough graded posts yet; "
+            "predictions stay un-nudged."
         )
     elif calibration_active:
-        st.success("Calibration is enabled and the global sample gate is open.")
+        st.success("Score nudge is enabled and the sample gate is open.")
     else:
-        st.info("Calibration is in monitor-only mode; raw scores remain user-facing.")
-
+        st.info(
+            "Score nudge is monitor-only — user-facing scores stay raw "
+            "(usual safe default until Phase F is GO)."
+        )
     report, path = load_latest_eval_feedback_report(settings)
     if report is not None and path is not None:
         decision = phase_f_decision(report)
@@ -80,20 +96,25 @@ def render_cluster_accuracy(settings: Settings) -> None:
     finally:
         conn.close()
 
-    st.subheader("Per-cluster percentile accuracy")
+    st.subheader("Accuracy by bucket")
+    st.caption(
+        "Average error (MAE) per length × format × audience bucket. "
+        "Lower is better. “Within 10 pts” = share of predictions within 10 "
+        "percentile points of reality."
+    )
     if not rows:
-        st.info("No validated cluster accuracy is available yet.")
+        st.info("No graded bucket accuracy is available yet.")
         return
 
     frame = pd.DataFrame(
         [
             {
-                "cluster_id": row.cluster_id,
-                "N": row.sample_count,
-                "live MAE": row.mae,
-                "raw MAE": row.raw_mae,
-                "calibrated MAE": row.calibrated_mae,
-                "within 10 pts": row.pct_within_10,
+                "bucket": row.cluster_id,
+                "N graded": row.sample_count,
+                "avg error (live)": row.mae,
+                "avg error (raw)": row.raw_mae,
+                "avg error (nudged)": row.calibrated_mae,
+                "within 10 pts %": row.pct_within_10,
             }
             for row in rows
         ]
@@ -107,12 +128,13 @@ def render_offline_evaluation_panel(
     holdout_size: int = 30,
 ) -> None:
     """Run leakage-safe 4-arm replay and show the latest saved report."""
-    st.subheader("Offline evaluation (Phase F)")
+    st.subheader("Offline evaluation (Phase F) — prove it helps")
     st.caption(
-        "Held-out replay compares raw vs calibrated × injection on/off. "
-        f"Need more than {holdout_size} validated rows (holdout={holdout_size}). "
-        f"Calibration GO requires ≥{CALIBRATION_LIFT_GATE_PCT:g}% MAE lift on two "
-        "stable runs; soft_blend / injection need shadow MAE better than live."
+        "Held-out replay: compare raw vs nudged scores, with and without lessons. "
+        f"Need more than {holdout_size} graded posts (holdout={holdout_size}). "
+        f"GO for calibration needs ≥{CALIBRATION_LIFT_GATE_PCT:g}% drop in average "
+        "error (MAE) on two stable runs. Soft blend / injection need shadow mode "
+        "to beat live."
     )
 
     conn = get_connection(settings)
@@ -124,11 +146,11 @@ def render_offline_evaluation_panel(
 
     n_validated = status.n_validated
     cols = st.columns(3)
-    cols[0].metric("Validated N", n_validated)
+    cols[0].metric("Graded posts", n_validated)
     cols[1].metric("Holdout size", holdout_size)
     cols[2].metric(
-        "Gate",
-        "ready" if n_validated > holdout_size else "blocked",
+        "Ready to run?",
+        "yes" if n_validated > holdout_size else "not yet",
     )
 
     if n_validated <= holdout_size:
@@ -328,3 +350,37 @@ def _render_phase_f_gates(
             f"Shadow does **not** beat live (MAE delta {delta_label}). "
             "Keep `hard_lock` and injection OFF; continue collecting shadow."
         )
+
+
+def render_stats_cheat_sheet() -> None:
+    """Plain-English legend for the Phase F numbers people mix up."""
+    st.subheader("Stats cheat sheet")
+    st.caption(
+        "Two different ideas of “good”: absolute accuracy (MAE — lower is better) "
+        "vs improvement gates (lift % / shadow beat — higher / positive is better)."
+    )
+
+    st.markdown(
+        """
+| Stat | What it means | Amazing | OK | Bad |
+|------|---------------|---------|----|-----|
+| **MAE** (arms table, e.g. `raw_no_feedback`) | Average miss in **percentile points** (0–100). | ≤10 | ~15–20 | ≥25 |
+| **% within 10** | Share of posts within 10 pts of truth. | ≥50% | ~30–45% | <25% |
+| **Cal MAE lift %** | How much calibration *cuts* MAE vs raw. Gate ≥5%. | ≥5% (twice) | ~3–5% | <3% |
+| **Shadow sample** | Holdout rows that logged a shadow score. | 30/30 | ≥15/30 | 0 or few |
+| **live − shadow MAE** | Positive = shadow more accurate than live. | Clearly > 0 | ≈ 0 (tied) | < 0 (shadow worse) |
+| **Holdout size** | Fixed test-set size (default 30), not “how good”. | — | 30+ | <30 blocks eval |
+| **Graded posts** | Validated predictions with a delta. | Growing | > holdout | ≤ holdout |
+"""
+    )
+    st.markdown(
+        """
+**Why shadow vs live MAE matters**
+
+Shadow is a parallel score: “what if we soft-blended / injected?” Live is what
+you actually showed. If **shadow MAE is lower** than live MAE, that alternate
+path is more accurate — safe to consider turning injection/soft_blend **ON**.
+If shadow MAE is **equal or higher**, injection would not help (or would hurt) —
+keep it **OFF**. The 5% cal lift is a separate gate for the numeric nudge only.
+"""
+    )

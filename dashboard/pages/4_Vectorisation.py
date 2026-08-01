@@ -18,11 +18,13 @@ sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from config.paths import resolve_data_path  # noqa: E402
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, section_header  # noqa: E402
 from dashboard.pipeline_ui import (  # noqa: E402
     analysed_filenames_for_bundles,
     render_bundle_multiselect,
 )
 from processors.embedder import embed_batch, save_embeddings  # noqa: E402
+from processors.run_db_ingest import ingest_embedded_records  # noqa: E402
 from processors.run_embeddings import load_and_join  # noqa: E402
 from storage.pipeline_registry import register_embeddings_bundle  # noqa: E402
 
@@ -30,12 +32,24 @@ _MIN_WORD_COUNT = 10
 
 # ── Page setup ────────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Vectorisation Test Harness", layout="wide")
-st.title("Step 3: Vectorise Posts — Embedding Generation")
-st.caption(
-    "Throwaway visual tool for the T1.3 embedding step. Select analysed "
-    "pipeline bundle(s) from Step 2 — content is re-joined only from those "
-    "bundles' source scraper files."
+st.set_page_config(page_title="Make embeddings", layout="wide")
+page_header(
+    "Make embeddings",
+    "Turn analysed post text into vectors (Gemini embeddings) so we can find "
+    "similar posts later. This is paid and rate-limited — use the sidebar batch "
+    "size to stay in control.",
+    step_hint="Corpus step 4 of 5 · Previous: Find patterns · Next: Search similar",
+)
+pipeline_flow_strip("corpus", "embed")
+
+section_header(
+    "What this page does",
+    """
+Select analysed bundle(s) from **Analyse posts**. We re-join raw text from those
+bundles' scraper files, embed a **manual batch**, save `.npy` + registry
+metadata, then **auto-ingest into Postgres** so Similarity Search can use them
+immediately.
+""",
 )
 
 settings = load_settings()
@@ -111,6 +125,23 @@ if run_clicked and selected_bundles:
             embedding_post_ids=[r["post_id"] for r in subset],
             source_jsonl=jsonl_names[0],
         )
+        ingested_count = None
+        ingest_error = None
+        if settings.database_url:
+            status.info(f"Ingesting {len(vectors)} embedded post(s) into Postgres…")
+            try:
+                ingested_count = ingest_embedded_records(
+                    subset,
+                    vectors,
+                    settings=settings,
+                    bundle_id=primary_bundle.bundle_id,
+                    skip_backup=True,
+                )
+            except Exception as ingest_exc:  # noqa: BLE001 — keep embed success visible
+                ingest_error = str(ingest_exc)
+        else:
+            ingest_error = "DATABASE_URL not set — embeddings saved, but not ingested."
+
         st.session_state.embed_result = {
             "vectors": vectors,
             "skipped": skipped,
@@ -118,8 +149,21 @@ if run_clicked and selected_bundles:
             "source_files": jsonl_names,
             "bundle_ids": [b.bundle_id for b in selected_bundles],
             "post_ids": [r["post_id"] for r in subset],
+            "ingested_count": ingested_count,
+            "ingest_error": ingest_error,
         }
-        status.success(f"Done. Embedded {len(vectors)} post(s) \u2192 `{out_path}`")
+        if ingested_count is not None:
+            status.success(
+                f"Done. Embedded {len(vectors)} post(s) → `{out_path}` "
+                f"and ingested {ingested_count} into Postgres."
+            )
+        elif ingest_error:
+            status.warning(
+                f"Embedded {len(vectors)} post(s) → `{out_path}`, "
+                f"but ingest failed: {ingest_error}"
+            )
+        else:
+            status.success(f"Done. Embedded {len(vectors)} post(s) \u2192 `{out_path}`")
     except Exception as exc:  # surfaced in the UI on purpose for a test harness
         status.error(f"Embedding failed: {exc}")
 
@@ -131,13 +175,19 @@ if st.session_state.embed_result:
 
     st.markdown("---")
     st.subheader("Run result")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Vectors produced", vectors.shape[0])
     col2.metric("Dimensions", vectors.shape[1] if vectors.ndim == 2 and vectors.shape[0] else 0)
     col3.metric("Skipped (short/blank)", result["skipped"])
+    ingested = result.get("ingested_count")
+    col4.metric("Ingested to Postgres", ingested if ingested is not None else "—")
     st.write(f"Saved to `{result['out_path']}`")
     st.write(f"Source bundle(s): `{', '.join(result.get('bundle_ids', []))}`")
     st.write(f"Source dataset(s): `{', '.join(result.get('source_files', []))}`")
+    if result.get("ingest_error"):
+        st.warning(result["ingest_error"])
+    elif ingested is not None:
+        st.caption("Similarity Search / Evaluation Cycle can use these posts immediately.")
 
     if vectors.shape[0] > 0:
         norms = np.linalg.norm(vectors, axis=1)

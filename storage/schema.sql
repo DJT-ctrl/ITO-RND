@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS posts (
     -- 4. Timing
     hour_of_day         SMALLINT CHECK (hour_of_day BETWEEN 0 AND 23),
     day_of_week         TEXT,
+    -- Phase 11: publish time + age when engagement was measured (age-bucketed %).
+    posted_at           TIMESTAMPTZ,
+    engagement_age_hours DOUBLE PRECISION,
 
     -- 5. Engagement benchmark
     engagement_percentile DOUBLE PRECISION NOT NULL CHECK (engagement_percentile BETWEEN 0 AND 100),
@@ -92,6 +95,11 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_timezone TEXT;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_percentile DOUBLE PRECISION;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_zscore DOUBLE PRECISION;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS niche TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS engagement_age_hours DOUBLE PRECISION;
+CREATE INDEX IF NOT EXISTS posts_engagement_age_hours_idx
+    ON posts (engagement_age_hours)
+    WHERE engagement_age_hours IS NOT NULL;
 
 -- Speeds up tenant-scoped retrieval (WHERE user_id = ...) and the voice-
 -- profile aggregation query in storage/vector_store.get_user_voice_profile().
@@ -160,11 +168,23 @@ CREATE TABLE IF NOT EXISTS predictions (
 
     -- Phase H: query embedding used at predict time (nullable for legacy rows).
     embedding               vector(3072),
-    embedding_model_version TEXT
+    embedding_model_version TEXT,
+
+    -- Age-aware validation metadata (optional learning filter).
+    is_backtest             BOOLEAN NOT NULL DEFAULT FALSE,
+    prediction_horizon_hours DOUBLE PRECISION,
+    validation_age_hours    DOUBLE PRECISION,
+    validation_mode         TEXT,
+    -- Phase 11: multi-horizon lanes.
+    prediction_lane         TEXT,
+    scraped_at_predict      TIMESTAMPTZ
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS predictions_linkedin_post_id_idx
-    ON predictions (linkedin_post_id);
+-- Legacy single-post uniqueness replaced by Phase 11 (post_id, horizon).
+DROP INDEX IF EXISTS predictions_linkedin_post_id_idx;
+
+CREATE UNIQUE INDEX IF NOT EXISTS predictions_post_horizon_uidx
+    ON predictions (linkedin_post_id, prediction_horizon_hours);
 
 CREATE INDEX IF NOT EXISTS predictions_status_due_idx
     ON predictions (status, validation_due_at);
@@ -246,6 +266,27 @@ ALTER TABLE predictions ADD COLUMN IF NOT EXISTS baseline_total_engagement INTEG
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_telemetry JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding vector(3072);
 ALTER TABLE predictions ADD COLUMN IF NOT EXISTS embedding_model_version TEXT;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS is_backtest BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_horizon_hours DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS validation_age_hours DOUBLE PRECISION;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS validation_mode TEXT;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS prediction_lane TEXT;
+ALTER TABLE predictions ADD COLUMN IF NOT EXISTS scraped_at_predict TIMESTAMPTZ;
+-- Phase 11: backfill legacy NULL horizons, then enforce unique (post, horizon).
+UPDATE predictions
+SET prediction_horizon_hours = 48
+WHERE prediction_horizon_hours IS NULL;
+UPDATE predictions
+SET prediction_lane = 'fixed_horizon'
+WHERE prediction_lane IS NULL;
+DROP INDEX IF EXISTS predictions_linkedin_post_id_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS predictions_post_horizon_uidx
+    ON predictions (linkedin_post_id, prediction_horizon_hours);
+CREATE INDEX IF NOT EXISTS predictions_validation_mode_idx
+    ON predictions (validation_mode)
+    WHERE status = 'validated';
+CREATE INDEX IF NOT EXISTS predictions_lane_idx
+    ON predictions (prediction_lane);
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS centroid_embedding vector(3072);
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_summary TEXT;
 ALTER TABLE prediction_clusters ADD COLUMN IF NOT EXISTS rollup_updated_at TIMESTAMPTZ;

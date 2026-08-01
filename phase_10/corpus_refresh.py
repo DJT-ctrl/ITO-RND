@@ -20,7 +20,7 @@ from phase_10.search_plan import (
     queries_for_general_refresh,
 )
 from phase_10.topics import queries_for_niche
-from processors.finalize_records import load_analysed_jsonl
+from processors.finalize_records import load_finalized_jsonl
 from processors.run_db_ingest import run_db_ingest
 from processors.run_embeddings import run_embeddings
 from processors.run_pipeline import run_pipeline
@@ -112,7 +112,7 @@ def _posted_bounds(posts: list[dict[str, Any]]) -> tuple[str | None, str | None]
 
 
 def _force_niche_on_jsonl(jsonl_path: Path, niche: str) -> list[dict[str, Any]]:
-    records = load_analysed_jsonl(jsonl_path)
+    records = load_finalized_jsonl(jsonl_path)
     for record in records:
         record["niche"] = niche
     with jsonl_path.open("w", encoding="utf-8") as fh:
@@ -248,7 +248,7 @@ def run_corpus_refresh(
         source_scans=source_scans,
     )
 
-    records = load_analysed_jsonl(jsonl_path)
+    records = load_finalized_jsonl(jsonl_path)
     if force_niche:
         records = _force_niche_on_jsonl(jsonl_path, force_niche)
 

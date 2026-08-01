@@ -253,3 +253,38 @@ def test_tick_runs_feedback_handler(
         "Done: claimed=2 succeeded=2 failed=0 dead_lettered=0",
     )
     mock_upsert.assert_called()
+
+
+@patch("phase_10.tick.is_tick_paused", return_value=True)
+@patch("phase_10.tick.record_tick_heartbeat")
+def test_tick_respects_global_pause(mock_heartbeat, _paused) -> None:
+    result = run_agentic_tick(_settings())
+    assert len(result.results) == 1
+    assert result.results[0].job_id == "_tick"
+    assert result.results[0].detail == "skipped: paused"
+    mock_heartbeat.assert_called_once_with("paused — no jobs executed")
+
+
+@patch("phase_10.tick.is_tick_paused", return_value=True)
+@patch("phase_10.tick.agentic_connection")
+def test_tick_force_runs_when_paused(mock_conn, _paused) -> None:
+    mock_conn.return_value.__enter__.return_value = MagicMock()
+    with patch("phase_10.tick.schedule_store.load_run_rows", return_value={}), patch(
+        "phase_10.tick.load_job_flags"
+    ) as mock_flags, patch("phase_10.tick.schedule_store.upsert_run"), patch(
+        "phase_10.tick.record_tick_heartbeat"
+    ):
+        mock_flags.return_value = JobFlags(
+            general_refresh=False,
+            niche_scrape=False,
+            pro_digest=False,
+            validation_worker=False,
+            feedback_worker=False,
+        )
+        result = run_agentic_tick(
+            _settings(),
+            now=datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc),
+            handlers={},
+            force=True,
+        )
+    assert any(r.job_id != "_tick" for r in result.results)

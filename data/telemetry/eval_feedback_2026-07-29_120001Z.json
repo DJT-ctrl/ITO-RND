@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.2",
+  "generated_at": "2026-07-29T12:00:01.537113Z",
+  "total_rows": 40,
+  "training_rows": 9,
+  "holdout_rows": 30,
+  "global_mean_delta": -6.9489,
+  "global_calibration_ready": false,
+  "arms": [
+    {
+      "arm": "raw_no_feedback",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": false,
+      "sample_count": 30,
+      "mae": 20.34,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.34
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "raw_with_feedback",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "calibrated_no_feedback",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": false,
+      "sample_count": 30,
+      "mae": 20.34,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.34
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "calibrated_with_feedback",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": null
+    },
+    {
+      "arm": "raw_with_feedback_v1",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": "v1"
+    },
+    {
+      "arm": "raw_with_feedback_v2",
+      "calibration_enabled": false,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": "v2"
+    },
+    {
+      "arm": "calibrated_with_feedback_v1",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": "v1"
+    },
+    {
+      "arm": "calibrated_with_feedback_v2",
+      "calibration_enabled": true,
+      "feedback_injection_enabled": true,
+      "sample_count": 30,
+      "mae": 20.3395,
+      "pct_within_10": 30.0,
+      "per_cluster_mae": {
+        "unknown": 20.3395
+      },
+      "preferred_feedback_version": "v2"
+    }
+  ],
+  "version_preference": {
+    "holdout_rows": 30,
+    "holdout_with_approved_v2": 0,
+    "holdout_v1_only": 30,
+    "preferred_v2_share_pct": 0.0
+  },
+  "shadow_live": {
+    "sample_count": 30,
+    "live_mae": 20.34,
+    "shadow_mae": 20.3395,
+    "mae_delta": 0.0005
+  },
+  "notes": [
+    "Holdout rows are excluded from all calibration statistics.",
+    "Holdout approved-v2 availability: 0/30 (0.0%).",
+    "Phase J shadow telemetry on 30/30 holdout rows: live_mae=20.34 shadow_mae=20.3395 delta=0.0005.",
+    "Injection arms use shadow_percentile when present so MAE can diverge from non-injection arms after Phase J."
+  ]
+}

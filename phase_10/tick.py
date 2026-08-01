@@ -13,6 +13,7 @@ from config.settings import Settings, load_settings
 from phase_10.budget import JOB_PROVIDER, allow_paid_step
 from phase_10.db import AgenticDbError, agentic_connection
 from phase_10.job_flags import load_job_flags
+from phase_10.tick_control import is_tick_paused, record_tick_heartbeat
 from phase_10.models import JOB_FLAG_KEYS
 from phase_10 import schedule_store
 from phase_10.schedule_store import utc_now
@@ -147,17 +148,31 @@ def _save(
     schedule_store.upsert_run(conn, **kwargs)
 
 
+def _tick_summary(results: tuple[TickJobResult, ...]) -> str:
+    ran = sum(1 for r in results if r.action == "ran")
+    skipped = sum(1 for r in results if r.action == "skipped")
+    return f"{ran} ran, {skipped} skipped"
+
+
 def run_agentic_tick(
     settings: Settings | None = None,
     *,
     now: datetime | None = None,
     handlers: dict[str, Handler] | None = None,
+    force: bool = False,
 ) -> TickResult:
     """Evaluate each job once; run or skip with a logged reason."""
     settings = settings or load_settings()
     now = now or utc_now()
     handlers = HANDLERS if handlers is None else handlers
     flags = load_job_flags().to_dict()
+
+    if not force and is_tick_paused():
+        result = TickResult(
+            results=(TickJobResult("_tick", "skipped", "skipped: paused"),),
+        )
+        record_tick_heartbeat("paused — no jobs executed")
+        return result
 
     try:
         with agentic_connection(settings) as conn:
@@ -216,9 +231,13 @@ def run_agentic_tick(
                 )
                 results.append(TickJobResult(job_id, action, detail))
 
-            return TickResult(results=tuple(results))
+            tick_result = TickResult(results=tuple(results))
+            record_tick_heartbeat(_tick_summary(tick_result.results))
+            return tick_result
     except AgenticDbError as exc:
         logger.error("Agentic tick aborted: %s", exc)
-        return TickResult(
+        result = TickResult(
             results=(TickJobResult("_tick", "skipped", f"aborted: {exc}"),),
         )
+        record_tick_heartbeat(f"aborted: {exc}")
+        return result

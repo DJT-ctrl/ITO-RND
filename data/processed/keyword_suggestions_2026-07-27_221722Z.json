@@ -1,0 +1,809 @@
+{
+  "url": "https://www.linkedin.com/company/fintech-net/",
+  "url_kind": "company",
+  "keywords": [
+    "fintech solutions",
+    "invoice automation",
+    "accounts payable",
+    "scan-based trading",
+    "retail technology",
+    "c-store technology",
+    "hospitality technology",
+    "restaurant operations",
+    "supply chain visibility",
+    "business process automation"
+  ],
+  "context_summary": {
+    "kind": "company",
+    "company_name": "Fintech",
+    "company_info": "105,813 followers",
+    "company_url": "https://www.linkedin.com/company/fintech-net/",
+    "post_count": 8,
+    "recent_posts": [
+      "Leadership is about more than making decisions. It's about listening, building trust, and investing in people.\nIn the latest episode of Business Observer's From the Corner Office, our CEO, Tad Phelps, shares his leadership philosophy, how Fintech has built a culture of transparency and innovation, and why staying connected to employees is key for long-term success. Tune in to hear the full podcast and learn what continues to drive Fintech forward.\n🎧 Listen now: https://lnkd.in/e6nDvuJv\n#Leadership #CompanyCulture #Innovation #BusinessLeadership #Podcast",
+      "Still manually entering invoices into QuickBooks Online?\nNow you don't have to. Fintech's QuickBooks Online integration automatically syncs invoice data, helping you save time, improve accuracy, and simplify your AP workflow. Manage your integration directly through the Fintech Portal, assigning values for vendors, locations, and GL codes for each category that are automatically applied to the clean invoice data sent to your QuickBooks Online dashboard.\nRead the blog to learn more about how the integration works: https://lnkd.in/ewB8vf8C\n#QuickBooksOnline #InvoiceAutomation #AccountsPayable",
+      "We're excited to share that Fintech SBT is a finalist in the CSP Daily News 2026 Retailer Choice Best New Products Contest, Technology: Back of House category.\n \nFintech SBT helps c-stores and their DSD partners modernize scan-based trading with greater visibility, automation, and control, cutting manual work and improving inventory reconciliation.\n \nRetailers, cast your vote here: https://lnkd.in/e7vBM_CZ\n \nYour vote helps recognize innovative solutions that are making a real impact on retail operations and back-of-house efficiency.\n \nThank you to our customers, partners, and team for making…",
+      "Out-of-stocks mean missed sales and missed opportunities.\nFintech SBT gives retailers the visibility and insights they need to keep DSD products in stock, optimize replenishment, and strengthen vendor partnerships.\nBetter data. Better shelves. Stronger partnerships. Visit our website to get started: https://lnkd.in/e5k-rs_b",
+      "What if your product catalog could maintain itself? Fintech connects invoice data directly to your product and price book records, continuously validating costs and discrepancies to maintain accurate product catalog information across vendors and locations. https://lnkd.in/etqe_kjF",
+      "Join us in celebrating 250 years of American independence! 🇺🇸\nToday, we honor our nation's history, the freedoms we enjoy, and the people who help make our communities strong. From all of us at Fintech, we wish you a safe and happy Fourth of July spent with family, friends, and loved ones.",
+      "Innovation starts with asking the right questions.\nIn this Techronicler interview, our CTO, Amit Aghara, shares his perspective on technology leadership, innovation, and the future of building solutions that solve real business challenges. Drawing on decades of experience, Amit discusses the importance of staying adaptable, fostering innovation, and creating technology that delivers meaningful value.\nRead the full interview: https://lnkd.in/dQrPiRNJ \n#Leadership #Technology #Innovation #DigitalTransformation",
+      "Our first time at the Texas Restaurant Show was a success! 🤠\nIt was great connecting with restaurant operators, hospitality leaders, and our valued clients from across Texas. Thank you to everyone who stopped by our booth to learn how Fintech is helping simplify invoice management and payments for the hospitality industry.\nWe look forward to building the relationships we started and seeing everyone again next year!\n#TexasRestaurantShow #Hospitality #RestaurantIndustry #InvoiceManagement #HospitalityTechnology #RestaurantOperations #Foodservice"
+    ]
+  },
+  "scrape_items": [
+    {
+      "type": "post",
+      "id": "7487585386504888323",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_leadership-companyculture-innovation-activity-7487585386504888323-UYY4",
+      "content": "Leadership is about more than making decisions. It's about listening, building trust, and investing in people.\nIn the latest episode of Business Observer's From the Corner Office, our CEO, Tad Phelps, shares his leadership philosophy, how Fintech has built a culture of transparency and innovation, and why staying connected to employees is key for long-term success. Tune in to hear the full podcast and learn what continues to drive Fintech forward.\n🎧 Listen now: https://lnkd.in/e6nDvuJv\n#Leadership #CompanyCulture #Innovation #BusinessLeadership #Podcast",
+      "contentAttributes": [
+        {
+          "start": 136,
+          "length": 17,
+          "type": "COMPANY_NAME",
+          "hyperlink": "https://www.linkedin.com/company/businessobserverfl/",
+          "textLink": null,
+          "company": {
+            "id": "994903",
+            "name": "Business Observer",
+            "linkedinUrl": "https://www.linkedin.com/company/businessobserverfl/"
+          }
+        },
+        {
+          "start": 189,
+          "length": 10,
+          "type": "PROFILE_MENTION",
+          "hyperlink": "https://www.linkedin.com/in/ACoAAAAaCRwB4fEO9Pyk67zBnxXTz4Md0uX1BD8",
+          "textLink": null,
+          "profile": {
+            "id": "ACoAAAAaCRwB4fEO9Pyk67zBnxXTz4Md0uX1BD8",
+            "firstName": "Tad",
+            "lastName": "Phelps",
+            "linkedinUrl": "https://www.linkedin.com/in/tadphelps",
+            "publicIdentifier": "tadphelps"
+          }
+        },
+        {
+          "start": 466,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/e6nDvuJv"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1785179468752,
+        "date": "2026-07-27T19:11:08.752Z",
+        "postedAgoShort": "3h",
+        "postedAgoText": "3 hours ago • Edited • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQEPAvGKab5S4g/image-shrink_1280/B4EZ.k_Nu0JcAc-/0/1785179463273?e=1785798000&v=beta&t=LWAXeW8IvH5N6YrvZrFeN2iQzXH61cP9YG4wL_waZUA",
+          "width": 1200,
+          "height": 1200
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_leadership-companyculture-innovation-activity-7487585386504888323-UYY4?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7487585386504888323",
+      "shareUrn": "urn:li:share:7487585361129566208",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7487585361129566208",
+      "engagement": {
+        "id": "7487585386504888323",
+        "likes": 6,
+        "comments": 0,
+        "shares": 0,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 6
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7485332922376536066",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_quickbooksonline-invoiceautomation-accountspayable-activity-7485332922376536066-btRc",
+      "content": "Still manually entering invoices into QuickBooks Online?\nNow you don't have to. Fintech's QuickBooks Online integration automatically syncs invoice data, helping you save time, improve accuracy, and simplify your AP workflow. Manage your integration directly through the Fintech Portal, assigning values for vendors, locations, and GL codes for each category that are automatically applied to the clean invoice data sent to your QuickBooks Online dashboard.\nRead the blog to learn more about how the integration works: https://lnkd.in/ewB8vf8C\n#QuickBooksOnline #InvoiceAutomation #AccountsPayable",
+      "contentAttributes": [
+        {
+          "start": 519,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/ewB8vf8C"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1784642439455,
+        "date": "2026-07-21T14:00:39.455Z",
+        "postedAgoShort": "6d",
+        "postedAgoText": "6 days ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQEWARn4opZLKw/image-shrink_1280/B4EZ.E.nETJUAk-/0/1784642433627?e=1785798000&v=beta&t=3GUjp-jVONzcCR5NrVASwuO1Em9wFW8H_s6QScgGucY",
+          "width": 1280,
+          "height": 720
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_quickbooksonline-invoiceautomation-accountspayable-activity-7485332922376536066-btRc?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7485332922376536066",
+      "shareUrn": "urn:li:share:7485332897038643201",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7485332897038643201",
+      "engagement": {
+        "id": "7485332922376536066",
+        "likes": 4,
+        "comments": 0,
+        "shares": 1,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 4
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7485429837461979136",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_were-excited-to-share-that-fintech-sbt-is-activity-7485429837461979136-DEZl",
+      "content": "We're excited to share that Fintech SBT is a finalist in the CSP Daily News 2026 Retailer Choice Best New Products Contest, Technology: Back of House category.\n \nFintech SBT helps c-stores and their DSD partners modernize scan-based trading with greater visibility, automation, and control, cutting manual work and improving inventory reconciliation.\n \nRetailers, cast your vote here: https://lnkd.in/e7vBM_CZ\n \nYour vote helps recognize innovative solutions that are making a real impact on retail operations and back-of-house efficiency.\n \nThank you to our customers, partners, and team for making this possible.",
+      "contentAttributes": [
+        {
+          "start": 61,
+          "length": 14,
+          "type": "COMPANY_NAME",
+          "hyperlink": "https://www.linkedin.com/company/csp-daily-news/",
+          "textLink": null,
+          "company": {
+            "id": "11074367",
+            "name": "CSP Daily News",
+            "linkedinUrl": "https://www.linkedin.com/showcase/csp-daily-news/"
+          }
+        },
+        {
+          "start": 385,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/e7vBM_CZ"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1784665545812,
+        "date": "2026-07-21T20:25:45.812Z",
+        "postedAgoShort": "6d",
+        "postedAgoText": "6 days ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQH8UlIW4A5Sxg/image-shrink_1280/B4EZ.GWxq5IAAo-/0/1784665545683?e=1785798000&v=beta&t=EPptYjTDUcV6ENqADyolSbNO2oQdJkOIZcOSj4NDzRs",
+          "width": 1280,
+          "height": 1280
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_were-excited-to-share-that-fintech-sbt-is-activity-7485429837461979136-DEZl?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7485429837461979136",
+      "shareUrn": "urn:li:share:7485429836161789953",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7485429836161789953",
+      "engagement": {
+        "id": "7485429837461979136",
+        "likes": 13,
+        "comments": 1,
+        "shares": 3,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 10
+          },
+          {
+            "type": "PRAISE",
+            "count": 2
+          },
+          {
+            "type": "APPRECIATION",
+            "count": 1
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7482507419303206913",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_out-of-stocks-mean-missed-sales-and-missed-activity-7482507419303206913-ARO_",
+      "content": "Out-of-stocks mean missed sales and missed opportunities.\nFintech SBT gives retailers the visibility and insights they need to keep DSD products in stock, optimize replenishment, and strengthen vendor partnerships.\nBetter data. Better shelves. Stronger partnerships. Visit our website to get started: https://lnkd.in/e5k-rs_b",
+      "contentAttributes": [
+        {
+          "start": 301,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/e5k-rs_b"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1783968787027,
+        "date": "2026-07-13T18:53:07.027Z",
+        "postedAgoShort": "2w",
+        "postedAgoText": "2 weeks ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQF_69iwOSOqQg/image-shrink_1280/B4EZ9c01a6JUAc-/0/1783968782362?e=1785798000&v=beta&t=ixzpdPR1MSK17vUiuHtWO35qQxHmZl1YZ_dWmXoUU70",
+          "width": 1200,
+          "height": 1200
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_out-of-stocks-mean-missed-sales-and-missed-activity-7482507419303206913-ARO_?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7482507419303206913",
+      "shareUrn": "urn:li:share:7482507399006752768",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7482507399006752768",
+      "engagement": {
+        "id": "7482507419303206913",
+        "likes": 11,
+        "comments": 0,
+        "shares": 1,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 11
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7480259415841992704",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_what-if-your-product-catalog-could-maintain-activity-7480259415841992704-ESIn",
+      "content": "What if your product catalog could maintain itself? Fintech connects invoice data directly to your product and price book records, continuously validating costs and discrepancies to maintain accurate product catalog information across vendors and locations. https://lnkd.in/etqe_kjF",
+      "contentAttributes": [
+        {
+          "start": 258,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/etqe_kjF"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1783432821236,
+        "date": "2026-07-07T14:00:21.236Z",
+        "postedAgoShort": "2w",
+        "postedAgoText": "2 weeks ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQHQBT0EBS9yfg/image-shrink_1280/B4EZ884TgVJYAc-/0/1783432821084?e=1785798000&v=beta&t=55g4YWqpHbHA_z7lS-CF3EVYDSkfQ9FYC2X2W99xECA",
+          "width": 1200,
+          "height": 1200
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_what-if-your-product-catalog-could-maintain-activity-7480259415841992704-ESIn?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7480259415841992704",
+      "shareUrn": "urn:li:share:7480259414751444992",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7480259414751444992",
+      "engagement": {
+        "id": "7480259415841992704",
+        "likes": 16,
+        "comments": 0,
+        "shares": 0,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 16
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7479172264022749184",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_join-us-in-celebrating-250-years-of-american-activity-7479172264022749184-GnGV",
+      "content": "Join us in celebrating 250 years of American independence! 🇺🇸\nToday, we honor our nation's history, the freedoms we enjoy, and the people who help make our communities strong. From all of us at Fintech, we wish you a safe and happy Fourth of July spent with family, friends, and loved ones.",
+      "contentAttributes": [],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1783173624044,
+        "date": "2026-07-04T14:00:24.044Z",
+        "postedAgoShort": "3w",
+        "postedAgoText": "3 weeks ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQGMaa5GLI3Ywg/image-shrink_1280/B4EZ8tbi9WHkAc-/0/1783173623906?e=1785798000&v=beta&t=Eq6MFs2k0_1kazGO08TegoDGaYxTyCZi0kuKayvRHUA",
+          "width": 1080,
+          "height": 1350
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_join-us-in-celebrating-250-years-of-american-activity-7479172264022749184-GnGV?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7479172264022749184",
+      "shareUrn": "urn:li:share:7479172262982656000",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7479172262982656000",
+      "engagement": {
+        "id": "7479172264022749184",
+        "likes": 21,
+        "comments": 2,
+        "shares": 1,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 21
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7483221883283357696",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_leadership-technology-innovation-activity-7483221883283357696-ZYkf",
+      "content": "Innovation starts with asking the right questions.\nIn this Techronicler interview, our CTO, Amit Aghara, shares his perspective on technology leadership, innovation, and the future of building solutions that solve real business challenges. Drawing on decades of experience, Amit discusses the importance of staying adaptable, fostering innovation, and creating technology that delivers meaningful value.\nRead the full interview: https://lnkd.in/dQrPiRNJ \n#Leadership #Technology #Innovation #DigitalTransformation",
+      "contentAttributes": [
+        {
+          "start": 92,
+          "length": 11,
+          "type": "PROFILE_MENTION",
+          "hyperlink": "https://www.linkedin.com/in/ACoAAAD3GekBJKsttvQPBEPdeCMNlRCErq8F_NI",
+          "textLink": null,
+          "profile": {
+            "id": "ACoAAAD3GekBJKsttvQPBEPdeCMNlRCErq8F_NI",
+            "firstName": "Amit",
+            "lastName": "Aghara",
+            "linkedinUrl": "https://www.linkedin.com/in/amitaghara",
+            "publicIdentifier": "amitaghara"
+          }
+        },
+        {
+          "start": 429,
+          "length": 24,
+          "type": "TEXT_LINK",
+          "hyperlink": null,
+          "textLink": "https://lnkd.in/dQrPiRNJ"
+        }
+      ],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1784139128514,
+        "date": "2026-07-15T18:12:08.514Z",
+        "postedAgoShort": "1w",
+        "postedAgoText": "1 week ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQEXZZTxP3dOUA/image-shrink_1280/B4EZ9m.oYdIAAc-/0/1784139122586?e=1785798000&v=beta&t=sW-vjvfPT3FesnWIFY-4Ui6IyNzcH86W4rA9BtVk7H0",
+          "width": 1200,
+          "height": 1200
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_leadership-technology-innovation-activity-7483221883283357696-ZYkf?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7483221883283357696",
+      "shareUrn": "urn:li:share:7483221857383579648",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7483221857383579648",
+      "engagement": {
+        "id": "7483221883283357696",
+        "likes": 39,
+        "comments": 3,
+        "shares": 2,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 38
+          },
+          {
+            "type": "EMPATHY",
+            "count": 1
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    },
+    {
+      "type": "post",
+      "id": "7483665298634600449",
+      "linkedinUrl": "https://www.linkedin.com/posts/fintech-net_texasrestaurantshow-hospitality-restaurantindustry-activity-7483665298634600449-Ksej",
+      "content": "Our first time at the Texas Restaurant Show was a success! 🤠\nIt was great connecting with restaurant operators, hospitality leaders, and our valued clients from across Texas. Thank you to everyone who stopped by our booth to learn how Fintech is helping simplify invoice management and payments for the hospitality industry.\nWe look forward to building the relationships we started and seeing everyone again next year!\n#TexasRestaurantShow #Hospitality #RestaurantIndustry #InvoiceManagement #HospitalityTechnology #RestaurantOperations #Foodservice",
+      "contentAttributes": [],
+      "author": {
+        "id": "2785182",
+        "universalName": "fintech-net",
+        "publicIdentifier": null,
+        "type": "company",
+        "name": "Fintech",
+        "linkedinUrl": "https://www.linkedin.com/company/fintech-net/posts",
+        "info": "105,813 followers",
+        "website": null,
+        "websiteLabel": null,
+        "avatar": {
+          "url": "https://media.licdn.com/dms/image/v2/D4D0BAQE405phR1bFjA/company-logo_400_400/B4DZcSS7ZzHMAY-/0/1748358641755/fintech_net_logo?e=1786579200&v=beta&t=Gov4PDpzCASSczy3KQarj4BHvsirgqGbL-hp7O49mZQ",
+          "width": 400,
+          "height": 400
+        },
+        "urn": "2785182"
+      },
+      "postedAt": {
+        "timestamp": 1784244846972,
+        "date": "2026-07-16T23:34:06.972Z",
+        "postedAgoShort": "1w",
+        "postedAgoText": "1 week ago • Visible to anyone on or off LinkedIn"
+      },
+      "postImages": [
+        {
+          "url": "https://media.licdn.com/dms/image/v2/D4E10AQEU9u4l_zJgfQ/image-shrink_1280/B4EZ9tR6tRJgAc-/0/1784244841774?e=1785798000&v=beta&t=yuPOzxPv5eH9YCTrDcZWuKQAPMiUS_yIXOMVq63okMs",
+          "width": 1086,
+          "height": 1448
+        }
+      ],
+      "socialContent": {
+        "hideCommentsCount": false,
+        "hideReactionsCount": false,
+        "hideSocialActivityCounts": false,
+        "hideShareAction": true,
+        "hideSendAction": true,
+        "hideRepostsCount": false,
+        "hideViewsCount": false,
+        "trustInterventionBanner": null,
+        "hideReactAction": false,
+        "hideCommentAction": false,
+        "shareUrl": "https://www.linkedin.com/posts/fintech-net_texasrestaurantshow-hospitality-restaurantindustry-activity-7483665298634600449-Ksej?",
+        "showContributionExperience": false,
+        "showSocialDetail": true
+      },
+      "comments": [],
+      "header": {
+        "text": null
+      },
+      "entityId": "7483665298634600449",
+      "shareUrn": "urn:li:share:7483665275050045440",
+      "shareLinkedinUrl": "https://www.linkedin.com/feed/update/urn:li:share:7483665275050045440",
+      "engagement": {
+        "id": "7483665298634600449",
+        "likes": 40,
+        "comments": 2,
+        "shares": 0,
+        "reactions": [
+          {
+            "type": "LIKE",
+            "count": 34
+          },
+          {
+            "type": "EMPATHY",
+            "count": 3
+          },
+          {
+            "type": "PRAISE",
+            "count": 2
+          },
+          {
+            "type": "APPRECIATION",
+            "count": 1
+          }
+        ]
+      },
+      "reactions": [],
+      "reactionIds": [],
+      "commentIds": [],
+      "query": {
+        "sortBy": "date",
+        "page": "1",
+        "targetUrl": "https://www.linkedin.com/company/fintech-net/",
+        "sessionId": "b8cc54c8-1609-453c-80eb-e1b0286a2df9"
+      }
+    }
+  ],
+  "meta": {
+    "apify_run_ids": [
+      "ydH3s6BUAIYcVN9rq"
+    ],
+    "gemini_model": "gemini-2.5-flash-lite",
+    "gemini_input_tokens": 1198,
+    "gemini_output_tokens": 51,
+    "gemini_cost_usd": 0.0001402
+  },
+  "recorded_at": "2026-07-27T22:17:22.979206+00:00"
+}

@@ -341,8 +341,10 @@ invoked by T10.3 when flags are on). No parallel validate/learn loop.
 
 | Doc / code | Role |
 |------------|------|
+| [`PHASE_10_TEST.md`](PHASE_10_TEST.md) | Automated + manual + prod test checklist for T10.1–T10.11 |
 | [Phase_7.md](../Phase_7.md) | On-demand eval agents |
-| [`feedback/routing.py`](../feedback/routing.py) | Current shape-only clusters (extend in T10.7) |
+| [`feedback/routing.py`](../feedback/routing.py) | Feedback clusters (topic dim in T10.7) |
 | [`scrapers/linkedin_scraper.py`](../scrapers/linkedin_scraper.py) | Keyword scrape entry (reuse in T10.4/T10.5) |
 | [`telemetry/`](../telemetry/) | Cost helpers (reuse in T10.9) |
+| [Production runbook — Phase 10](../current%20md/10_PRODUCTION_RUNBOOK.md) | Tick / systemd ops |
 | [`First Ideas/Complex_idea.md`](../First%20Ideas/Complex_idea.md) | Early general + personal niche bot vision |

@@ -39,7 +39,8 @@ def fetch_replay_rows(
                 (p.prediction_telemetry->>'shadow_percentile')::DOUBLE PRECISION
                     AS shadow_percentile,
                 (p.prediction_telemetry->>'llm_percentile')::DOUBLE PRECISION
-                    AS llm_percentile
+                    AS llm_percentile,
+                p.prediction_horizon_hours
             FROM predictions p
             LEFT JOIN prediction_feedback f
               ON f.prediction_id = p.prediction_id
@@ -61,6 +62,7 @@ def fetch_replay_rows(
             live_percentile=float(row[5]) if row[5] is not None else None,
             shadow_percentile=float(row[6]) if row[6] is not None else None,
             llm_percentile=float(row[7]) if row[7] is not None else None,
+            prediction_horizon_hours=float(row[8]) if row[8] is not None else None,
         )
         for row in rows
     ]

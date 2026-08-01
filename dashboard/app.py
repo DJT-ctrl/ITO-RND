@@ -3,9 +3,9 @@
 Run with:
     streamlit run dashboard/app.py
 
-Page labels in the top navigation are set here via st.navigation — grouped into
-Corpus Pipeline (stages 1-5), Validation Pipeline (prediction feedback loop),
-Evaluation (draft evaluation cycle), and Agentic (background automation ops).
+Navigation groups: Start here, Build the corpus, Check and learn, Try it,
+and Agentic. Page chrome (headers, phase colors, ? help) lives in
+dashboard/chrome.py.
 """
 
 import sys
@@ -17,68 +17,105 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 import streamlit as st
 
+from dashboard.dev_postgres_ui import render_dev_postgres_setup
+from dashboard.invite_gate import invite_configured, require_invite
+
 _PAGES = Path(__file__).resolve().parent / "pages"
 _VALIDATION = _PAGES / "validation"
 
 st.set_page_config(page_title="ITO Test Harness", layout="wide")
 
+# Password first on shared demos; after unlock the harness below is unchanged.
+if invite_configured():
+    require_invite()
+
+try:
+    with st.sidebar:
+        render_dev_postgres_setup(compact=True)
+except Exception as exc:
+    # Never blank the whole harness if local DB diagnostics fail.
+    with st.sidebar:
+        st.caption(f"Postgres check skipped: {exc}")
+
 pg = st.navigation(
     {
-        "Corpus Pipeline": [
+        "Start here": [
             st.Page(
-                str(_PAGES / "1_Scraper_Stage.py"),
-                title="Scraper Stage",
-                icon="🔍",
+                str(_PAGES / "0_Home.py"),
+                title="Home",
+                icon=":material/home:",
                 default=True,
             ),
             st.Page(
+                str(_PAGES / "0_Documents.py"),
+                title="Documents",
+                icon=":material/description:",
+            ),
+        ],
+        "Build the corpus": [
+            st.Page(
+                str(_PAGES / "12_Keyword_Suggestions.py"),
+                title="Keyword suggestions",
+                icon=":material/key:",
+            ),
+            st.Page(
+                str(_PAGES / "1_Scraper_Stage.py"),
+                title="Collect samples",
+                icon=":material/search:",
+            ),
+            st.Page(
                 str(_PAGES / "2_Post_Analyser.py"),
-                title="Post Analyser",
-                icon="📊",
+                title="Analyse posts",
+                icon=":material/analytics:",
             ),
             st.Page(
                 str(_PAGES / "3_Pattern_Analysis.py"),
-                title="Pattern Analysis",
-                icon="📈",
+                title="Find patterns",
+                icon=":material/insights:",
             ),
             st.Page(
                 str(_PAGES / "4_Vectorisation.py"),
-                title="Vectorisation",
-                icon="🧮",
+                title="Make embeddings",
+                icon=":material/grid_on:",
             ),
             st.Page(
                 str(_PAGES / "5_Similarity_Search.py"),
-                title="Similarity Search",
-                icon="🔎",
+                title="Search similar",
+                icon=":material/manage_search:",
             ),
         ],
-        "Validation Pipeline": [
+        "Check and learn": [
             st.Page(
                 str(_VALIDATION / "7_Validation_Collect.py"),
-                title="Collect & Predict",
-                icon="📥",
+                title="Collect and predict",
+                icon=":material/download:",
             ),
             st.Page(
                 str(_VALIDATION / "8_Validation_Queue.py"),
-                title="Validation Queue",
-                icon="⏱️",
+                title="Validation queue",
+                icon=":material/schedule:",
             ),
             st.Page(
                 str(_VALIDATION / "9_Accuracy_History.py"),
-                title="Accuracy History",
-                icon="📉",
+                title="Accuracy over time",
+                icon=":material/monitoring:",
             ),
             st.Page(
                 str(_VALIDATION / "10_Feedback_Loop.py"),
-                title="Feedback Loop",
-                icon="🔁",
+                title="Feedback loop",
+                icon=":material/sync:",
+            ),
+            st.Page(
+                str(_PAGES / "11_Special_Cases.py"),
+                title="Special cases",
+                icon=":material/folder_special:",
             ),
         ],
-        "Evaluation": [
+        "Try it": [
             st.Page(
                 str(_PAGES / "6_Evaluation_Cycle.py"),
-                title="Evaluation Cycle",
-                icon="✅",
+                title="Draft evaluator",
+                icon=":material/check_circle:",
             ),
         ],
         "Agentic": [

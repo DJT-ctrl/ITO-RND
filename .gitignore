@@ -34,8 +34,10 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
-# Streamlit
-.streamlit/
+# Streamlit (track shared config; ignore secrets)
+.streamlit/*
+!.streamlit/config.toml
+.vercel
 
 # Data (raw files excluded, processed kept for reproducibility)
 data/raw/
@@ -43,11 +45,15 @@ data/pgdata/
 data/feedback_loop_overrides.json
 data/agentic_layer_seeds.json
 data/agentic_job_flags.json
+data/agentic_tick_control.json
 data/agentic_digests.jsonl
 
 # Logs
 *.log
 *.tmp
+
+# Local JS installs (demo / OpenAPI clients)
+node_modules/
 
 # Local planning notes (kept on disk, excluded from repo)
 planning/
@@ -60,3 +66,4 @@ T1.4_DATABASE_PLAN.md
 T6_ENGINEERING_GAPS.md
 T6_TEAM_PLAN.md
 T7_INDEPENDENT_MODULES.md
+.env*

@@ -52,6 +52,7 @@ class RunMetadata(BaseModel):
     agent_model: Optional[str] = None
     variant_strategy: Optional[str] = None
     reembed_variant_neighbors: bool = False
+    neighbor_limit: int = 10
     seo_mode: Optional[str] = None
     steps: list[StepTelemetry] = Field(default_factory=list)
     warnings: list[TelemetryWarning] = Field(default_factory=list)

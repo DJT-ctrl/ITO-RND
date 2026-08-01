@@ -67,6 +67,7 @@ def _apply_calibration_to_neighbor_prediction(
     niche: Optional[str] = None,
     linkedin_post_id: Optional[str] = None,
     embedding: Optional[list[float]] = None,
+    query_horizon_hours: float | None = None,
 ) -> dict[str, Any] | None:
     """Adjust neighbor percentile using cluster→global mean_delta when enabled.
 
@@ -98,6 +99,9 @@ def _apply_calibration_to_neighbor_prediction(
                 conn,
                 cluster_id=cluster_id,
                 cluster_n_min=settings.validation_cluster_n_min,
+                age_aware_enabled=settings.validation_age_aware_enabled,
+                multi_horizon_learning=settings.validation_multi_horizon_learning,
+                query_horizon_hours=query_horizon_hours,
             )
         finally:
             conn.close()
@@ -163,6 +167,7 @@ def _load_feedback_context(
     linkedin_post_id: Optional[str] = None,
     exclude_prediction_id: Optional[UUID] = None,
     embedding: Optional[list[float]] = None,
+    query_horizon_hours: float | None = None,
 ) -> tuple[Optional[str], Optional[str], int]:
     """Fetch cluster feedback for prompt injection. Fail open → empty context."""
     if not settings.validation_feedback_injection_enabled:
@@ -202,6 +207,9 @@ def _load_feedback_context(
                 approved_only=True,
                 query_embedding=embedding,
                 cluster_n_min=settings.validation_cluster_n_min,
+                age_aware_enabled=settings.validation_age_aware_enabled,
+                multi_horizon_learning=settings.validation_multi_horizon_learning,
+                query_horizon_hours=query_horizon_hours,
             )
         finally:
             conn.close()
@@ -226,10 +234,20 @@ def _load_feedback_context(
 async def predict_for_post(
     post: CollectedPost,
     settings: Settings,
+    *,
+    target_horizon_hours: float | None = None,
+    prediction_lane: str | None = None,
+    age_hours_at_predict: float | None = None,
 ) -> PredictionOutput:
     """Embed, retrieve neighbors, and run the predictor agent for one post."""
     return await async_call_with_gemini_retry(
-        lambda: _predict_for_post_impl(post, settings),
+        lambda: _predict_for_post_impl(
+            post,
+            settings,
+            target_horizon_hours=target_horizon_hours,
+            prediction_lane=prediction_lane,
+            age_hours_at_predict=age_hours_at_predict,
+        ),
         label=f"Predict post {post.linkedin_post_id}",
     )
 
@@ -237,11 +255,27 @@ async def predict_for_post(
 async def _predict_for_post_impl(
     post: CollectedPost,
     settings: Settings,
+    *,
+    target_horizon_hours: float | None = None,
+    prediction_lane: str | None = None,
+    age_hours_at_predict: float | None = None,
 ) -> PredictionOutput:
     """Inner predict implementation (retried by predict_for_post on 429/5xx)."""
+    from validation_pipeline.age_buckets import bucket_for_hours
+
+    horizon = (
+        float(target_horizon_hours)
+        if target_horizon_hours is not None
+        else float(settings.validation_window_hours)
+    )
+    age_bucket = bucket_for_hours(horizon)
     state = PostEvaluationState(draft_content=post.content)
     await _gather_similar_posts(
-        state, settings, user_id=None, prefer_niche=post.niche
+        state,
+        settings,
+        user_id=None,
+        prefer_niche=post.niche,
+        prefer_age_hours=horizon,
     )
 
     neighbor_prediction = compute_neighbor_prediction(
@@ -256,6 +290,7 @@ async def _predict_for_post_impl(
         niche=post.niche,
         linkedin_post_id=post.linkedin_post_id,
         embedding=state.query_embedding,
+        query_horizon_hours=horizon,
     )
     feedback_context, feedback_cluster_id, feedback_count = _load_feedback_context(
         settings,
@@ -264,6 +299,7 @@ async def _predict_for_post_impl(
         niche=post.niche,
         linkedin_post_id=post.linkedin_post_id,
         embedding=state.query_embedding,
+        query_horizon_hours=horizon,
     )
     if neighbor_prediction is not None:
         neighbor_prediction = dict(neighbor_prediction)
@@ -278,6 +314,11 @@ async def _predict_for_post_impl(
         neighbor_prediction=neighbor_prediction,
         draft_follower_count=post.follower_count,
         feedback_context=feedback_context,
+        posted_at=post.posted_at,
+        target_horizon_hours=horizon,
+        prediction_lane=prediction_lane,  # type: ignore[arg-type]
+        age_hours_at_predict=age_hours_at_predict,
+        age_bucket=age_bucket,
     )
 
     predictor = build_predictor_agent(pydantic_ai_gemini_model())
@@ -296,6 +337,10 @@ async def _predict_for_post_impl(
             injectability={
                 "injectability_mode": settings.validation_injectability_mode,
                 "soft_blend_weight": settings.validation_soft_blend_weight,
+                "target_horizon_hours": horizon,
+                "prediction_lane": prediction_lane,
+                "age_bucket": age_bucket,
+                "neighbor_age_prefer": True,
             },
         )
         return _deterministic_prediction_output(
@@ -313,6 +358,10 @@ async def _predict_for_post_impl(
     injectability_meta: dict[str, Any] = {
         "injectability_mode": settings.validation_injectability_mode,
         "soft_blend_weight": float(settings.validation_soft_blend_weight),
+        "target_horizon_hours": horizon,
+        "prediction_lane": prediction_lane,
+        "age_bucket": age_bucket,
+        "neighbor_age_prefer": True,
     }
     if isinstance(output, PredictorOutput):
         output, injectability_meta = resolve_final_prediction(
@@ -321,6 +370,14 @@ async def _predict_for_post_impl(
             mode=settings.validation_injectability_mode,
             soft_blend_weight=settings.validation_soft_blend_weight,
             shadow_mode_enabled=settings.validation_shadow_mode_enabled,
+        )
+        injectability_meta.update(
+            {
+                "target_horizon_hours": horizon,
+                "prediction_lane": prediction_lane,
+                "age_bucket": age_bucket,
+                "neighbor_age_prefer": True,
+            }
         )
 
     telemetry = build_prediction_telemetry(
@@ -391,9 +448,18 @@ def save_prediction(
     settings: Settings,
     *,
     validation_due_at: Optional[datetime] = None,
+    is_backtest: bool = False,
+    validation_window_hours: float | None = None,
+    prediction_lane: str | None = None,
+    scraped_at_predict: Optional[datetime] = None,
 ) -> PredictionRecord:
     """Persist a new prediction row with scheduled validation time."""
     due_at = validation_due_at or (post.posted_at + settings.validation_window())
+    horizon = (
+        float(validation_window_hours)
+        if validation_window_hours is not None
+        else float(settings.validation_window_hours)
+    )
     new_prediction = NewPrediction(
         linkedin_post_id=post.linkedin_post_id,
         linkedin_url=post.linkedin_url,
@@ -415,6 +481,10 @@ def save_prediction(
         embedding=prediction.embedding,
         embedding_model_version=prediction.embedding_model_version,
         validation_due_at=due_at,
+        is_backtest=is_backtest,
+        prediction_horizon_hours=horizon,
+        prediction_lane=prediction_lane,  # type: ignore[arg-type]
+        scraped_at_predict=scraped_at_predict,
     )
     conn = get_connection(settings)
     try:

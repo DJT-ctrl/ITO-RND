@@ -9,8 +9,23 @@ import streamlit as st
 
 from config.settings import Settings
 from storage.vector_store import create_schema, get_connection
-from validation_pipeline.schemas import AccuracyAggregates, PredictionRecord
+from validation_pipeline.schemas import (
+    AccuracyAggregates,
+    PredictionRecord,
+    ValidationBatchResult,
+)
 from validation_pipeline.store import fetch_accuracy_aggregates, list_predictions
+
+
+def _validation_age_hours(prediction: PredictionRecord) -> float | None:
+    """Safe read for age-aware fields (tolerates stale Streamlit module reloads)."""
+    value = getattr(prediction, "validation_age_hours", None)
+    return float(value) if value is not None else None
+
+
+def _validation_mode(prediction: PredictionRecord) -> str | None:
+    value = getattr(prediction, "validation_mode", None)
+    return str(value) if value is not None else None
 
 
 def render_accuracy_summary(settings: Settings, *, compact: bool = False) -> Optional[AccuracyAggregates]:
@@ -121,12 +136,14 @@ def render_validation_comparison_table(
     *,
     editor_key: str = "validation_comparison_editor",
     selectable: bool = True,
+    preselected_ids: set[str] | list[str] | None = None,
 ) -> None:
     """Side-by-side baseline (T0), predicted, and post-window actual metrics."""
     if not predictions:
         st.info("No predictions to show.")
         return
 
+    preselected = {str(pid) for pid in (preselected_ids or [])}
     rows = []
     for p in predictions:
         row = {
@@ -142,6 +159,12 @@ def render_validation_comparison_table(
             "Pred shares": p.predicted_shares,
             "Pred total": p.predicted_total_engagement,
             "Pred %": round(p.predicted_engagement_percentile, 1),
+            "horizon_h": (
+                round(float(p.prediction_horizon_hours), 1)
+                if p.prediction_horizon_hours is not None
+                else None
+            ),
+            "lane": getattr(p, "prediction_lane", None) or "",
             "Actual likes": p.actual_likes,
             "Actual comments": p.actual_comments,
             "Actual shares": p.actual_shares,
@@ -150,18 +173,27 @@ def render_validation_comparison_table(
             if p.actual_engagement_percentile is not None
             else None,
             "% delta": round(p.prediction_delta, 1) if p.prediction_delta is not None else None,
+            "age_h": (
+                round(age, 1)
+                if (age := _validation_age_hours(p)) is not None
+                else None
+            ),
+            "mode": _validation_mode(p) or ("backtest" if p.is_backtest else ""),
             "due_at": p.validation_due_at.strftime("%Y-%m-%d %H:%M") if p.validation_due_at else "",
             "validated_at": p.validated_at.strftime("%Y-%m-%d %H:%M") if p.validated_at else "",
             "_prediction_id": str(p.prediction_id),
         }
         if selectable:
-            row = {"select": False, **row}
+            row = {"select": str(p.prediction_id) in preselected, **row}
         rows.append(row)
 
     df = pd.DataFrame(rows)
     st.caption(
         "**T0** = engagement at collect/import · **Pred** = model forecast · "
-        "**Actual** = fresh URL re-scrape (48h window or manual validate)"
+        "**Actual** = fresh URL re-scrape (or same-age grade) · "
+        "**horizon_h/lane** = Phase 11 target · "
+        "**age_h/mode** = post age at grade "
+        "(forced_early excluded from AI learning when age-aware is ON)"
     )
     display_df = df.drop(columns=["_prediction_id"])
     if selectable:
@@ -178,6 +210,7 @@ def render_validation_comparison_table(
             if selected
         ]
         st.session_state["validation_selected_ids"] = selected_ids
+        st.session_state["validation_preselected_ids"] = selected_ids
     else:
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
@@ -192,6 +225,12 @@ def render_predictions_table(predictions: list[PredictionRecord]) -> None:
             {
                 "post_id": p.linkedin_post_id,
                 "status": p.status,
+                "horizon_h": (
+                    round(float(p.prediction_horizon_hours), 1)
+                    if p.prediction_horizon_hours is not None
+                    else None
+                ),
+                "lane": getattr(p, "prediction_lane", None) or "",
                 "pred %": round(p.predicted_engagement_percentile, 1),
                 "pred likes": p.predicted_likes,
                 "pred comments": p.predicted_comments,
@@ -207,11 +246,64 @@ def render_predictions_table(predictions: list[PredictionRecord]) -> None:
                 "comments Δ": round(p.comments_delta, 1) if p.comments_delta is not None else None,
                 "shares Δ": round(p.shares_delta, 1) if p.shares_delta is not None else None,
                 "total Δ": round(p.total_engagement_delta, 1) if p.total_engagement_delta is not None else None,
+                "age_h": (
+                    round(age, 1)
+                    if (age := _validation_age_hours(p)) is not None
+                    else None
+                ),
+                "mode": _validation_mode(p),
+                "backtest": p.is_backtest,
                 "due_at": p.validation_due_at.isoformat() if p.validation_due_at else None,
                 "validated_at": p.validated_at.isoformat() if p.validated_at else None,
             }
         )
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def render_validation_batch_summary(batch: ValidationBatchResult) -> None:
+    """Show last-run counts plus a per-item status table (soft failures as warnings)."""
+    st.success(
+        f"Processed {batch.processed} · Validated {batch.validated} · Failed {batch.failed}"
+    )
+    if not batch.results:
+        return
+
+    rows = []
+    soft_notes: list[str] = []
+    for item in batch.results:
+        note = (item.error or "").strip()
+        row: dict = {
+            "prediction_id": str(item.prediction_id),
+            "status": item.status,
+            "actual_total": item.actuals.total_engagement if item.actuals else None,
+            "actual_%": (
+                round(item.scores.actual_engagement_percentile, 1)
+                if item.scores is not None
+                else None
+            ),
+            "%_delta": (
+                round(item.scores.prediction_delta, 1)
+                if item.scores is not None
+                else None
+            ),
+            "accuracy": (
+                round(item.scores.accuracy_score, 1)
+                if item.scores is not None
+                else None
+            ),
+            "note": note or None,
+        }
+        rows.append(row)
+        if item.status == "failed" and note:
+            soft_notes.append(f"{item.prediction_id}: {note}")
+        elif item.status == "skipped" and note:
+            soft_notes.append(note)
+
+    st.caption("Last run — per-item status")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    for note in soft_notes:
+        st.warning(note)
 
 
 def load_predictions(settings: Settings, status: str | None = None, limit: int = 100) -> list[PredictionRecord]:

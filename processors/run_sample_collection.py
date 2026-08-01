@@ -43,6 +43,9 @@ from storage.sample_store import SampleStore
 from storage.vector_store import create_schema, get_connection
 from telemetry.apify_schemas import ApifyRunRecord
 
+# Captured at import so tests that patch LinkedInProfileScraper still get a real int.
+_PROFILE_SCRAPE_CAP = LinkedInProfileScraper.MAX_PROFILES_PER_RUN
+
 _ENRICHED_CSV_FIELDS = (
     "post_id",
     "author_name",
@@ -69,6 +72,7 @@ class CollectionResult:
     enriched_posts: list[dict[str, Any]]
     timestamp: str
     apify_runs: list[ApifyRunRecord] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 def _utc_timestamp() -> str:
@@ -139,6 +143,34 @@ def _flatten_enriched_for_csv(enriched_post: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _effective_profile_url_cap(profile_url_limit: int | None) -> int:
+    """Hard safety cap is MAX_PROFILES_PER_RUN; optional limit may only lower it."""
+    cap = _PROFILE_SCRAPE_CAP
+    if profile_url_limit is not None:
+        return max(0, min(int(profile_url_limit), cap))
+    return cap
+
+
+def _cap_profile_urls(
+    urls: list[str],
+    *,
+    profile_url_limit: int | None,
+    warnings: list[str] | None = None,
+) -> list[str]:
+    """Truncate profile URLs to the per-run safety limit; never abort the collect."""
+    cap = _effective_profile_url_cap(profile_url_limit)
+    if len(urls) <= cap:
+        return urls
+    deferred = len(urls) - cap
+    msg = (
+        f"Capped profile scrape at {cap}/run ({deferred} personal author(s) "
+        "deferred — re-run profile enrichment later to finish)."
+    )
+    if warnings is not None:
+        warnings.append(msg)
+    return urls[:cap]
+
+
 def _resolve_profile_records(
     posts: list[dict[str, Any]],
     settings: Settings,
@@ -147,11 +179,18 @@ def _resolve_profile_records(
     profile_url_limit: int | None,
     apify_runs: list[ApifyRunRecord] | None = None,
     context: str | None = None,
+    warnings: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]]]:
-    """Return (profile_records, urls_to_scrape, fresh_scrape_records)."""
+    """Return (profile_records, urls_to_scrape, fresh_scrape_records).
+
+    Profile URLs are capped at ``_PROFILE_SCRAPE_CAP`` (Apify safety limit)
+    so a large post search never fails the whole collection — deferred
+    authors can be backfilled later.
+    """
     personal_urls = collect_personal_profile_urls(posts)
     if profile_url_limit is not None:
-        personal_urls = personal_urls[:profile_url_limit]
+        # Explicit caller cap (e.g. cheap test runs) applied before cache logic.
+        personal_urls = personal_urls[: max(0, int(profile_url_limit))]
 
     cached_records: list[dict[str, Any]] = []
     urls_to_scrape = list(personal_urls)
@@ -174,11 +213,16 @@ def _resolve_profile_records(
             if stale_ids:
                 urls_to_scrape = _urls_for_author_ids(posts, stale_ids)
                 if profile_url_limit is not None:
-                    urls_to_scrape = urls_to_scrape[:profile_url_limit]
+                    urls_to_scrape = urls_to_scrape[: max(0, int(profile_url_limit))]
             else:
                 urls_to_scrape = []
         finally:
             conn.close()
+
+    # Always enforce the Apify safety limit before a paid scrape — never abort.
+    urls_to_scrape = _cap_profile_urls(
+        urls_to_scrape, profile_url_limit=None, warnings=warnings
+    )
 
     fresh_records: list[dict[str, Any]] = []
     if urls_to_scrape:
@@ -245,15 +289,30 @@ def run_sample_collection(
         apify_runs.append(post_result.run_record)
     post_path = store.save("linkedin", posts, timestamp=timestamp)
 
+    warnings: list[str] = []
     progress("Phase 2/2: Enriching author profiles...")
-    profile_records, urls_scraped, fresh_records = _resolve_profile_records(
-        posts,
-        settings,
-        use_profile_cache=use_profile_cache,
-        profile_url_limit=profile_url_limit,
-        apify_runs=apify_runs,
-        context=run_context,
-    )
+    profile_records: list[dict[str, Any]] = []
+    urls_scraped: list[str] = []
+    fresh_records: list[dict[str, Any]] = []
+    try:
+        profile_records, urls_scraped, fresh_records = _resolve_profile_records(
+            posts,
+            settings,
+            use_profile_cache=use_profile_cache,
+            profile_url_limit=profile_url_limit,
+            apify_runs=apify_runs,
+            context=run_context,
+            warnings=warnings,
+        )
+    except Exception as exc:
+        # Posts are already paid for and saved — never discard them because
+        # profile enrichment hit a limit or transient Apify error.
+        msg = (
+            f"Profile enrichment skipped after posts were saved "
+            f"({post_path.name}): {exc}"
+        )
+        warnings.append(msg)
+        progress(msg)
 
     profile_path: Path | None = None
     if fresh_records:
@@ -262,6 +321,9 @@ def run_sample_collection(
         # Cache-only path: still persist merged records for downstream pairing.
         profile_path = store.save("linkedin_profiles", profile_records, timestamp=timestamp)
 
+    if warnings:
+        for warning in warnings:
+            progress(warning)
     if urls_scraped:
         progress(f"Phase 2/2: Scraped {len(fresh_records)} author profile(s).")
     elif collect_personal_profile_urls(posts):
@@ -303,6 +365,7 @@ def run_sample_collection(
         enriched_posts=enriched_posts,
         timestamp=timestamp,
         apify_runs=apify_runs,
+        warnings=warnings,
     )
 
 
@@ -323,6 +386,7 @@ def run_profile_backfill(
     store = SampleStore(settings.raw_data_dir)
     processed_store = ProcessedStore()
     apify_runs: list[ApifyRunRecord] = []
+    warnings: list[str] = []
 
     profile_records, _, fresh_records = _resolve_profile_records(
         posts,
@@ -331,6 +395,7 @@ def run_profile_backfill(
         profile_url_limit=profile_url_limit,
         apify_runs=apify_runs,
         context=f"profile_backfill:{timestamp}",
+        warnings=warnings,
     )
 
     profile_path: Path | None = None
@@ -365,6 +430,7 @@ def run_profile_backfill(
         enriched_posts=enriched_posts,
         timestamp=timestamp,
         apify_runs=apify_runs,
+        warnings=warnings,
     )
 
 

@@ -9,6 +9,7 @@ import streamlit as st
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent))
 
 from config.settings import load_settings  # noqa: E402
+from dashboard.chrome import page_header, pipeline_flow_strip, render_phase_badges, section_header  # noqa: E402
 from feedback.ui import render_calibration_panel, render_coverage_panel  # noqa: E402
 from feedback.observability_ui import (  # noqa: E402
     render_cluster_accuracy,
@@ -20,12 +21,27 @@ from validation_pipeline.ui import (  # noqa: E402
     render_predictions_table,
 )
 
-st.set_page_config(page_title="Accuracy History", layout="wide")
-st.title("Validation Pipeline — Accuracy History")
-st.caption(
-    "Percentile and per-metric count accuracy after scheduled re-scrape "
-    "(likes, comments, shares). Feedback/calibration details live on "
-    "**Feedback Loop**."
+st.set_page_config(page_title="Accuracy over time", layout="wide")
+page_header(
+    "Accuracy over time",
+    "Charts and tables for how wrong (or right) predictions were after grading. "
+    "Also shows whether learning is allowed to be on. Deep controls live on "
+    "**Feedback loop**.",
+    step_hint="Validation step 3 of 4 · Related phases: E (measure), A (calibration), F (go/no-go)",
+)
+pipeline_flow_strip("validation", "accuracy")
+render_phase_badges(["E", "A", "F"])
+
+section_header(
+    "Reading this page",
+    """
+**Average error (MAE)** = how far predictions are from reality (lower is better).
+
+**Calibration** = a numeric nudge from past mistakes (Phase A) — usually OFF
+until Phase F says GO.
+
+For lessons, clusters, and manual jobs, open **Feedback loop**.
+""",
 )
 
 settings = load_settings()
@@ -46,7 +62,7 @@ st.divider()
 render_coverage_panel(settings)
 st.info(
     "For clusters, lesson text, and **manual** generate/refresh actions, "
-    "open **Feedback Loop** in the Validation Pipeline nav."
+    "open **Feedback loop** under Check and learn."
 )
 
 st.divider()

@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -337,30 +337,113 @@ async def bulk_import_vectorized_and_predict_async(
     due_immediately: bool = False,
     skip_existing: bool = True,
     backtest: bool = False,
+    validation_window_hours: float | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ):
-    """Discover vectorized bundles, predict, and schedule validation.
+    """Predict on vectorized corpus posts (does **not** load the whole corpus first).
 
-    When *backtest* is True, engagement metrics are zeroed out before
-    prediction and ``due_immediately`` is forced to True.
+    Walks datasets newest-first, skips posts that already have Lane A / predictions,
+    stops once ``max_posts`` candidates are collected, then runs Gemini predict.
     """
-    from validation_pipeline.corpus_import import CorpusImportResult, predict_on_posts_async
-    from validation_pipeline.schemas import strip_engagement_for_backtest
+    from storage.vector_store import create_schema, get_connection
+    from validation_pipeline.corpus_import import predict_on_posts_async
+    from validation_pipeline.store import fetch_import_skip_post_ids
 
-    posts, datasets = load_all_vectorized_collected_posts(
-        settings,
-        max_posts=max_posts,
-    )
-    if backtest:
-        posts = strip_engagement_for_backtest(posts)
+    target = int(max_posts) if max_posts is not None else 40
+    target = max(1, target)
+
+    if on_progress:
+        on_progress(0, target, f"Finding up to {target} posts to predict…")
+
+    datasets = discover_vectorized_datasets(settings)
+    if not datasets:
+        from validation_pipeline.corpus_import import CorpusImportResult
+
+        return CorpusImportResult()
+
+    skip_ids: set[str] = set()
+    if skip_existing and settings.database_url:
+        conn = get_connection(settings)
+        try:
+            create_schema(conn)
+            skip_ids = fetch_import_skip_post_ids(
+                conn,
+                multi_horizon=bool(settings.validation_multi_horizon_enabled),
+                fixed_horizon_enabled=bool(
+                    getattr(settings, "validation_fixed_horizon_enabled", True)
+                ),
+            )
+        finally:
+            conn.close()
+
+    selected: list[CollectedPost] = []
+    skipped_existing = 0
+    seen: set[str] = set()
+    used_datasets: list[VectorizedDataset] = []
+
+    for index, dataset in enumerate(datasets, start=1):
+        if len(selected) >= target:
+            break
+        if on_progress:
+            on_progress(
+                len(selected),
+                target,
+                f"Scanning {index}/{len(datasets)}: {dataset.jsonl_path.name}",
+            )
+        try:
+            chunk, _ = load_collected_posts_from_vectorized_datasets(
+                [dataset],
+                settings,
+                max_posts=None,
+            )
+        except Exception:
+            continue
+        used_datasets.append(dataset)
+        for post in chunk:
+            pid = post.linkedin_post_id
+            if not pid or pid in seen:
+                continue
+            seen.add(pid)
+            if skip_existing and pid in skip_ids:
+                skipped_existing += 1
+                continue
+            selected.append(post)
+            if len(selected) >= target:
+                break
+
+    if on_progress:
+        on_progress(
+            0,
+            len(selected) or 1,
+            (
+                f"Predicting {len(selected)} post(s)"
+                + (
+                    f" (skipped {skipped_existing} already done while scanning)"
+                    if skipped_existing
+                    else ""
+                )
+            ),
+        )
+
+    if backtest and not settings.validation_multi_horizon_enabled:
+        from validation_pipeline.schemas import strip_engagement_for_backtest
+
+        selected = strip_engagement_for_backtest(selected)
         due_immediately = True
+
     result = await predict_on_posts_async(
-        posts,
+        selected,
         settings,
         due_immediately=due_immediately,
-        skip_existing=skip_existing,
+        skip_existing=False,  # already filtered while scanning
+        is_backtest=backtest and not settings.validation_multi_horizon_enabled,
+        validation_window_hours=validation_window_hours,
+        on_progress=on_progress,
     )
-    result.source_files = [dataset.label for dataset in datasets]
+    result.skipped += skipped_existing
+    result.source_files = [dataset.label for dataset in used_datasets]
     return result
+
 
 
 def bulk_import_vectorized_and_predict(
@@ -378,5 +461,7 @@ def bulk_import_vectorized_and_predict(
             due_immediately=kwargs.get("due_immediately", False),
             skip_existing=kwargs.get("skip_existing", True),
             backtest=kwargs.get("backtest", False),
+            validation_window_hours=kwargs.get("validation_window_hours"),
+            on_progress=kwargs.get("on_progress"),
         )
     )

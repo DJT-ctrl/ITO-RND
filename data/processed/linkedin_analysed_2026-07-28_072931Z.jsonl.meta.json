@@ -1,0 +1,11 @@
+{
+  "bundle_id": "2026-07-28_072931Z",
+  "source_scans": [
+    "linkedin_2026-07-28_071259Z.json"
+  ],
+  "source_profiles": [
+    "linkedin_profiles_20260710T000442Z.json"
+  ],
+  "with_gemini": true,
+  "post_count": 957
+}
