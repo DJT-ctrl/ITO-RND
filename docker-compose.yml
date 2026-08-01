@@ -11,6 +11,9 @@
 #   grafana       dashboards on :3000 (Prometheus datasource auto-provisioned)
 #   cadvisor      per-container CPU/mem/net/disk metrics on :8080
 #   node-exporter host CPU/mem/disk metrics on :9100
+#   langfuse-web  self-hosted LLM trace engine UI on :3001 (T6.5)
+#   langfuse-worker + langfuse-db + clickhouse + minio + redis
+#                 Langfuse v3 backing services (traces, queue, blob store)
 #
 # Config comes from a repo-root .env (copy .env.example). It's optional at
 # `up` time (required: false) so the stack still starts for a first look;
@@ -91,6 +94,9 @@ services:
       # host-side scripts) so the container reaches Postgres over the compose
       # network by service name. `environment` wins over `env_file`.
       DATABASE_URL: postgresql://${POSTGRES_USER:-ito}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@db:5432/${POSTGRES_DB:-ito_posts}
+      # Reach Langfuse over the compose network (the .env value is localhost
+      # for host-side scripts). Keys come from .env; tracing is off until set.
+      LANGFUSE_HOST: http://langfuse-web:3000
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     healthcheck:
@@ -163,6 +169,131 @@ services:
     ports:
       - "127.0.0.1:9100:9100"
 
+  # ── Langfuse self-hosted trace engine (T6.5) ─────────────────────────────
+  # Self-hosted LLM observability. v3 backing services: langfuse-db (metadata),
+  # clickhouse (traces), redis (queue), minio (blob store). The LANGFUSE_INIT_*
+  # vars seed an org, project, and the LANGFUSE_PUBLIC_KEY/SECRET_KEY pair on
+  # first boot, so tracing works headless without a manual UI step.
+  # The backing-store secrets below default to local-dev values so the stack
+  # boots with zero config; override them via .env for any non-local use.
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${LANGFUSE_HOST_PORT:-3001}:3000"
+    environment: &langfuse-env
+      LANGFUSE_INIT_ORG_ID: ito
+      LANGFUSE_INIT_PROJECT_ID: ito-rnd
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@ito.local}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-langfuse-admin}
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      SALT: ${LANGFUSE_SALT:-langfuse-local-salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse-local-nextauth-secret}
+      NEXTAUTH_URL: ${LANGFUSE_URL:-http://localhost:3001}
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://clickhouse:9000
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD:-redis}@redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: unless-stopped
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *langfuse-env
+
+  langfuse-db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse -d langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  minio:
+    image: minio/minio:RELEASE.2024-08-17T01-24-54Z
+    restart: unless-stopped
+    entrypoint: sh
+    # Ensure the langfuse bucket exists before the server takes traffic.
+    command: -c 'mkdir -p /data/langfuse && minio server /data --console-address ":9001"'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: --requirepass ${REDIS_PASSWORD:-redis}
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   prometheus_data:
   grafana_data:
+  langfuse_db_data:
+  clickhouse_data:
+  clickhouse_logs:
+  minio_data:
