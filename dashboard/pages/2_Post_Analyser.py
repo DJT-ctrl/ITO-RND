@@ -326,7 +326,9 @@ status = st.empty()
 
 if run_python or run_full:
     st.session_state.terminal_log = []  # fresh log each run
-    first_gemini_error: Optional[str] = None
+    # Mutable box — Streamlit pages run at module scope, so nested
+    # callbacks cannot use ``nonlocal`` for a sibling assignment.
+    first_gemini_error: list[Optional[str]] = [None]
     try:
         analyser = PostAnalyser(settings)
         subset = posts[: int(max_posts)]
@@ -345,10 +347,9 @@ if run_python or run_full:
                 progress.progress(done / total, text=f"Stage 2: {done}/{total}")
 
             def _on_stage2_error(message: str) -> None:
-                nonlocal first_gemini_error
                 _append_log("ERROR", message)
-                if first_gemini_error is None:
-                    first_gemini_error = message
+                if first_gemini_error[0] is None:
+                    first_gemini_error[0] = message
 
             gemini_records = map_gemini_features(
                 subset,
@@ -364,8 +365,8 @@ if run_python or run_full:
                 summary = (
                     f"Stage 2 complete but 0/{len(gemini_records)} posts returned Gemini features."
                 )
-                if first_gemini_error:
-                    summary += f" First error: {first_gemini_error}"
+                if first_gemini_error[0]:
+                    summary += f" First error: {first_gemini_error[0]}"
                 _append_log("ERROR", summary)
             elif ok < len(gemini_records):
                 _append_log(
@@ -406,7 +407,7 @@ if run_python or run_full:
         if run_full:
             ok = _gemini_success_count(gemini_records)
             if ok == 0:
-                detail = first_gemini_error or "See Pipeline log in the sidebar."
+                detail = first_gemini_error[0] or "See Pipeline log in the sidebar."
                 status.error(
                     f"Gemini returned no features for any of "
                     f"{len(gemini_records)} post(s). {detail} "
