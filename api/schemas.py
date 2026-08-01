@@ -175,6 +175,26 @@ class EvaluateResponse(BaseModel):
     embedding_model_version: Optional[str] = None
 
 
+class AgentDescriptor(BaseModel):
+    """Agent exposed by backend for UI discovery and status mapping."""
+
+    id: str = Field(..., description="Stable machine id, e.g. predictor or seo.")
+    name: str = Field(..., description="Human-readable label for UI display.")
+    kind: Literal["predictor", "diagnostic", "variant", "system"] = Field(
+        ..., description="Agent category for iconography/grouping."
+    )
+    stage: Literal["setup", "evaluation", "optimization", "reporting", "monitoring"] = Field(
+        ..., description="Primary workflow stage where the agent executes."
+    )
+    description: str = Field(..., description="Short plain-language purpose.")
+
+
+class AgentCatalogResponse(BaseModel):
+    """Stable v1 contract for GET /api/v1/agents."""
+
+    agents: list[AgentDescriptor] = Field(default_factory=list)
+
+
 class ApiErrorResponse(BaseModel):
     """Documented error envelope for frontend handling (runtime wiring in #7)."""
 
