@@ -96,6 +96,8 @@ class NormalizedPost(BaseModel):
     hook_type: Optional[HookType] = None
     tone: Optional[Tone] = None
     topic: Optional[str] = None
+    # T10.6 coarse niche enum (phase_10.topics.NICHES); derived from topic.
+    niche: Optional[str] = None
     has_explicit_cta: Optional[bool] = None
     writing_style: Optional[str] = None
 

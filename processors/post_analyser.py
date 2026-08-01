@@ -140,8 +140,10 @@ class PostAnalyser:
         self._model = DEFAULT_GEMINI_MODEL
 
     @staticmethod
-    def _empty_gemini_features() -> dict[str, None]:
-        return {k: None for k in _GEMINI_FEATURE_KEYS}
+    def _empty_gemini_features() -> dict[str, Any]:
+        from phase_10.tagging import apply_niche
+
+        return apply_niche({k: None for k in _GEMINI_FEATURE_KEYS})
 
     @staticmethod
     def _extract_response_text(response: Any) -> str:
@@ -279,7 +281,10 @@ class PostAnalyser:
                     raw_text[:200],
                 )
 
-            return {key: parsed.get(key) for key in _GEMINI_FEATURE_KEYS}
+            from phase_10.tagging import apply_niche
+
+            features = {key: parsed.get(key) for key in _GEMINI_FEATURE_KEYS}
+            return apply_niche(features)
         except json.JSONDecodeError as exc:
             return self._fail(
                 f"Post {post_id}: invalid Gemini JSON ({exc}) — "

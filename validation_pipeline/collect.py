@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 
 from config.paths import resolve_data_path, utc_artifact_stamp
 from config.settings import Settings, load_settings
+from phase_10.topics import is_valid_niche
 from processors.post_analyser import PostAnalyser
 from processors.profile_enricher import enrich_posts_with_follower_data
 from processors.run_sample_collection import _resolve_profile_records
@@ -67,6 +68,10 @@ def raw_posts_to_collected(
             continue
         features = analyser.compute_python_features(post)
         author = post.get("author") or {}
+        raw_niche = post.get("niche") or features.get("niche")
+        niche = None
+        if isinstance(raw_niche, str) and is_valid_niche(raw_niche.strip()):
+            niche = raw_niche.strip()
         collected.append(
             CollectedPost(
                 linkedin_post_id=str(post_id),
@@ -75,6 +80,7 @@ def raw_posts_to_collected(
                 content=content,
                 posted_at=posted_at,
                 follower_count=features.get("follower_count"),
+                niche=niche,
                 likes=int(features.get("likes") or 0),
                 comments=int(features.get("comments") or 0),
                 shares=int(features.get("shares") or 0),

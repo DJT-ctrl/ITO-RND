@@ -22,6 +22,7 @@ from processors.benchmark import (
     flag_engagement_anomalies,
 )
 from processors.schemas import NormalizedPost
+from phase_10.tagging import apply_niche
 
 _ANALYSED_PREFIX = "linkedin_analysed_"
 _ANALYSED_SUFFIX = ".jsonl"
@@ -60,7 +61,7 @@ def prepare_record_for_schema(record: dict[str, Any]) -> dict[str, Any]:
     if follower_count is not None and total is not None and out.get("engagement_rate") is None:
         follower_count = int(follower_count)
         out["engagement_rate"] = round(total / follower_count, 4) if follower_count > 0 else None
-    return out
+    return apply_niche(out)
 
 
 def finalize_analysed_records(

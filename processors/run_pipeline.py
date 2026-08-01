@@ -50,7 +50,6 @@ from config.paths import utc_artifact_stamp
 from config.settings import Settings, load_settings
 from processors.corpus_benchmarks import build_snapshot, save_snapshot
 from processors.dedup import dedupe_posts
-from processors.dedup import dedupe_posts
 from processors.finalize_records import analysed_dataset_label, finalize_analysed_records
 from processors.post_analyser import PostAnalyser
 from processors.profile_enricher import enrich_posts_with_follower_data
@@ -82,11 +81,17 @@ def run_pipeline(
     store: Optional[ProcessedStore] = None,
     with_profile_enrichment: bool = False,
     profile_file: Optional[str] = None,
+    raw_posts: Optional[list[dict]] = None,
+    source_scans: Optional[list[str]] = None,
 ) -> tuple[Path, Path]:
     """Run the full T1.2 batch pipeline and return (csv_path, jsonl_path).
 
     ``settings``/``store`` are injectable purely so tests can point the
     pipeline at a temp directory instead of the real data/raw + data/processed.
+
+    When ``raw_posts`` is provided, only those posts are analysed (agentic
+    scoped refresh). Otherwise every ``linkedin_*.json`` under raw_data_dir
+    is loaded as before.
 
     ``with_profile_enrichment`` is the OPTIONAL follower-normalization path
     (T6 Point 1): when True, a saved profile scrape (``profile_file``, or
@@ -103,17 +108,24 @@ def run_pipeline(
     store = store or ProcessedStore()
     analyser = PostAnalyser(settings)
 
-    raw_posts = load_raw_posts(settings.raw_data_dir)
-    if not raw_posts:
-        raise ValueError(f"No raw posts found under {settings.raw_data_dir}/linkedin_*.json")
-
-    source_scan_names = sorted(
-        {
-            Path(path).name
-            for path in glob.glob(f"{settings.raw_data_dir}/linkedin_*.json")
-            if "profiles" not in Path(path).name
-        }
-    )
+    if raw_posts is not None:
+        raw_posts = list(raw_posts)
+        source_scan_names = list(source_scans or [])
+        if not raw_posts:
+            raise ValueError("raw_posts is empty — nothing to analyse.")
+    else:
+        raw_posts = load_raw_posts(settings.raw_data_dir)
+        if not raw_posts:
+            raise ValueError(
+                f"No raw posts found under {settings.raw_data_dir}/linkedin_*.json"
+            )
+        source_scan_names = sorted(
+            {
+                Path(path).name
+                for path in glob.glob(f"{settings.raw_data_dir}/linkedin_*.json")
+                if "profiles" not in Path(path).name
+            }
+        )
 
     # Remove exact-duplicate content BEFORE Stage 1/benchmark — both are
     # indexed 1:1 off raw_posts, and duplicate content would otherwise

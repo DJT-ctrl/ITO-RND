@@ -111,13 +111,14 @@ def generate_template_feedback_from_record(
     record: PredictionRecord,
     *,
     follower_count: Optional[int] = None,
+    niche: Optional[str] = None,
 ) -> FeedbackPayload:
     """Generate feedback from a validated PredictionRecord."""
     if record.actual_engagement_percentile is None or record.prediction_delta is None:
         raise ValueError(
             f"Prediction {record.prediction_id} is missing actual percentile or delta"
         )
-    cluster_id = assign_cluster_id(record.content, follower_count)
+    cluster_id = assign_cluster_id(record.content, follower_count, niche=niche)
     return generate_template_feedback(
         record.prediction_id,
         predicted_percentile=record.predicted_engagement_percentile,
@@ -138,9 +139,10 @@ def generate_template_feedback_from_scores(
     scores: ValidationScores,
     *,
     follower_count: Optional[int] = None,
+    niche: Optional[str] = None,
 ) -> FeedbackPayload:
     """Generate feedback immediately after scoring (before re-fetch)."""
-    cluster_id = assign_cluster_id(prediction.content, follower_count)
+    cluster_id = assign_cluster_id(prediction.content, follower_count, niche=niche)
     return generate_template_feedback(
         prediction.prediction_id,
         predicted_percentile=prediction.predicted_engagement_percentile,

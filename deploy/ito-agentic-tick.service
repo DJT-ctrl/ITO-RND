@@ -1,0 +1,34 @@
+# systemd oneshot: one agentic scheduler tick (T10.11).
+# Driven by ito-agentic-tick.timer (every 15 minutes). Do not also cron
+# run_validation_worker / run_feedback_worker in parallel — the tick is the hub.
+#
+# Install:
+#   sudo cp deploy/ito-agentic-tick.service deploy/ito-agentic-tick.timer /etc/systemd/system/
+#   # edit WorkingDirectory / EnvironmentFile if the repo isn't at /opt/ito-rnd
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ito-agentic-tick.timer
+#
+# Operate:
+#   systemctl list-timers | grep agentic
+#   systemctl status ito-agentic-tick.service
+#   journalctl -u ito-agentic-tick -n 50
+#   sudo systemctl start ito-agentic-tick.service   # manual one-shot
+
+[Unit]
+Description=ITO agentic layer tick (validation, feedback, scrapes, digest)
+After=network-online.target
+Wants=network-online.target
+# Prefer running after the Compose stack is up when both are installed.
+After=ito-stack.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ito-rnd
+EnvironmentFile=-/opt/ito-rnd/.env
+ExecStart=/opt/ito-rnd/.venv/bin/python -m phase_10.jobs.run_agentic_tick
+Nice=10
+# Scrape + validation can take several minutes under load.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

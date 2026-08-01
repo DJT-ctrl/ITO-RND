@@ -137,6 +137,25 @@ class Settings:
     eval_cost_warning_usd: float = 0.10
     eval_latency_warning_ms: int = 60000
     eval_step_latency_warning_ms: int = 20000
+    # T10.9: agentic layer Apify + Gemini spend ceilings (USD).
+    agentic_apify_daily_cap_usd: float = 25.0
+    agentic_apify_monthly_cap_usd: float = 500.0
+    agentic_gemini_daily_cap_usd: float = 10.0
+    agentic_gemini_monthly_cap_usd: float = 200.0
+    # T10.3: schedule cadences (hours). Validation/feedback run every tick.
+    agentic_general_refresh_interval_hours: float = 3.0
+    agentic_niche_scrape_interval_hours: float = 24.0
+    agentic_pro_digest_interval_hours: float = 24.0
+    agentic_validation_limit: int = 50
+    agentic_feedback_limit: int = 20
+    # T10.4 / T10.5 corpus refresh.
+    agentic_general_max_posts: int = 20
+    agentic_niche_max_posts_total: int = 40
+    agentic_niche_stale_hours: float = 20.0
+    agentic_scrape_with_gemini: bool = False
+    # T10.10: Dev AI workflow critic (Gemini Pro).
+    agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
+    agentic_pro_digest_dry_run: bool = False
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -224,6 +243,45 @@ def load_settings() -> Settings:
         eval_cost_warning_usd=float(os.getenv("EVAL_COST_WARNING_USD", "0.10")),
         eval_latency_warning_ms=int(os.getenv("EVAL_LATENCY_WARNING_MS", "60000")),
         eval_step_latency_warning_ms=int(os.getenv("EVAL_STEP_LATENCY_WARNING_MS", "20000")),
+        agentic_apify_daily_cap_usd=float(
+            os.getenv("AGENTIC_APIFY_DAILY_CAP_USD", "25")
+        ),
+        agentic_apify_monthly_cap_usd=float(
+            os.getenv("AGENTIC_APIFY_MONTHLY_CAP_USD", "500")
+        ),
+        agentic_gemini_daily_cap_usd=float(
+            os.getenv("AGENTIC_GEMINI_DAILY_CAP_USD", "10")
+        ),
+        agentic_gemini_monthly_cap_usd=float(
+            os.getenv("AGENTIC_GEMINI_MONTHLY_CAP_USD", "200")
+        ),
+        agentic_general_refresh_interval_hours=float(
+            os.getenv("AGENTIC_GENERAL_REFRESH_INTERVAL_HOURS", "3")
+        ),
+        agentic_niche_scrape_interval_hours=float(
+            os.getenv("AGENTIC_NICHE_SCRAPE_INTERVAL_HOURS", "24")
+        ),
+        agentic_pro_digest_interval_hours=float(
+            os.getenv("AGENTIC_PRO_DIGEST_INTERVAL_HOURS", "24")
+        ),
+        agentic_validation_limit=int(os.getenv("AGENTIC_VALIDATION_LIMIT", "50")),
+        agentic_feedback_limit=int(os.getenv("AGENTIC_FEEDBACK_LIMIT", "20")),
+        agentic_general_max_posts=int(os.getenv("AGENTIC_GENERAL_MAX_POSTS", "20")),
+        agentic_niche_max_posts_total=int(
+            os.getenv("AGENTIC_NICHE_MAX_POSTS_TOTAL", "40")
+        ),
+        agentic_niche_stale_hours=float(
+            os.getenv("AGENTIC_NICHE_STALE_HOURS", "20")
+        ),
+        agentic_scrape_with_gemini=_env_bool(
+            "AGENTIC_SCRAPE_WITH_GEMINI", default=False
+        ),
+        agentic_pro_digest_model=os.getenv(
+            "AGENTIC_PRO_DIGEST_MODEL", "gemini-3.1-pro-preview"
+        ),
+        agentic_pro_digest_dry_run=_env_bool(
+            "AGENTIC_PRO_DIGEST_DRY_RUN", default=False
+        ),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings

@@ -12,7 +12,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from feedback.generate import FEEDBACK_VERSION
-from feedback.routing import cluster_label
+from feedback.routing import cluster_fallback_ids, cluster_label
 from feedback.schemas import (
     CalibrationStats,
     ClusterStats,
@@ -21,6 +21,7 @@ from feedback.schemas import (
     FeedbackReviewStatus,
     GenerationMethod,
 )
+from phase_10.topics import is_valid_niche
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,45 @@ _FEEDBACK_SELECT = """
     generation_latency_ms, input_tokens, output_tokens, cost_usd,
     feedback_review_status, reviewed_at, reviewed_by
 """
+
+
+def lookup_post_niche(
+    conn: psycopg.Connection,
+    linkedin_post_id: Optional[str],
+) -> Optional[str]:
+    """Return posts.niche when present and valid; else None."""
+    if not linkedin_post_id:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT niche FROM posts WHERE post_id = %s LIMIT 1",
+                (linkedin_post_id,),
+            )
+            row = cur.fetchone()
+    except Exception:
+        logger.debug(
+            "posts.niche lookup failed for %s", linkedin_post_id, exc_info=True
+        )
+        return None
+    if not row or not row[0]:
+        return None
+    niche = str(row[0]).strip()
+    return niche if is_valid_niche(niche) else None
+
+
+def resolve_post_niche(
+    *,
+    niche: Optional[str] = None,
+    linkedin_post_id: Optional[str] = None,
+    conn: Optional[psycopg.Connection] = None,
+) -> Optional[str]:
+    """Prefer explicit niche; else look up posts.niche when a connection is open."""
+    if is_valid_niche(niche):
+        return niche
+    if conn is not None and linkedin_post_id:
+        return lookup_post_niche(conn, linkedin_post_id)
+    return None
 
 
 def fetch_calibration_stats(conn: psycopg.Connection) -> CalibrationStats:
@@ -100,21 +140,24 @@ def resolve_calibration_stats(
 ) -> CalibrationStats:
     """Prefer cluster mean_delta when sample_count >= cluster_n_min; else global.
 
-    Fallback chain: cluster → global → none.
+    Fallback chain (T10.7): topic+shape → shape-only → global → none.
+    ``cluster_id`` on the result is the bucket that supplied the mean_delta
+    when source is ``cluster``; otherwise the primary (requested) id.
     """
     if cluster_id:
-        cluster = fetch_cluster_stats(conn, cluster_id)
-        if (
-            cluster is not None
-            and cluster.sample_count >= cluster_n_min
-            and cluster.mean_delta is not None
-        ):
-            return CalibrationStats(
-                n_validated=cluster.sample_count,
-                mean_delta=round(float(cluster.mean_delta), 4),
-                cluster_id=cluster_id,
-                source="cluster",
-            )
+        for candidate_id in cluster_fallback_ids(cluster_id):
+            cluster = fetch_cluster_stats(conn, candidate_id)
+            if (
+                cluster is not None
+                and cluster.sample_count >= cluster_n_min
+                and cluster.mean_delta is not None
+            ):
+                return CalibrationStats(
+                    n_validated=cluster.sample_count,
+                    mean_delta=round(float(cluster.mean_delta), 4),
+                    cluster_id=candidate_id,
+                    source="cluster",
+                )
 
     global_stats = fetch_calibration_stats(conn)
     if cluster_id:

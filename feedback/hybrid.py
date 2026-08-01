@@ -47,6 +47,7 @@ def generate_hybrid_feedback(
     settings: Settings,
     *,
     follower_count: Optional[int] = None,
+    niche: Optional[str] = None,
 ) -> HybridGenerationResult:
     """Template base; optionally enrich what_missed/lessons via LLM for large misses.
 
@@ -54,7 +55,7 @@ def generate_hybrid_feedback(
     Successful LLM enrichment returns v2 hybrid pending review.
     """
     template = generate_template_feedback_from_record(
-        record, follower_count=follower_count
+        record, follower_count=follower_count, niche=niche
     )
     delta = float(record.prediction_delta or 0.0)
 

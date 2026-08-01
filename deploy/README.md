@@ -80,6 +80,33 @@ sudo systemctl enable --now ito-stack.service
 
 Then `systemctl status ito-stack` and `journalctl -u ito-stack -f`.
 
+## Agentic tick (Phase 10 background jobs)
+
+The agentic layer uses **one hub command** every 15 minutes — do **not** also
+cron `run_validation_worker` / `run_feedback_worker` in parallel (duplicate
+spend). Full ops detail:
+[current md/10_PRODUCTION_RUNBOOK.md](../current%20md/10_PRODUCTION_RUNBOOK.md)
+(section *Phase 10 — Agentic Layer*).
+
+### systemd timer (preferred on EC2)
+
+```bash
+sudo cp deploy/ito-agentic-tick.service deploy/ito-agentic-tick.timer /etc/systemd/system/
+# edit WorkingDirectory / EnvironmentFile if the repo isn't at /opt/ito-rnd
+sudo systemctl daemon-reload
+sudo systemctl enable --now ito-agentic-tick.timer
+systemctl list-timers | grep agentic
+journalctl -u ito-agentic-tick -n 50
+```
+
+Manual one-shot: `sudo systemctl start ito-agentic-tick.service`.
+
+### cron fallback
+
+```cron
+*/15 * * * * cd /opt/ito-rnd && .venv/bin/python -m phase_10.jobs.run_agentic_tick >> /var/log/ito-agentic-tick.log 2>&1
+```
+
 ## Common operations
 
 ```bash

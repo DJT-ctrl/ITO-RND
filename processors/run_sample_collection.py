@@ -213,6 +213,7 @@ def run_sample_collection(
     profile_url_limit: int | None = None,
     use_profile_cache: bool = True,
     on_progress: Callable[[str], None] | None = None,
+    context: str | None = None,
 ) -> CollectionResult:
     """Run post search then profile enrichment; return paths and merged data."""
     settings = settings or load_settings()
@@ -228,6 +229,7 @@ def run_sample_collection(
             on_progress(msg)
 
     timestamp = _utc_timestamp()
+    run_context = context or f"collection:{timestamp}"
     store = SampleStore(settings.raw_data_dir)
     processed_store = ProcessedStore()
     apify_runs: list[ApifyRunRecord] = []
@@ -236,7 +238,7 @@ def run_sample_collection(
     post_scraper = LinkedInScraper(settings)
     post_result = post_scraper.fetch_samples(
         search_params,
-        context=f"collection:{timestamp}",
+        context=run_context,
     )
     posts = post_result.items
     if post_result.run_record is not None:
@@ -250,7 +252,7 @@ def run_sample_collection(
         use_profile_cache=use_profile_cache,
         profile_url_limit=profile_url_limit,
         apify_runs=apify_runs,
-        context=f"collection:{timestamp}",
+        context=run_context,
     )
 
     profile_path: Path | None = None

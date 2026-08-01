@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS posts (
     hook_type           TEXT,
     tone                TEXT,
     topic               TEXT,
+    -- T10.6: coarse niche enum (phase_10.topics.NICHES); free-text stays in topic
+    niche               TEXT,
     has_explicit_cta    BOOLEAN,
     writing_style       TEXT,
 
@@ -89,10 +91,16 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_location_text TEXT;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_timezone TEXT;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_percentile DOUBLE PRECISION;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_zscore DOUBLE PRECISION;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS niche TEXT;
 
 -- Speeds up tenant-scoped retrieval (WHERE user_id = ...) and the voice-
 -- profile aggregation query in storage/vector_store.get_user_voice_profile().
 CREATE INDEX IF NOT EXISTS posts_user_id_idx ON posts (user_id) WHERE user_id IS NOT NULL;
+
+-- T10.6: niche filters for plan weights / soft topic prefer (T10.8 later).
+CREATE INDEX IF NOT EXISTS posts_niche_idx ON posts (niche) WHERE niche IS NOT NULL;
+CREATE INDEX IF NOT EXISTS posts_user_niche_idx ON posts (user_id, niche)
+    WHERE user_id IS NOT NULL AND niche IS NOT NULL;
 
 -- T6.6: profiles scrape cache — one row per author_public_id so profile
 -- scrapes aren't repeated across pipeline runs (see storage/profile_store.py).
@@ -258,6 +266,76 @@ CREATE TABLE IF NOT EXISTS feedback_jobs (
 CREATE INDEX IF NOT EXISTS feedback_jobs_status_created_idx
     ON feedback_jobs (status, created_at);
 
+-- T10.2: singleton search plan (seeds + derived niche weights).
+CREATE TABLE IF NOT EXISTS agentic_search_plan (
+    id                  SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+    seed_terms          TEXT[] NOT NULL DEFAULT '{}',
+    seed_accounts       TEXT[] NOT NULL DEFAULT '{}',
+    weights_by_niche    JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- T10.6: per-subscriber niche mix derived from tagged posts.
+CREATE TABLE IF NOT EXISTS user_niches (
+    user_id             TEXT NOT NULL,
+    niche               TEXT NOT NULL,
+    post_count          INTEGER NOT NULL DEFAULT 0,
+    weight              DOUBLE PRECISION NOT NULL DEFAULT 0,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, niche)
+);
+
+CREATE INDEX IF NOT EXISTS user_niches_niche_idx ON user_niches (niche);
+
+-- T10.9: daily agentic spend rollup (Apify + Gemini), keyed by job.
+CREATE TABLE IF NOT EXISTS agentic_cost_ledger (
+    day                 DATE NOT NULL,
+    provider            TEXT NOT NULL,
+    job_id              TEXT NOT NULL,
+    cost_usd            DOUBLE PRECISION NOT NULL DEFAULT 0
+                        CHECK (cost_usd >= 0),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (day, provider, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS agentic_cost_ledger_day_provider_idx
+    ON agentic_cost_ledger (day, provider);
+
+-- T10.3: last/next run state per agentic job.
+CREATE TABLE IF NOT EXISTS agentic_job_runs (
+    job_id              TEXT PRIMARY KEY,
+    last_run_at         TIMESTAMPTZ,
+    next_run_at         TIMESTAMPTZ,
+    last_result         TEXT,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- T10.5.5: per-scrape proof / run-health reports.
+CREATE TABLE IF NOT EXISTS agentic_scrape_proofs (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id              TEXT NOT NULL,
+    niche               TEXT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    payload             JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_created_idx
+    ON agentic_scrape_proofs (created_at DESC);
+CREATE INDEX IF NOT EXISTS agentic_scrape_proofs_job_idx
+    ON agentic_scrape_proofs (job_id, created_at DESC);
+
+-- T10.10: daily Gemini Pro workflow digests (read-only critic).
+CREATE TABLE IF NOT EXISTS agentic_digests (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    model               TEXT NOT NULL,
+    summary             TEXT NOT NULL,
+    severity            TEXT NOT NULL DEFAULT 'info',
+    payload             JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS agentic_digests_created_idx
+    ON agentic_digests (created_at DESC);
 
 -- HNSW index for fast approximate nearest-neighbour search (Erdal's T1.5
 -- success criterion: sub-15ms search).

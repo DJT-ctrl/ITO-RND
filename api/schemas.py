@@ -45,6 +45,8 @@ class SimilarPost(BaseModel):
     hashtag_count: Optional[int] = None
     word_count: Optional[int] = None
     topic: Optional[str] = None
+    # T10.6/T10.8 coarse niche enum when tagged; used for soft topic prefer.
+    niche: Optional[str] = None
     hook_type: Optional[str] = None
 
 

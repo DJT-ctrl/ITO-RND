@@ -20,12 +20,15 @@ from config.settings import Settings, load_settings, pydantic_ai_gemini_model
 from feedback.calibration import apply_calibration
 from feedback.retrieve import (
     example_limit_for_format,
-    fetch_cluster_feedback,
+    fetch_cluster_feedback_with_fallback,
     format_feedback_context_block,
 )
-from feedback.summarize import fetch_cluster_rollup
 from feedback.routing import assign_cluster_id
-from feedback.store import fetch_cluster_centroids, resolve_calibration_stats
+from feedback.store import (
+    fetch_cluster_centroids,
+    resolve_calibration_stats,
+    resolve_post_niche,
+)
 from processors.benchmark import compute_neighbor_prediction
 from processors.gemini_retry import async_call_with_gemini_retry
 from storage.vector_store import create_schema, get_connection
@@ -61,6 +64,8 @@ def _apply_calibration_to_neighbor_prediction(
     *,
     content: str = "",
     follower_count: Optional[int] = None,
+    niche: Optional[str] = None,
+    linkedin_post_id: Optional[str] = None,
     embedding: Optional[list[float]] = None,
 ) -> dict[str, Any] | None:
     """Adjust neighbor percentile using cluster→global mean_delta when enabled.
@@ -76,10 +81,16 @@ def _apply_calibration_to_neighbor_prediction(
         conn = get_connection(settings)
         try:
             create_schema(conn)
+            resolved_niche = resolve_post_niche(
+                niche=niche,
+                linkedin_post_id=linkedin_post_id,
+                conn=conn,
+            )
             centroids = fetch_cluster_centroids(conn)
             cluster_id = assign_cluster_id(
                 content,
                 follower_count,
+                niche=resolved_niche,
                 embedding=embedding,
                 centroids=centroids or None,
             )
@@ -95,7 +106,7 @@ def _apply_calibration_to_neighbor_prediction(
             "Calibration stats fetch failed; using raw neighbor percentile"
         )
         cluster_id = assign_cluster_id(
-            content, follower_count, embedding=embedding
+            content, follower_count, niche=niche, embedding=embedding
         )
         calibrated = dict(neighbor_prediction)
         calibrated["raw_percentile"] = raw_percentile
@@ -148,6 +159,8 @@ def _load_feedback_context(
     *,
     content: str,
     follower_count: Optional[int] = None,
+    niche: Optional[str] = None,
+    linkedin_post_id: Optional[str] = None,
     exclude_prediction_id: Optional[UUID] = None,
     embedding: Optional[list[float]] = None,
 ) -> tuple[Optional[str], Optional[str], int]:
@@ -159,14 +172,26 @@ def _load_feedback_context(
         conn = get_connection(settings)
         try:
             create_schema(conn)
+            resolved_niche = resolve_post_niche(
+                niche=niche,
+                linkedin_post_id=linkedin_post_id,
+                conn=conn,
+            )
             centroids = fetch_cluster_centroids(conn)
             cluster_id = assign_cluster_id(
                 content,
                 follower_count,
+                niche=resolved_niche,
                 embedding=embedding,
                 centroids=centroids or None,
             )
-            records = fetch_cluster_feedback(
+            (
+                records,
+                resolved_cluster_id,
+                rollup_summary,
+                mean_delta,
+                sample_count,
+            ) = fetch_cluster_feedback_with_fallback(
                 conn,
                 cluster_id,
                 limit=example_limit_for_format(
@@ -176,20 +201,20 @@ def _load_feedback_context(
                 exclude_prediction_id=exclude_prediction_id,
                 approved_only=True,
                 query_embedding=embedding,
-            )
-            rollup_summary, mean_delta, sample_count = fetch_cluster_rollup(
-                conn, cluster_id
+                cluster_n_min=settings.validation_cluster_n_min,
             )
         finally:
             conn.close()
     except Exception:
         logger.exception("Feedback retrieval failed; predicting without feedback block")
-        cluster_id = assign_cluster_id(content, follower_count, embedding=embedding)
+        cluster_id = assign_cluster_id(
+            content, follower_count, niche=niche, embedding=embedding
+        )
         return None, cluster_id, 0
 
     block = format_feedback_context_block(
         records,
-        cluster_id=cluster_id,
+        cluster_id=resolved_cluster_id,
         injection_format=settings.validation_feedback_injection_format,
         rollup_summary=rollup_summary,
         mean_delta=mean_delta,
@@ -215,7 +240,9 @@ async def _predict_for_post_impl(
 ) -> PredictionOutput:
     """Inner predict implementation (retried by predict_for_post on 429/5xx)."""
     state = PostEvaluationState(draft_content=post.content)
-    await _gather_similar_posts(state, settings, user_id=None)
+    await _gather_similar_posts(
+        state, settings, user_id=None, prefer_niche=post.niche
+    )
 
     neighbor_prediction = compute_neighbor_prediction(
         state.similar_posts,
@@ -226,12 +253,16 @@ async def _predict_for_post_impl(
         settings,
         content=post.content,
         follower_count=post.follower_count,
+        niche=post.niche,
+        linkedin_post_id=post.linkedin_post_id,
         embedding=state.query_embedding,
     )
     feedback_context, feedback_cluster_id, feedback_count = _load_feedback_context(
         settings,
         content=post.content,
         follower_count=post.follower_count,
+        niche=post.niche,
+        linkedin_post_id=post.linkedin_post_id,
         embedding=state.query_embedding,
     )
     if neighbor_prediction is not None:
