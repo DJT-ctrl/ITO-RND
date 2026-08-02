@@ -41,7 +41,9 @@ This folder is the source of truth for how we fix bugs and ship PRs on
 | ---- | ---- |
 | **Issues + PRs (use this)** | https://github.com/intotheopen/intotheopen-backend |
 | Org workflow hub | https://github.com/intotheopen/.github |
-| Personal fork (optional push target) | https://github.com/DJT-ctrl/ITO-RND |
+| Personal fork (historical / optional) | https://github.com/DJT-ctrl/ITO-RND |
+
+**Active integrate branch (until merged):** `integrate/personal-fork-main` on the org repo — Kevin’s personal/fork `main` packaged for team review. See [`docs/ops/INTEGRATE_PERSONAL_FORK_MAIN.md`](../docs/ops/INTEGRATE_PERSONAL_FORK_MAIN.md). While that PR is open, push feature work to that branch (or issue branches based on it). After merge, use org `main` via normal issue → PR only. **Never push directly to org `main`.**
 
 When fetching issues: `gh issue view N --repo intotheopen/intotheopen-backend`
 
