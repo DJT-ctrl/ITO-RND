@@ -219,6 +219,7 @@ async def predict_multi_horizon_for_post(
     existing_keys: set[tuple[str, float]] | None = None,
     same_age_posts: set[str] | None = None,
     predict_budget_remaining: list[int] | None = None,
+    budget_lock: asyncio.Lock | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> tuple[list[PredictionRecord], list[str], int]:
     """Create missing Lane A + Lane B predictions for one post.
@@ -252,6 +253,25 @@ async def predict_multi_horizon_for_post(
     errors: list[str] = []
     budget_skipped = 0
 
+    async def _consume_budget_slot() -> bool:
+        """Return True if a Gemini predict is allowed and budget was reserved."""
+        if predict_budget_remaining is None:
+            return _budget_allows_predict(settings)
+        if budget_lock is None:
+            if predict_budget_remaining[0] <= 0:
+                return False
+            if not _budget_allows_predict(settings):
+                return False
+            predict_budget_remaining[0] -= 1
+            return True
+        async with budget_lock:
+            if predict_budget_remaining[0] <= 0:
+                return False
+            if not _budget_allows_predict(settings):
+                return False
+            predict_budget_remaining[0] -= 1
+            return True
+
     for lane, horizon in planned_horizons_for_post(
         post, settings, scraped_at=scraped_at
     ):
@@ -261,10 +281,7 @@ async def predict_multi_horizon_for_post(
         if key in keys:
             continue
 
-        if predict_budget_remaining is not None and predict_budget_remaining[0] <= 0:
-            budget_skipped += 1
-            continue
-        if not _budget_allows_predict(settings):
+        if not await _consume_budget_slot():
             budget_skipped += 1
             continue
 
@@ -320,9 +337,14 @@ async def predict_multi_horizon_for_post(
             saved.append(record)
             keys.add(key)
             _record_predict_spend(settings)
-            if predict_budget_remaining is not None:
-                predict_budget_remaining[0] -= 1
         except Exception as exc:
+            # Refund reserved budget slot so a failed call can be retried later.
+            if predict_budget_remaining is not None:
+                if budget_lock is None:
+                    predict_budget_remaining[0] += 1
+                else:
+                    async with budget_lock:
+                        predict_budget_remaining[0] += 1
             errors.append(f"{post.linkedin_post_id}@{horizon}h: {exc}")
             logger.exception(
                 "Multi-horizon predict failed for %s @%sh",
@@ -338,7 +360,11 @@ async def run_multi_horizon_on_posts(
     settings: Settings | None = None,
     on_progress: Callable[[str], None] | None = None,
 ) -> CollectPredictResult:
-    """Auto Lane A + Lane B for each post under per-run + Gemini budget caps."""
+    """Auto Lane A + Lane B for each post under per-run + Gemini budget caps.
+
+    Runs up to ``validation_predict_workers`` posts concurrently (default 10),
+    matching corpus Stage 2 ``--gemini-workers`` parallelism.
+    """
     settings = settings or load_settings()
     result = CollectPredictResult()
     result.scraped = len(posts)
@@ -361,58 +387,82 @@ async def run_multi_horizon_on_posts(
         conn.close()
 
     budget = [int(settings.validation_multi_horizon_max_predicts_per_run)]
+    state_lock = asyncio.Lock()
+    budget_lock = asyncio.Lock()
+    workers = max(1, int(getattr(settings, "validation_predict_workers", 10) or 10))
+    sem = asyncio.Semaphore(workers)
+    total = len(posts)
 
-    for i, post in enumerate(posts, start=1):
+    async def _one(index: int, post: CollectedPost) -> None:
+        nonlocal keys, same_age_posts
         if on_progress:
-            on_progress(f"Multi-horizon {i}/{len(posts)}: {post.linkedin_post_id}")
+            on_progress(f"Multi-horizon {index}/{total}: {post.linkedin_post_id}")
+
         # Stamp scraped_at if missing.
         if post.scraped_at is None:
             post = post.model_copy(update={"scraped_at": _utcnow()})
 
-        # Skip entirely only when all planned horizons already exist.
-        # Lane A is satisfied by *any* same_age row (hour may drift with age).
-        planned = planned_horizons_for_post(post, settings)
-        missing: list[tuple[str, int]] = []
-        for lane, h in planned:
-            if lane == LANE_SAME_AGE:
-                if post.linkedin_post_id not in same_age_posts:
+        async with state_lock:
+            # Skip entirely only when all planned horizons already exist.
+            # Lane A is satisfied by *any* same_age row (hour may drift with age).
+            planned = planned_horizons_for_post(post, settings)
+            missing: list[tuple[str, int]] = []
+            for lane, h in planned:
+                if lane == LANE_SAME_AGE:
+                    if post.linkedin_post_id not in same_age_posts:
+                        missing.append((lane, h))
+                    continue
+                if (post.linkedin_post_id, float(h)) not in keys:
                     missing.append((lane, h))
-                continue
-            if (post.linkedin_post_id, float(h)) not in keys:
-                missing.append((lane, h))
-        if not missing:
-            result.skipped += 1
-            if on_progress:
-                on_progress(
-                    f"Multi-horizon {i}/{len(posts)} done: {post.linkedin_post_id} (skipped)"
-                )
-            continue
+            if not missing:
+                result.skipped += 1
+                if on_progress:
+                    on_progress(
+                        f"Multi-horizon {index}/{total} done: "
+                        f"{post.linkedin_post_id} (skipped)"
+                    )
+                return
+            # Snapshot shared sets for this call; budget list is mutated in place.
+            keys_snapshot = set(keys)
+            same_age_snapshot = set(same_age_posts)
 
-        saved, errors, budget_skipped = await predict_multi_horizon_for_post(
-            post,
-            settings,
-            existing_keys=keys,
-            same_age_posts=same_age_posts,
-            predict_budget_remaining=budget,
-            on_progress=on_progress,
-        )
-        result.predicted += len(saved)
-        result.predictions.extend(saved)
-        result.errors.extend(errors)
-        result.budget_skipped += budget_skipped
-        for row in saved:
-            if row.prediction_horizon_hours is not None:
-                keys.add((row.linkedin_post_id, float(row.prediction_horizon_hours)))
-            if row.prediction_lane == LANE_SAME_AGE:
-                same_age_posts.add(row.linkedin_post_id)
-
-        if on_progress:
-            on_progress(
-                f"Multi-horizon {i}/{len(posts)} done: {post.linkedin_post_id}"
+        async with sem:
+            saved, errors, budget_skipped = await predict_multi_horizon_for_post(
+                post,
+                settings,
+                existing_keys=keys_snapshot,
+                same_age_posts=same_age_snapshot,
+                predict_budget_remaining=budget,
+                budget_lock=budget_lock,
+                on_progress=on_progress,
             )
 
-        if i < len(posts):
-            await asyncio.sleep(_INTER_POST_DELAY_S)
+        async with state_lock:
+            result.predicted += len(saved)
+            result.predictions.extend(saved)
+            result.errors.extend(errors)
+            result.budget_skipped += budget_skipped
+            for row in saved:
+                if row.prediction_horizon_hours is not None:
+                    keys.add(
+                        (row.linkedin_post_id, float(row.prediction_horizon_hours))
+                    )
+                if row.prediction_lane == LANE_SAME_AGE:
+                    same_age_posts.add(row.linkedin_post_id)
+            if on_progress:
+                on_progress(
+                    f"Multi-horizon {index}/{total} done: {post.linkedin_post_id}"
+                )
+
+    if workers <= 1:
+        for i, post in enumerate(posts, start=1):
+            await _one(i, post)
+            if i < total:
+                await asyncio.sleep(_INTER_POST_DELAY_S)
+    else:
+        await asyncio.gather(
+            *[_one(i, post) for i, post in enumerate(posts, start=1)]
+        )
 
     return result
 

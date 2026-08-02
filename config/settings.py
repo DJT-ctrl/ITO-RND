@@ -175,7 +175,9 @@ class Settings:
     # Phase 11: multi-horizon age-aware validation.
     validation_multi_horizon_enabled: bool = True
     validation_multi_horizon_learning: bool = True
-    validation_multi_horizon_max_predicts_per_run: int = 40
+    validation_multi_horizon_max_predicts_per_run: int = 200
+    # Concurrent Gemini predict workers (same idea as corpus Stage 2 --gemini-workers).
+    validation_predict_workers: int = 10
     # Lane B: schedule 24/48/72h predicts + Apify rescrapes. Off = Lane A only
     # (same-age instant grades; no delayed rescrape — useful without a always-on DB).
     validation_fixed_horizon_enabled: bool = True
@@ -329,7 +331,10 @@ def load_settings() -> Settings:
             "VALIDATION_MULTI_HORIZON_LEARNING", default=True
         ),
         validation_multi_horizon_max_predicts_per_run=int(
-            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "40")
+            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "200")
+        ),
+        validation_predict_workers=int(
+            os.getenv("VALIDATION_PREDICT_WORKERS", "10")
         ),
         validation_fixed_horizon_enabled=_env_bool(
             "VALIDATION_FIXED_HORIZON_ENABLED", default=True

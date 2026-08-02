@@ -24,6 +24,14 @@ DEFAULT_SNAPSHOT_PATH = Path("data/processed/corpus_benchmarks.json")
 DEFAULT_TTL_HOURS = 24
 
 
+def _resolve_snapshot_path(path: Optional[Path] = None) -> Path:
+    """Resolve snapshot path from backend repo root (not process cwd)."""
+    from config.paths import resolve_data_path
+
+    candidate = path or DEFAULT_SNAPSHOT_PATH
+    return candidate if candidate.is_absolute() else resolve_data_path(str(candidate))
+
+
 def build_snapshot(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Derive a compact benchmark summary from normalized post records."""
     if not records:
@@ -89,14 +97,14 @@ def build_snapshot(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def save_snapshot(snapshot: dict[str, Any], path: Optional[Path] = None) -> Path:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
     return resolved
 
 
 def load_snapshot(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     if not resolved.exists():
         return None
     try:
@@ -106,7 +114,7 @@ def load_snapshot(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
 
 
 def is_stale(path: Optional[Path] = None, ttl_hours: int = DEFAULT_TTL_HOURS) -> bool:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     snapshot = load_snapshot(resolved)
     if snapshot is None:
         return True
@@ -129,7 +137,7 @@ def refresh_snapshot_from_db(
     path: Optional[Path] = None,
 ) -> dict[str, Any]:
     """Rebuild the benchmark snapshot from the database."""
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     conn = get_connection(settings)
     try:
         records = fetch_posts_for_analysis(conn, limit=limit)
@@ -158,7 +166,7 @@ def get_or_refresh_benchmarks(
     DB/network outage). Never raises on connectivity failures — callers get a
     warning and may continue evaluation without corpus benchmarks.
     """
-    resolved_path = path or DEFAULT_SNAPSHOT_PATH
+    resolved_path = _resolve_snapshot_path(path)
     warnings: list[str] = []
     ttl = ttl_hours if ttl_hours is not None else settings.corpus_benchmark_ttl_hours
 
