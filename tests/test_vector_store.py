@@ -96,14 +96,15 @@ def test_get_connection_connects_without_registering_vector_yet(mock_connect):
 
     result = get_connection(settings)
 
-    mock_connect.assert_called_once_with(settings.database_url)
+    mock_connect.assert_called_once_with(settings.database_url, connect_timeout=5)
     assert result is mock_conn
 
 
 # ── create_schema ────────────────────────────────────────────────────────
 
 @patch("storage.vector_store.register_vector")
-def test_create_schema_executes_schema_sql_and_commits(mock_register):
+@patch("storage.schema_modules.apply_module_schemas", return_value=[])
+def test_create_schema_executes_schema_sql_and_commits(mock_modules, mock_register):
     conn = make_mock_conn()
     cursor = conn.cursor.return_value.__enter__.return_value
 
@@ -115,6 +116,7 @@ def test_create_schema_executes_schema_sql_and_commits(mock_register):
     assert "CREATE TABLE IF NOT EXISTS posts" in executed_sql
     assert "hnsw" in executed_sql
     conn.commit.assert_called_once()
+    mock_modules.assert_called_once_with(conn)
     mock_register.assert_called_once_with(conn)
 
 

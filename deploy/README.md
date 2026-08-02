@@ -41,6 +41,10 @@ Grafana opens with the Prometheus datasource and an **ITO Stack Overview**
 dashboard already provisioned (API request rate / p95 latency, per-container
 CPU & memory).
 
+**Target AWS runtime (issue #11):** single EC2 + this Compose stack —
+see [`docs/ops/ADR-001-aws-runtime.md`](../docs/ops/ADR-001-aws-runtime.md).
+ECS Fargate is the documented post-MVP migration path.
+
 > Only the API (`:8000`) and Grafana (`:3000`) publish beyond localhost.
 > Postgres and the raw telemetry ports bind to `127.0.0.1`. On EC2, restrict
 > even `:8000`/`:3000` via the security group and/or front them with the Nginx

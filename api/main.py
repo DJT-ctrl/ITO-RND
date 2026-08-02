@@ -66,7 +66,7 @@ from api.schemas import (
 from api.security import ApiPrincipal, assert_user_id_authorized, configure_api_security, require_api_principal
 from config.settings import load_settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
-from storage.vector_store import find_similar, get_connection
+from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()

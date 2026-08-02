@@ -12,7 +12,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from feedback.generate import FEEDBACK_VERSION
-from feedback.routing import cluster_label
+from feedback.routing import cluster_fallback_ids, cluster_label
 from phase_10.topics import is_valid_niche
 from feedback.schemas import (
     CalibrationStats,
@@ -193,26 +193,29 @@ def resolve_calibration_stats(
 ) -> CalibrationStats:
     """Prefer cluster mean_delta when sample_count >= cluster_n_min; else global.
 
-    Fallback chain: cluster → global → none.
+    Fallback chain (T10.7): topic+shape → shape-only → global → none.
     When multi_horizon_learning is on, skip cluster cache (bucket-agnostic) and
     use horizon-filtered global stats.
+    ``cluster_id`` on the result is the bucket that supplied the mean_delta
+    when source is ``cluster``; otherwise the primary (requested) id.
     """
     if (
         cluster_id
         and not multi_horizon_learning
     ):
-        cluster = fetch_cluster_stats(conn, cluster_id)
-        if (
-            cluster is not None
-            and cluster.sample_count >= cluster_n_min
-            and cluster.mean_delta is not None
-        ):
-            return CalibrationStats(
-                n_validated=cluster.sample_count,
-                mean_delta=round(float(cluster.mean_delta), 4),
-                cluster_id=cluster_id,
-                source="cluster",
-            )
+        for candidate_id in cluster_fallback_ids(cluster_id):
+            cluster = fetch_cluster_stats(conn, candidate_id)
+            if (
+                cluster is not None
+                and cluster.sample_count >= cluster_n_min
+                and cluster.mean_delta is not None
+            ):
+                return CalibrationStats(
+                    n_validated=cluster.sample_count,
+                    mean_delta=round(float(cluster.mean_delta), 4),
+                    cluster_id=candidate_id,
+                    source="cluster",
+                )
 
     global_stats = fetch_calibration_stats(
         conn,

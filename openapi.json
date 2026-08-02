@@ -365,6 +365,100 @@
           }
         ]
       }
+    },
+    "/api/v1/critique": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Critique",
+        "description": "Independent synthetic-audience critic (T7.11\u2013T7.13).\n\nNot part of the evaluate loop \u2014 does not affect predictor, diagnostics, or variants.",
+        "operationId": "critique_api_v1_critique_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CritiqueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienceCriticOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/optimise": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Optimise",
+        "description": "Independent Stage 5 synthesis (T7.14\u2013T7.16).\n\nDoes not replace evaluate-loop variants. Soft-fails scoring into result.errors.",
+        "operationId": "optimise_api_v1_optimise_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimiseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SynthesisResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -475,6 +569,84 @@
         "title": "ApiErrorResponse",
         "description": "Documented error envelope for frontend handling (runtime wiring in #7)."
       },
+      "AudienceCriticOutput": {
+        "properties": {
+          "overall_verdict": {
+            "type": "string",
+            "title": "Overall Verdict",
+            "description": "Short skeptical summary across all three lenses."
+          },
+          "score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "description": "Overall persuasiveness / substance score 0\u201310."
+          },
+          "c_suite": {
+            "$ref": "#/components/schemas/CSuiteLens"
+          },
+          "practitioner": {
+            "$ref": "#/components/schemas/PractitionerLens"
+          },
+          "peer": {
+            "$ref": "#/components/schemas/PeerLens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "overall_verdict",
+          "score",
+          "c_suite",
+          "practitioner",
+          "peer"
+        ],
+        "title": "AudienceCriticOutput",
+        "description": "Combined T7.11 + T7.12 + T7.13 synthetic audience critique."
+      },
+      "CSuiteLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from an executive."
+          },
+          "primary_objection": {
+            "type": "string",
+            "title": "Primary Objection",
+            "description": "The main hole in the value proposition or ROI case."
+          },
+          "roi_notes": {
+            "type": "string",
+            "title": "Roi Notes",
+            "description": "ROI / fluff / risk notes an executive would flag.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "primary_objection"
+        ],
+        "title": "CSuiteLens",
+        "description": "T7.11 \u2014 skeptical CTO/CFO lens."
+      },
+      "CritiqueRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to critique"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "CritiqueRequest",
+        "description": "Independent synthetic-audience critic (T7.11\u2013T7.13)."
+      },
       "DiagnosticResult": {
         "properties": {
           "score": {
@@ -519,6 +691,14 @@
             "minLength": 1,
             "title": "Content",
             "description": "Draft post text to evaluate"
+          },
+          "neighbor_limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 10.0,
+            "title": "Neighbor Limit",
+            "description": "How many nearest historical posts to retrieve for grounding and the comparison surface (default 10, max 100).",
+            "default": 10
           },
           "variant_strategy": {
             "type": "string",
@@ -582,6 +762,30 @@
             ],
             "title": "Use Google Trends",
             "description": "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
+          },
+          "use_visual_diagnostics": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use Visual Diagnostics",
+            "description": "Opt-in visual diagnostics when an image_url is provided. Defaults to settings.visual_diagnostics_enabled (off unless enabled in env). "
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Optional image URL for visual diagnostics (ignored unless visual diagnostics are enabled)."
           }
         },
         "type": "object",
@@ -680,6 +884,11 @@
               }
             ],
             "title": "Embedding Model Version"
+          },
+          "visual_diagnostics_requested": {
+            "type": "boolean",
+            "title": "Visual Diagnostics Requested",
+            "default": false
           }
         },
         "type": "object",
@@ -688,6 +897,19 @@
         ],
         "title": "EvaluateResponse",
         "description": "Stable v1 response contract for POST /api/v1/evaluate."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
       },
       "HealthResponse": {
         "properties": {
@@ -709,6 +931,133 @@
           "status"
         ],
         "title": "HealthResponse"
+      },
+      "OptimiseRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to optimise into maximizer / counter / brand_purist rewrites."
+          },
+          "primary_objection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Objection",
+            "description": "Optional C-suite objection (e.g. from /critique). Used by the Strategic Counter variant. When omitted, a generic executive-skepticism brief is used."
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile",
+            "description": "Optional original-draft predicted percentile for delta display."
+          },
+          "baseline_total_engagement": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Total Engagement",
+            "description": "Optional original-draft predicted total engagement for score fallbacks."
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Optional subscriber id for neighbor scoping / voice profile."
+          },
+          "use_voice_profile": {
+            "type": "boolean",
+            "title": "Use Voice Profile",
+            "description": "When user_id is set, derive and apply the subscriber voice profile.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "OptimiseRequest",
+        "description": "Independent Stage 5 synthesis (T7.14\u2013T7.16). Not part of /evaluate finalize."
+      },
+      "PeerLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from a peer."
+          },
+          "credibility_check": {
+            "type": "string",
+            "title": "Credibility Check",
+            "description": "Thought-leadership credibility assessment within the market."
+          },
+          "originality_notes": {
+            "type": "string",
+            "title": "Originality Notes",
+            "description": "Originality vs familiar LinkedIn tropes / competitor noise.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "credibility_check"
+        ],
+        "title": "PeerLens",
+        "description": "T7.13 \u2014 industry peer / competitor lens."
+      },
+      "PractitionerLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from a practitioner."
+          },
+          "perceived_value": {
+            "type": "string",
+            "title": "Perceived Value",
+            "description": "Whether the post offers real tactical value for daily work."
+          },
+          "tactical_gaps": {
+            "type": "string",
+            "title": "Tactical Gaps",
+            "description": "Missing steps, tools, or concrete takeaways operators need.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "perceived_value"
+        ],
+        "title": "PractitionerLens",
+        "description": "T7.12 \u2014 daily operator lens."
       },
       "PredictorResult": {
         "properties": {
@@ -860,6 +1209,11 @@
             "title": "Reembed Variant Neighbors",
             "default": false
           },
+          "neighbor_limit": {
+            "type": "integer",
+            "title": "Neighbor Limit",
+            "default": 10
+          },
           "seo_mode": {
             "anyOf": [
               {
@@ -1007,6 +1361,29 @@
               }
             ],
             "title": "Hook Type"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "engagement_age_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Age Hours"
           }
         },
         "type": "object",
@@ -1183,6 +1560,136 @@
         ],
         "title": "StepTelemetry"
       },
+      "SynthesisRecommendation": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "enum": [
+              "maximizer",
+              "counter",
+              "brand_purist"
+            ],
+            "title": "Agent Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "reason"
+        ],
+        "title": "SynthesisRecommendation"
+      },
+      "SynthesisResult": {
+        "properties": {
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/SynthesisVariant"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Variants"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/SynthesisRecommendation"
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile"
+          },
+          "critic_objection_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critic Objection Used"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variants",
+          "recommendation"
+        ],
+        "title": "SynthesisResult",
+        "description": "Stable API/UI contract for Stage 5 optimisation."
+      },
+      "SynthesisVariant": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "enum": [
+              "maximizer",
+              "counter",
+              "brand_purist"
+            ],
+            "title": "Agent Id"
+          },
+          "variant_name": {
+            "type": "string",
+            "title": "Variant Name"
+          },
+          "optimized_text": {
+            "type": "string",
+            "title": "Optimized Text"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "predicted_engagement_percentile": {
+            "type": "number",
+            "title": "Predicted Engagement Percentile"
+          },
+          "predicted_total_engagement": {
+            "type": "integer",
+            "title": "Predicted Total Engagement"
+          },
+          "delta_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Percentile"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "variant_name",
+          "optimized_text",
+          "rationale",
+          "predicted_engagement_percentile",
+          "predicted_total_engagement"
+        ],
+        "title": "SynthesisVariant",
+        "description": "Scored synthesis rewrite (sheet-shaped + performance)."
+      },
       "TelemetryWarning": {
         "properties": {
           "code": {
@@ -1210,6 +1717,46 @@
           "actual"
         ],
         "title": "TelemetryWarning"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
       },
       "ValidationErrorItem": {
         "properties": {

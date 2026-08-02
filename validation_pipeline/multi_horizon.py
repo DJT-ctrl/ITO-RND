@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Optional
+from typing import Callable
 
 from config.settings import Settings, load_settings
 from phase_10.budget import allow_paid_step, record_agentic_spend
