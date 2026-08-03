@@ -454,9 +454,14 @@ With the API running (`docker compose up -d` or `uvicorn api.main:app`):
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/health` | Liveness check |
-| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/metrics` | Prometheus metrics (ops only; not product frontend) |
+| `GET` | `/api/v1/agents` | Agent catalog for UI discovery |
 | `POST` | `/api/v1/similar-posts` | Cosine-similarity retrieval over ingested corpus |
 | `POST` | `/api/v1/evaluate` | Full multi-agent evaluation cycle |
+| `POST` | `/api/v1/critique` | Standalone synthetic-audience critic |
+| `POST` | `/api/v1/optimise` | Standalone Stage 5 synthesis |
+
+Product frontend scope: [`Phase_12.md`](Phase_12.md) · Contract: [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md)
 
 **Similar posts example:**
 
