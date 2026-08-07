@@ -1,0 +1,2183 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "IntoTheOpen API",
+    "description": "Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.\n\n## Versioning\n\nAll stable integration endpoints live under **`/api/v1/`**. See\n`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.\n\n## Errors\n\nDocumented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are\nstable for client generation. Runtime mapping to these envelopes is implemented\nin issue #7; until then, validation failures return HTTP 422 as documented and\nother failures may return a plain `detail` string.",
+    "version": "1.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness check",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "api_version": "v1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "List active backend agents",
+        "operationId": "list_agents_api_v1_agents_get",
+        "responses": {
+          "200": {
+            "description": "Current backend agent registry for frontend discovery.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                },
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "message": "Failed to embed query text.",
+                  "retryable": true,
+                  "details": {
+                    "provider": "google"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/similar-posts": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Find similar historical posts",
+        "operationId": "similar_posts_api_v1_similar_posts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimilarPostsRequest"
+              },
+              "example": {
+                "content": "Excited to share what we learned shipping our first AI feature.",
+                "limit": 5
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Nearest-neighbor posts for the draft.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarPostsResponse"
+                },
+                "example": {
+                  "query_content": "Excited to share what we learned shipping our first AI feature.",
+                  "results": [
+                    {
+                      "post_id": "post-101",
+                      "content": "Three lessons from our AI launch week\u2026",
+                      "likes": 120,
+                      "comments": 18,
+                      "shares": 4,
+                      "total_engagement": 142,
+                      "engagement_percentile": 82.5,
+                      "engagement_zscore": 1.1,
+                      "cosine_distance": 0.08,
+                      "follower_count": 4200,
+                      "engagement_rate": 0.034,
+                      "audience_adjusted_percentile": 79.0,
+                      "hashtag_count": 2,
+                      "word_count": 186,
+                      "topic": "product launch",
+                      "niche": "B2B SaaS",
+                      "hook_type": "story",
+                      "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                      "engagement_anomaly_flag": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                },
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "message": "Failed to embed query text.",
+                  "retryable": true,
+                  "details": {
+                    "provider": "google"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/evaluate": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Run the full multi-agent evaluation cycle",
+        "description": "Run the async evaluation cycle end-to-end over HTTP.",
+        "operationId": "evaluate_api_v1_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateRequest"
+              },
+              "example": {
+                "content": "Excited to announce our new backend engineering hire!",
+                "variant_strategy": "dimension",
+                "reembed_variant_neighbors": false,
+                "user_id": "user-42",
+                "use_voice_profile": true
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Evaluation cycle result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateResponse"
+                },
+                "example": {
+                  "draft_content": "Excited to announce our new backend engineering hire!",
+                  "similar_posts": [
+                    {
+                      "post_id": "post-101",
+                      "content": "Three lessons from our AI launch week\u2026",
+                      "likes": 120,
+                      "comments": 18,
+                      "shares": 4,
+                      "total_engagement": 142,
+                      "engagement_percentile": 82.5,
+                      "engagement_zscore": 1.1,
+                      "cosine_distance": 0.08,
+                      "follower_count": 4200,
+                      "engagement_rate": 0.034,
+                      "audience_adjusted_percentile": 79.0,
+                      "hashtag_count": 2,
+                      "word_count": 186,
+                      "topic": "product launch",
+                      "niche": "B2B SaaS",
+                      "hook_type": "story",
+                      "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                      "engagement_anomaly_flag": false
+                    }
+                  ],
+                  "voice_profile": {
+                    "dominant_hook_type": "announcement",
+                    "dominant_tone": "professional",
+                    "dominant_writing_style": "concise",
+                    "avg_word_count": 142.0,
+                    "avg_hashtag_count": 1.5,
+                    "cta_usage_ratio": 0.4,
+                    "sample_size": 8
+                  },
+                  "predictor_result": {
+                    "predicted_engagement_percentile": 81.0,
+                    "predicted_total_engagement": 42,
+                    "predicted_likes": 30,
+                    "predicted_comments": 8,
+                    "predicted_shares": 4,
+                    "reasoning": "Neighbors with similar hiring announcements scored in the 75\u201385 percentile band."
+                  },
+                  "diagnostics": {
+                    "seo": {
+                      "score": 7.5,
+                      "flaws": [
+                        "Missing industry keywords in the first line"
+                      ],
+                      "advantages": [
+                        "Clear role signal"
+                      ],
+                      "improvements": [
+                        "Add stack or team context in the hook"
+                      ]
+                    },
+                    "clarity": {
+                      "score": 8.0,
+                      "flaws": [],
+                      "advantages": [
+                        "Single clear announcement"
+                      ],
+                      "improvements": [
+                        "Optional one-line benefit for the reader"
+                      ]
+                    },
+                    "tone": {
+                      "score": 7.0,
+                      "flaws": [
+                        "Slightly generic enthusiasm"
+                      ],
+                      "advantages": [
+                        "Professional and approachable"
+                      ],
+                      "improvements": [
+                        "Name the team or mission tie-in"
+                      ]
+                    }
+                  },
+                  "variants": [
+                    {
+                      "variant_text": "We just welcomed a backend engineer to help scale our API platform.",
+                      "rationale": "Leads with outcome and team context.",
+                      "strategy_label": "seo-focused",
+                      "predicted_engagement_percentile": 84.0,
+                      "predicted_total_engagement": 48
+                    }
+                  ],
+                  "cross_references": {
+                    "status": "ready",
+                    "selection_method": "global_semantic_performance_v1",
+                    "baseline_percentile": 81.0,
+                    "baseline_method": "audience_adjusted_weighted_neighbors",
+                    "candidates_evaluated": 30,
+                    "eligible_candidates": 2,
+                    "references": [
+                      {
+                        "post": {
+                          "post_id": "post-224",
+                          "content": "Three lessons from hiring our first platform engineer.",
+                          "likes": 120,
+                          "comments": 18,
+                          "shares": 4,
+                          "total_engagement": 142,
+                          "engagement_percentile": 94.0,
+                          "engagement_zscore": 1.1,
+                          "cosine_distance": 0.07,
+                          "follower_count": 4200,
+                          "engagement_rate": 0.034,
+                          "audience_adjusted_percentile": 91.0,
+                          "hashtag_count": 2,
+                          "word_count": 186,
+                          "topic": "product launch",
+                          "niche": "B2B SaaS",
+                          "hook_type": "story",
+                          "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                          "engagement_anomaly_flag": false
+                        },
+                        "comparison_metric": "audience_adjusted_percentile",
+                        "effective_percentile": 91.0,
+                        "percentile_uplift": 10.0,
+                        "selection_score": 34.8,
+                        "selection_reasons": [
+                          "Semantic match is within the 0.25 distance threshold (0.070).",
+                          "Its audience adjusted percentile is 91.0, 10.0 points above the draft baseline."
+                        ],
+                        "observed_strengths": [
+                          "Specific outcome-led opening"
+                        ],
+                        "suggested_adaptation": "Lead with the team outcome before the hiring announcement."
+                      }
+                    ],
+                    "overall_feedback": [
+                      "Make the opening concrete without copying the reference wording."
+                    ],
+                    "caveats": [
+                      "Historical performance is observational; these examples do not prove that a wording choice caused engagement."
+                    ]
+                  },
+                  "errors": [],
+                  "embedding_model_version": "models/gemini-embedding-001"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                },
+                "example": {
+                  "detail": [
+                    {
+                      "loc": [
+                        "body",
+                        "content"
+                      ],
+                      "msg": "String should have at least 1 character",
+                      "type": "string_too_short"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error (documented contract; runtime envelope in #7).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                },
+                "example": {
+                  "code": "EMBED_FAILED",
+                  "message": "Failed to embed query text.",
+                  "retryable": true,
+                  "details": {
+                    "provider": "google"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/critique": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Critique",
+        "description": "Independent synthetic-audience critic (T7.11\u2013T7.13).\n\nNot part of the evaluate loop \u2014 does not affect predictor, diagnostics, or variants.",
+        "operationId": "critique_api_v1_critique_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CritiqueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienceCriticOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/optimise": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Optimise",
+        "description": "Independent Stage 5 synthesis (T7.14\u2013T7.16).\n\nDoes not replace evaluate-loop variants. Soft-fails scoring into result.errors.",
+        "operationId": "optimise_api_v1_optimise_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimiseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SynthesisResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentCatalogResponse": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentDescriptor"
+            },
+            "type": "array",
+            "title": "Agents"
+          }
+        },
+        "type": "object",
+        "title": "AgentCatalogResponse",
+        "description": "Stable v1 contract for GET /api/v1/agents."
+      },
+      "AgentDescriptor": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Stable machine id, e.g. predictor or seo."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Human-readable label for UI display."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "predictor",
+              "diagnostic",
+              "variant",
+              "system"
+            ],
+            "title": "Kind",
+            "description": "Agent category for iconography/grouping."
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "setup",
+              "evaluation",
+              "optimization",
+              "reporting",
+              "monitoring"
+            ],
+            "title": "Stage",
+            "description": "Primary workflow stage where the agent executes."
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "description": "Short plain-language purpose."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "stage",
+          "description"
+        ],
+        "title": "AgentDescriptor",
+        "description": "Agent exposed by backend for UI discovery and status mapping."
+      },
+      "ApiErrorResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Machine-readable error code (e.g. EMBED_FAILED, AGENT_UNAVAILABLE)."
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Human-readable summary safe to show in the UI."
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable",
+            "description": "Whether the client should offer a retry action."
+          },
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details",
+            "description": "Optional structured context (field names, provider hint, etc.)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "title": "ApiErrorResponse",
+        "description": "Documented error envelope for frontend handling (runtime wiring in #7)."
+      },
+      "AudienceCriticOutput": {
+        "properties": {
+          "overall_verdict": {
+            "type": "string",
+            "title": "Overall Verdict",
+            "description": "Short skeptical summary across all three lenses."
+          },
+          "score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score",
+            "description": "Overall persuasiveness / substance score 0\u201310."
+          },
+          "c_suite": {
+            "$ref": "#/components/schemas/CSuiteLens"
+          },
+          "practitioner": {
+            "$ref": "#/components/schemas/PractitionerLens"
+          },
+          "peer": {
+            "$ref": "#/components/schemas/PeerLens"
+          }
+        },
+        "type": "object",
+        "required": [
+          "overall_verdict",
+          "score",
+          "c_suite",
+          "practitioner",
+          "peer"
+        ],
+        "title": "AudienceCriticOutput",
+        "description": "Combined T7.11 + T7.12 + T7.13 synthetic audience critique."
+      },
+      "CSuiteLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from an executive."
+          },
+          "primary_objection": {
+            "type": "string",
+            "title": "Primary Objection",
+            "description": "The main hole in the value proposition or ROI case."
+          },
+          "roi_notes": {
+            "type": "string",
+            "title": "Roi Notes",
+            "description": "ROI / fluff / risk notes an executive would flag.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "primary_objection"
+        ],
+        "title": "CSuiteLens",
+        "description": "T7.11 \u2014 skeptical CTO/CFO lens."
+      },
+      "CritiqueRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to critique"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "CritiqueRequest",
+        "description": "Independent synthetic-audience critic (T7.11\u2013T7.13)."
+      },
+      "CrossReferencePost": {
+        "properties": {
+          "post": {
+            "$ref": "#/components/schemas/SimilarPost"
+          },
+          "comparison_metric": {
+            "type": "string",
+            "enum": [
+              "audience_adjusted_percentile",
+              "engagement_percentile"
+            ],
+            "title": "Comparison Metric"
+          },
+          "effective_percentile": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Effective Percentile"
+          },
+          "percentile_uplift": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Percentile Uplift"
+          },
+          "selection_score": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Selection Score"
+          },
+          "selection_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selection Reasons"
+          },
+          "observed_strengths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Observed Strengths"
+          },
+          "suggested_adaptation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Adaptation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "post",
+          "comparison_metric",
+          "effective_percentile",
+          "percentile_uplift",
+          "selection_score"
+        ],
+        "title": "CrossReferencePost",
+        "description": "One close historical post that outperformed the draft baseline."
+      },
+      "CrossReferenceResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "insufficient_evidence",
+              "analysis_unavailable"
+            ],
+            "title": "Status"
+          },
+          "selection_method": {
+            "type": "string",
+            "title": "Selection Method",
+            "default": "global_semantic_performance_v1"
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile"
+          },
+          "baseline_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Method"
+          },
+          "candidates_evaluated": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Candidates Evaluated",
+            "default": 0
+          },
+          "eligible_candidates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Eligible Candidates",
+            "default": 0
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/CrossReferencePost"
+            },
+            "type": "array",
+            "title": "References"
+          },
+          "overall_feedback": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overall Feedback"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CrossReferenceResult",
+        "description": "Curated, observational evidence from stronger close historical posts."
+      },
+      "DiagnosticResult": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Score"
+          },
+          "flaws": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Flaws"
+          },
+          "advantages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Advantages"
+          },
+          "improvements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Improvements"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score"
+        ],
+        "title": "DiagnosticResult",
+        "description": "Single diagnostic worker output (T3.3 contract)."
+      },
+      "EvaluateRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to evaluate"
+          },
+          "neighbor_limit": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 10.0,
+            "title": "Neighbor Limit",
+            "description": "How many nearest historical posts to retrieve for grounding and the comparison surface (default 10, max 100).",
+            "default": 10
+          },
+          "variant_strategy": {
+            "type": "string",
+            "enum": [
+              "dimension",
+              "narrative",
+              "tiered"
+            ],
+            "title": "Variant Strategy",
+            "description": "Which distinctness axis the T3.4 Variant Optimisation Engine should use: 'dimension' (one variant per SEO/clarity/tone diagnostic), 'narrative' (different hook/story angles), or 'tiered' (safe/moderate/bold rewrite).",
+            "default": "dimension"
+          },
+          "reembed_variant_neighbors": {
+            "type": "boolean",
+            "title": "Reembed Variant Neighbors",
+            "description": "If true, each of the 3 variants re-embeds its own text and fetches its own nearest historical neighbors before being scored (more accurate when a variant shifts topic/angle, at the cost of up to 3 extra Gemini embed calls and 6 extra DB queries for scoped scoring neighbors plus global comparison candidates). If false (default), all variants are scored against the original draft's shared neighbors (cheaper, and keeps all 3 compared against one consistent baseline).",
+            "default": false
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Optional subscriber id (personalization). When given: (1) similar-post retrieval is scoped to that subscriber's own posts, falling back to the global corpus if they don't have enough yet, and (2) a derived voice profile from their top posts is injected into every agent's prompt, when enough of their own posts exist."
+          },
+          "use_voice_profile": {
+            "type": "boolean",
+            "title": "Use Voice Profile",
+            "description": "Whether to derive and apply the subscriber's voice profile when user_id is given. Has no effect if user_id is not set. Set to false to scope retrieval to the subscriber without personalizing the agent prompts.",
+            "default": true
+          },
+          "seo_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "corpus",
+                  "gemini_only"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seo Mode",
+            "description": "SEO/discoverability diagnostic mode. 'corpus' (default) grounds the SEO worker in your scraped dataset; 'gemini_only' uses the legacy static prompt for A/B testing."
+          },
+          "use_google_trends": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use Google Trends",
+            "description": "Tier 2: include Google Trends timeliness signals (web-wide, not LinkedIn-specific). Defaults to settings.google_trends_enabled (off unless enabled in env); always off in gemini_only."
+          },
+          "use_visual_diagnostics": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use Visual Diagnostics",
+            "description": "Opt-in visual diagnostics when an image_url is provided. Defaults to settings.visual_diagnostics_enabled (off unless enabled in env). "
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url",
+            "description": "Optional image URL for visual diagnostics (ignored unless visual diagnostics are enabled)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "EvaluateRequest"
+      },
+      "EvaluateResponse": {
+        "properties": {
+          "draft_content": {
+            "type": "string",
+            "title": "Draft Content"
+          },
+          "similar_posts": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarPost"
+            },
+            "type": "array",
+            "title": "Similar Posts"
+          },
+          "voice_profile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VoiceProfile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "predictor_result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictorResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "diagnostics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DiagnosticResult"
+            },
+            "type": "object",
+            "title": "Diagnostics",
+            "description": "Diagnostic worker outputs keyed by check name (e.g. seo, clarity, tone)."
+          },
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/VariantResult"
+            },
+            "type": "array",
+            "title": "Variants"
+          },
+          "cross_references": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrossReferenceResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors",
+            "description": "Non-fatal agent failures collected during the evaluation cycle."
+          },
+          "run_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "query_embedding": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Embedding"
+          },
+          "embedding_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embedding Model Version"
+          },
+          "visual_diagnostics_requested": {
+            "type": "boolean",
+            "title": "Visual Diagnostics Requested",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "draft_content"
+        ],
+        "title": "EvaluateResponse",
+        "description": "Stable v1 response contract for POST /api/v1/evaluate."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "description": "Liveness indicator."
+          },
+          "api_version": {
+            "type": "string",
+            "title": "Api Version",
+            "description": "Stable path version for frontend integration (`/api/v1/...`).",
+            "default": "v1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse"
+      },
+      "OptimiseRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to optimise into maximizer / counter / brand_purist rewrites."
+          },
+          "primary_objection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Objection",
+            "description": "Optional C-suite objection (e.g. from /critique). Used by the Strategic Counter variant. When omitted, a generic executive-skepticism brief is used."
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile",
+            "description": "Optional original-draft predicted percentile for delta display."
+          },
+          "baseline_total_engagement": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Total Engagement",
+            "description": "Optional original-draft predicted total engagement for score fallbacks."
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Optional subscriber id for neighbor scoping / voice profile."
+          },
+          "use_voice_profile": {
+            "type": "boolean",
+            "title": "Use Voice Profile",
+            "description": "When user_id is set, derive and apply the subscriber voice profile.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "OptimiseRequest",
+        "description": "Independent Stage 5 synthesis (T7.14\u2013T7.16). Not part of /evaluate finalize."
+      },
+      "PeerLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from a peer."
+          },
+          "credibility_check": {
+            "type": "string",
+            "title": "Credibility Check",
+            "description": "Thought-leadership credibility assessment within the market."
+          },
+          "originality_notes": {
+            "type": "string",
+            "title": "Originality Notes",
+            "description": "Originality vs familiar LinkedIn tropes / competitor noise.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "credibility_check"
+        ],
+        "title": "PeerLens",
+        "description": "T7.13 \u2014 industry peer / competitor lens."
+      },
+      "PractitionerLens": {
+        "properties": {
+          "reaction": {
+            "type": "string",
+            "title": "Reaction",
+            "description": "Short gut reaction from a practitioner."
+          },
+          "perceived_value": {
+            "type": "string",
+            "title": "Perceived Value",
+            "description": "Whether the post offers real tactical value for daily work."
+          },
+          "tactical_gaps": {
+            "type": "string",
+            "title": "Tactical Gaps",
+            "description": "Missing steps, tools, or concrete takeaways operators need.",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "reaction",
+          "perceived_value"
+        ],
+        "title": "PractitionerLens",
+        "description": "T7.12 \u2014 daily operator lens."
+      },
+      "PredictorResult": {
+        "properties": {
+          "predicted_engagement_percentile": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Predicted Engagement Percentile"
+          },
+          "predicted_total_engagement": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Predicted Total Engagement"
+          },
+          "predicted_likes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Likes"
+          },
+          "predicted_comments": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Comments"
+          },
+          "predicted_shares": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Shares"
+          },
+          "reasoning": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reasoning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "predicted_engagement_percentile",
+          "predicted_total_engagement",
+          "reasoning"
+        ],
+        "title": "PredictorResult",
+        "description": "Engagement prediction for the draft (T3.2 contract)."
+      },
+      "RunMetadata": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "1.0"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "total_latency_ms": {
+            "type": "number",
+            "title": "Total Latency Ms",
+            "default": 0.0
+          },
+          "total_cost_usd": {
+            "type": "number",
+            "title": "Total Cost Usd",
+            "default": 0.0
+          },
+          "total_input_tokens": {
+            "type": "integer",
+            "title": "Total Input Tokens",
+            "default": 0
+          },
+          "total_output_tokens": {
+            "type": "integer",
+            "title": "Total Output Tokens",
+            "default": 0
+          },
+          "agent_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Model"
+          },
+          "variant_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant Strategy"
+          },
+          "reembed_variant_neighbors": {
+            "type": "boolean",
+            "title": "Reembed Variant Neighbors",
+            "default": false
+          },
+          "neighbor_limit": {
+            "type": "integer",
+            "title": "Neighbor Limit",
+            "default": 10
+          },
+          "seo_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seo Mode"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepTelemetry"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryWarning"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_id",
+          "started_at"
+        ],
+        "title": "RunMetadata"
+      },
+      "SimilarPost": {
+        "properties": {
+          "post_id": {
+            "type": "string",
+            "title": "Post Id"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "likes": {
+            "type": "integer",
+            "title": "Likes"
+          },
+          "comments": {
+            "type": "integer",
+            "title": "Comments"
+          },
+          "shares": {
+            "type": "integer",
+            "title": "Shares"
+          },
+          "total_engagement": {
+            "type": "integer",
+            "title": "Total Engagement"
+          },
+          "engagement_percentile": {
+            "type": "number",
+            "title": "Engagement Percentile"
+          },
+          "engagement_zscore": {
+            "type": "number",
+            "title": "Engagement Zscore"
+          },
+          "cosine_distance": {
+            "type": "number",
+            "title": "Cosine Distance"
+          },
+          "follower_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follower Count"
+          },
+          "engagement_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Rate"
+          },
+          "audience_adjusted_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audience Adjusted Percentile"
+          },
+          "hashtag_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hashtag Count"
+          },
+          "word_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Word Count"
+          },
+          "topic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Topic"
+          },
+          "niche": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche"
+          },
+          "hook_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hook Type"
+          },
+          "linkedin_url": {
+            "type": "string",
+            "title": "Linkedin Url",
+            "default": ""
+          },
+          "engagement_anomaly_flag": {
+            "type": "boolean",
+            "title": "Engagement Anomaly Flag",
+            "default": false
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
+          "engagement_age_hours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engagement Age Hours"
+          }
+        },
+        "type": "object",
+        "required": [
+          "post_id",
+          "content",
+          "likes",
+          "comments",
+          "shares",
+          "total_engagement",
+          "engagement_percentile",
+          "engagement_zscore",
+          "cosine_distance"
+        ],
+        "title": "SimilarPost"
+      },
+      "SimilarPostsRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Content",
+            "description": "Draft post text to find similar posts for"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 10
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id",
+            "description": "Optional subscriber id. When given, retrieval is scoped to that subscriber's own posts first, falling back to the global corpus automatically if they don't have enough of their own yet (cold start)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "SimilarPostsRequest"
+      },
+      "SimilarPostsResponse": {
+        "properties": {
+          "query_content": {
+            "type": "string",
+            "title": "Query Content"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarPost"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query_content",
+          "results"
+        ],
+        "title": "SimilarPostsResponse"
+      },
+      "StepTelemetry": {
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "title": "Step Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "retrieval",
+              "setup",
+              "agent",
+              "variant"
+            ],
+            "title": "Stage"
+          },
+          "call_type": {
+            "type": "string",
+            "enum": [
+              "llm",
+              "embedding",
+              "db",
+              "compute",
+              "external"
+            ],
+            "title": "Call Type"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "timeout"
+            ],
+            "title": "Status"
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "default": 0
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens",
+            "default": 0
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "default": 0.0
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step_id",
+          "label",
+          "stage",
+          "call_type",
+          "status",
+          "latency_ms",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "StepTelemetry"
+      },
+      "SynthesisRecommendation": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "enum": [
+              "maximizer",
+              "counter",
+              "brand_purist"
+            ],
+            "title": "Agent Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "reason"
+        ],
+        "title": "SynthesisRecommendation"
+      },
+      "SynthesisResult": {
+        "properties": {
+          "variants": {
+            "items": {
+              "$ref": "#/components/schemas/SynthesisVariant"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Variants"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/SynthesisRecommendation"
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile"
+          },
+          "critic_objection_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Critic Objection Used"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variants",
+          "recommendation"
+        ],
+        "title": "SynthesisResult",
+        "description": "Stable API/UI contract for Stage 5 optimisation."
+      },
+      "SynthesisVariant": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "enum": [
+              "maximizer",
+              "counter",
+              "brand_purist"
+            ],
+            "title": "Agent Id"
+          },
+          "variant_name": {
+            "type": "string",
+            "title": "Variant Name"
+          },
+          "optimized_text": {
+            "type": "string",
+            "title": "Optimized Text"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "predicted_engagement_percentile": {
+            "type": "number",
+            "title": "Predicted Engagement Percentile"
+          },
+          "predicted_total_engagement": {
+            "type": "integer",
+            "title": "Predicted Total Engagement"
+          },
+          "delta_percentile": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Percentile"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "variant_name",
+          "optimized_text",
+          "rationale",
+          "predicted_engagement_percentile",
+          "predicted_total_engagement"
+        ],
+        "title": "SynthesisVariant",
+        "description": "Scored synthesis rewrite (sheet-shaped + performance)."
+      },
+      "TelemetryWarning": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "actual": {
+            "type": "number",
+            "title": "Actual"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "threshold",
+          "actual"
+        ],
+        "title": "TelemetryWarning"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidationErrorItem": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Loc",
+            "description": "JSON path to the invalid field."
+          },
+          "msg": {
+            "type": "string",
+            "title": "Msg"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationErrorItem"
+      },
+      "ValidationErrorResponse": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationErrorItem"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ValidationErrorResponse",
+        "description": "FastAPI/Pydantic request validation failure (HTTP 422)."
+      },
+      "VariantResult": {
+        "properties": {
+          "variant_text": {
+            "type": "string",
+            "title": "Variant Text"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "strategy_label": {
+            "type": "string",
+            "title": "Strategy Label"
+          },
+          "predicted_engagement_percentile": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Predicted Engagement Percentile"
+          },
+          "predicted_total_engagement": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Predicted Total Engagement"
+          }
+        },
+        "type": "object",
+        "required": [
+          "variant_text",
+          "rationale",
+          "strategy_label",
+          "predicted_engagement_percentile",
+          "predicted_total_engagement"
+        ],
+        "title": "VariantResult"
+      },
+      "VoiceProfile": {
+        "properties": {
+          "dominant_hook_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Hook Type"
+          },
+          "dominant_tone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Tone"
+          },
+          "dominant_writing_style": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dominant Writing Style"
+          },
+          "avg_word_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Word Count"
+          },
+          "avg_hashtag_count": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hashtag Count"
+          },
+          "cta_usage_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cta Usage Ratio"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sample Size",
+            "description": "Number of posts used to build the profile."
+          }
+        },
+        "type": "object",
+        "required": [
+          "sample_size"
+        ],
+        "title": "VoiceProfile",
+        "description": "Derived writing-style summary for a subscriber (cold-start safe)."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Liveness and API version probe."
+    },
+    {
+      "name": "v1",
+      "description": "Stable v1 contract for frontend integration."
+    }
+  ]
+}

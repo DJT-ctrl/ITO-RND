@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import UUID
@@ -612,3 +613,12 @@ def fetch_accuracy_aggregates(conn: psycopg.Connection) -> AccuracyAggregates:
         time_series=time_series,
         method_time_series=method_time_series,
     )
+
+
+def __getattr__(name: str):
+    """Lazy re-exports for Collect dashboard stats (avoids stale import paths)."""
+    if name in ("LaneACoverageStats", "fetch_lane_a_coverage_stats"):
+        from validation_pipeline import collect_dashboard as _collect_dashboard
+
+        return getattr(_collect_dashboard, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

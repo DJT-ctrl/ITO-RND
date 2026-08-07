@@ -25,6 +25,7 @@ _SOFT_TOPIC_OVERFETCH_CAP = 50
 # post, so callers must treat them as optional.
 _SIMILAR_COLUMNS = [
     "post_id",
+    "linkedin_url",
     "content",
     "likes",
     "comments",
@@ -40,6 +41,7 @@ _SIMILAR_COLUMNS = [
     "topic",
     "niche",
     "hook_type",
+    "engagement_anomaly_flag",
     "posted_at",
     "engagement_age_hours",
 ]

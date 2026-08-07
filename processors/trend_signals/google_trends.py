@@ -19,6 +19,14 @@ TRENDS_DISCLAIMER = (
 )
 
 
+def _resolve_cache_path(path: Optional[Path] = None) -> Path:
+    """Resolve trend cache from backend repo root (not process cwd)."""
+    from config.paths import resolve_data_path
+
+    candidate = path or DEFAULT_CACHE_PATH
+    return candidate if candidate.is_absolute() else resolve_data_path(str(candidate))
+
+
 def fetch_trend_signals(
     keywords: list[str],
     settings: Settings,
@@ -164,7 +172,7 @@ def _cache_key(keyword: str, settings: Settings) -> str:
 
 
 def _load_cache(path: Optional[Path] = None) -> dict[str, Any]:
-    resolved = path or DEFAULT_CACHE_PATH
+    resolved = _resolve_cache_path(path)
     if not resolved.exists():
         return {}
     try:
@@ -174,7 +182,7 @@ def _load_cache(path: Optional[Path] = None) -> dict[str, Any]:
 
 
 def _save_cache(cache: dict[str, Any], path: Optional[Path] = None) -> None:
-    resolved = path or DEFAULT_CACHE_PATH
+    resolved = _resolve_cache_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
 

@@ -1,0 +1,93 @@
+# Load scenarios for IntoTheOpen API (issue #21).
+# Durations and concurrency are sized for a single Compose API instance.
+
+defaults:
+  base_url: "http://127.0.0.1:8000"
+  draft_content: >-
+    Three things I learned shipping a LinkedIn content loop this quarter:
+    measure neighbor engagement before rewriting hooks, keep SEO claims
+    grounded in your own corpus, and never block the event loop on embeds.
+
+scenarios:
+  smoke:
+    description: Single request per route — wiring check before a real run.
+    requests:
+      - route: health
+        method: GET
+        path: /health
+        count: 1
+        concurrency: 1
+      - route: similar-posts
+        method: POST
+        path: /api/v1/similar-posts
+        count: 1
+        concurrency: 1
+        json:
+          content: "{{draft_content}}"
+          limit: 5
+      - route: evaluate
+        method: POST
+        path: /api/v1/evaluate
+        count: 1
+        concurrency: 1
+        timeout_s: 90
+        json:
+          content: "{{draft_content}}"
+          variant_strategy: dimension
+          use_google_trends: false
+
+  similar-posts-steady:
+    description: Sustained similarity search (embed + pgvector).
+    requests:
+      - route: similar-posts
+        method: POST
+        path: /api/v1/similar-posts
+        count: 40
+        concurrency: 8
+        timeout_s: 15
+        json:
+          content: "{{draft_content}}"
+          limit: 10
+
+  evaluate-mixed:
+    description: Concurrent full evaluation cycles (agent fan-out).
+    requests:
+      - route: evaluate
+        method: POST
+        path: /api/v1/evaluate
+        count: 6
+        concurrency: 2
+        timeout_s: 120
+        json:
+          content: "{{draft_content}}"
+          variant_strategy: dimension
+          use_google_trends: false
+
+  baseline:
+    description: Combined baseline used for docs/ops/LOAD_BASELINE.md numbers.
+    requests:
+      - route: health
+        method: GET
+        path: /health
+        count: 20
+        concurrency: 10
+        timeout_s: 2
+      - route: similar-posts
+        method: POST
+        path: /api/v1/similar-posts
+        count: 40
+        concurrency: 8
+        timeout_s: 15
+        json:
+          content: "{{draft_content}}"
+          limit: 10
+      - route: evaluate
+        method: POST
+        path: /api/v1/evaluate
+        count: 6
+        concurrency: 2
+        timeout_s: 120
+        json:
+          content: "{{draft_content}}"
+          variant_strategy: dimension
+          use_google_trends: false

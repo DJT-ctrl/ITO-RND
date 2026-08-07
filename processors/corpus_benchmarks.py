@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+import psycopg
 
 from config.settings import Settings
 from processors.pattern_analysis import correlate_numeric_features, group_engagement_by_tag
@@ -21,6 +22,14 @@ from storage.vector_store import fetch_posts_for_analysis, get_connection
 
 DEFAULT_SNAPSHOT_PATH = Path("data/processed/corpus_benchmarks.json")
 DEFAULT_TTL_HOURS = 24
+
+
+def _resolve_snapshot_path(path: Optional[Path] = None) -> Path:
+    """Resolve snapshot path from backend repo root (not process cwd)."""
+    from config.paths import resolve_data_path
+
+    candidate = path or DEFAULT_SNAPSHOT_PATH
+    return candidate if candidate.is_absolute() else resolve_data_path(str(candidate))
 
 
 def build_snapshot(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -88,14 +97,14 @@ def build_snapshot(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def save_snapshot(snapshot: dict[str, Any], path: Optional[Path] = None) -> Path:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
     resolved.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
     return resolved
 
 
 def load_snapshot(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     if not resolved.exists():
         return None
     try:
@@ -105,7 +114,7 @@ def load_snapshot(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
 
 
 def is_stale(path: Optional[Path] = None, ttl_hours: int = DEFAULT_TTL_HOURS) -> bool:
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     snapshot = load_snapshot(resolved)
     if snapshot is None:
         return True
@@ -128,7 +137,7 @@ def refresh_snapshot_from_db(
     path: Optional[Path] = None,
 ) -> dict[str, Any]:
     """Rebuild the benchmark snapshot from the database."""
-    resolved = path or DEFAULT_SNAPSHOT_PATH
+    resolved = _resolve_snapshot_path(path)
     conn = get_connection(settings)
     try:
         records = fetch_posts_for_analysis(conn, limit=limit)
@@ -152,10 +161,12 @@ def get_or_refresh_benchmarks(
 ) -> tuple[Optional[dict[str, Any]], list[str]]:
     """Load cached benchmarks or refresh from DB when stale.
 
-    Returns (snapshot, warnings). Snapshot is None only when the DB is empty
-    and no cache file exists.
+    Returns (snapshot, warnings). Snapshot is None when refresh cannot produce
+    data and no usable cache file exists (empty DB, missing DATABASE_URL, or
+    DB/network outage). Never raises on connectivity failures — callers get a
+    warning and may continue evaluation without corpus benchmarks.
     """
-    resolved_path = path or DEFAULT_SNAPSHOT_PATH
+    resolved_path = _resolve_snapshot_path(path)
     warnings: list[str] = []
     ttl = ttl_hours if ttl_hours is not None else settings.corpus_benchmark_ttl_hours
 
@@ -174,7 +185,7 @@ def get_or_refresh_benchmarks(
 
     try:
         return refresh_snapshot_from_db(settings, path=resolved_path), warnings
-    except ValueError as exc:
+    except (ValueError, psycopg.Error, OSError, TimeoutError) as exc:
         cached = load_snapshot(resolved_path)
         if cached is not None:
             warnings.append(f"{exc} — using stale corpus benchmark cache.")

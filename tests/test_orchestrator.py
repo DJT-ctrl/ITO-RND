@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from agents.orchestrator import run_evaluation_cycle
+from agents.cross_reference import CrossReferenceAnalysisItem, CrossReferenceAnalysisOutput
 from agents.schemas import EvaluationDeps
 from config.settings import Settings
 
@@ -92,6 +93,17 @@ class _RaisingAgent:
         raise RuntimeError("boom")
 
 
+class _OrderedAgent:
+    def __init__(self, name: str, output: object, events: list[str]):
+        self._name = name
+        self._output = output
+        self._events = events
+
+    async def run(self, prompt: str, deps) -> SimpleNamespace:
+        self._events.append(self._name)
+        return SimpleNamespace(output=self._output)
+
+
 def _patch_neighbor_fetch(rows: list[dict]):
     """Patch the 4 collaborators agents.orchestrator._gather_similar_posts
     uses, so tests never touch a real DB or the Gemini API."""
@@ -101,6 +113,22 @@ def _patch_neighbor_fetch(rows: list[dict]):
         patch("agents.orchestrator.get_connection", return_value=MagicMock()),
         patch("agents.orchestrator.register_vector"),
     )
+
+
+def _cross_reference_rows(*args, **kwargs) -> list[dict]:
+    if kwargs["limit"] == 10:
+        row = fake_row("baseline")
+        row.update(
+            content="A detailed baseline post with enough words to support a fair comparison.",
+            engagement_percentile=45.0,
+        )
+        return [row]
+    row = fake_row("stronger")
+    row.update(
+        content="A detailed stronger post with enough words to support a fair comparison.",
+        engagement_percentile=90.0,
+    )
+    return [row]
 
 
 def test_concurrent_agents_run_in_parallel_not_sequentially():
@@ -147,6 +175,78 @@ def test_predictor_result_written_separately_from_diagnostics():
 
     assert state.predictor_result == {"engagement_score": 88}
     assert state.diagnostics == {"seo": {"seo_score": 5}}
+
+
+def test_cross_reference_analyst_enriches_evidence_before_finalizer():
+    events: list[str] = []
+    predictor = _OrderedAgent("predictor", {"engagement_score": 55}, events)
+    diagnostics = {"seo": _OrderedAgent("diagnostic", {"score": 7}, events)}
+    analyst = _OrderedAgent(
+        "analyst",
+        CrossReferenceAnalysisOutput(
+            references=[
+                CrossReferenceAnalysisItem(
+                    post_id="stronger",
+                    observed_strengths=["Specific outcome-led hook"],
+                    suggested_adaptation="Lead with one concrete customer result.",
+                )
+            ],
+            overall_feedback=["Use a more concrete opening."],
+        ),
+        events,
+    )
+
+    async def finalize(state):
+        events.append("finalize")
+        assert state.cross_references is not None
+        assert state.cross_references.references[0].suggested_adaptation == (
+            "Lead with one concrete customer result."
+        )
+
+    p1, _, p3, p4 = _patch_neighbor_fetch([])
+    with p1, patch("agents.orchestrator.find_similar", side_effect=_cross_reference_rows), p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                predictor=predictor,
+                diagnostics=diagnostics,
+                cross_reference_analyst=analyst,
+                finalize=finalize,
+            )
+        )
+
+    assert state.cross_references is not None
+    assert state.cross_references.status == "ready"
+    assert events.index("analyst") > events.index("predictor")
+    assert events.index("analyst") > events.index("diagnostic")
+    assert events[-1] == "finalize"
+
+
+def test_cross_reference_analyst_failure_keeps_evidence_and_runs_finalizer():
+    finalized: list[bool] = []
+
+    async def finalize(state):
+        finalized.append(True)
+        assert state.cross_references is not None
+        assert state.cross_references.references[0].post.post_id == "stronger"
+
+    p1, _, p3, p4 = _patch_neighbor_fetch([])
+    with p1, patch("agents.orchestrator.find_similar", side_effect=_cross_reference_rows), p3, p4:
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                cross_reference_analyst=_RaisingAgent(),
+                finalize=finalize,
+            )
+        )
+
+    assert finalized == [True]
+    assert state.cross_references is not None
+    assert state.cross_references.status == "analysis_unavailable"
+    assert state.cross_references.references[0].post.post_id == "stronger"
+    assert any(error.startswith("cross_reference:") for error in state.errors)
 
 
 def test_run_metadata_populated_with_step_telemetry():
@@ -262,6 +362,48 @@ def test_similar_posts_populated_before_agents_run():
     assert state.diagnostics["capture"] == {"seen": 3}
 
 
+def test_cross_references_are_ready_before_agents_run():
+    ordinary = fake_row("ordinary")
+    ordinary["engagement_percentile"] = 70.0
+    global_candidate = {
+        **fake_row("strong-global"),
+        "content": "A sufficiently detailed historical LinkedIn post for meaningful comparison context.",
+        "engagement_percentile": 90.0,
+    }
+    captured: dict = {}
+
+    class _CapturingAgent:
+        async def run(self, prompt, deps):
+            captured["status"] = deps.cross_references.status
+            captured["post_ids"] = [item.post.post_id for item in deps.cross_references.references]
+            return SimpleNamespace(output={"seen": True})
+
+    with (
+        patch(
+            "agents.orchestrator.embed_query",
+            return_value=(np.zeros(3072, dtype=np.float32), 10),
+        ),
+        patch(
+            "agents.orchestrator.find_similar",
+            side_effect=[[ordinary], [global_candidate]],
+        ),
+        patch("agents.orchestrator.get_connection", return_value=MagicMock()),
+        patch("agents.orchestrator.register_vector"),
+    ):
+        state = asyncio.run(
+            run_evaluation_cycle(
+                "draft text",
+                fake_settings(),
+                diagnostics={"capture": _CapturingAgent()},
+            )
+        )
+
+    assert state.cross_references is not None
+    assert state.cross_references.status == "ready"
+    assert [item.post.post_id for item in state.cross_references.references] == ["strong-global"]
+    assert captured == {"status": "ready", "post_ids": ["strong-global"]}
+
+
 def test_neighbor_limit_passed_to_find_similar():
     """Optional neighbor_limit (10–100) is forwarded to find_similar."""
     rows = [fake_row(str(i)) for i in range(25)]
@@ -278,7 +420,9 @@ def test_neighbor_limit_passed_to_find_similar():
             run_evaluation_cycle("draft text", fake_settings(), neighbor_limit=25)
         )
 
-    assert mock_find.call_args.kwargs["limit"] == 25
+    assert mock_find.call_args_list[0].kwargs["limit"] == 25
+    assert mock_find.call_args_list[1].kwargs["limit"] == 30
+    assert mock_find.call_args_list[1].kwargs["user_id"] is None
     assert len(state.similar_posts) == 25
 
 

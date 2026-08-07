@@ -5,6 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from validation_pipeline.collect_inventory import (
+    DatasetInventoryRow,
+    build_dataset_inventory_and_unique,
+    dataset_inventory_rows,
+    estimate_corpus_unique_count,
+    unique_post_ids_from_vectorized_datasets,
+)
 from validation_pipeline.vectorized_corpus import (
     VectorizedDataset,
     _eligible_records,
@@ -75,3 +82,58 @@ def test_discover_vectorized_datasets_uses_npy_row_matching(
     jsonl_a.unlink(missing_ok=True)
     jsonl_b.unlink(missing_ok=True)
     npy_a.unlink(missing_ok=True)
+
+
+def test_unique_post_ids_from_vectorized_datasets_unions_meta(tmp_path: Path):
+    npy_a = tmp_path / "a.npy"
+    npy_b = tmp_path / "b.npy"
+    npy_a.write_bytes(b"")
+    npy_b.write_bytes(b"")
+    (tmp_path / "a.npy.meta.json").write_text(
+        '{"embedding_post_ids": ["1", "2", "2"]}',
+        encoding="utf-8",
+    )
+    (tmp_path / "b.npy.meta.json").write_text(
+        '{"embedding_post_ids": ["2", "3"]}',
+        encoding="utf-8",
+    )
+    datasets = [
+        VectorizedDataset(
+            jsonl_path=tmp_path / "a.jsonl",
+            csv_path=None,
+            embeddings_path=npy_a,
+            vector_count=3,
+        ),
+        VectorizedDataset(
+            jsonl_path=tmp_path / "b.jsonl",
+            csv_path=None,
+            embeddings_path=npy_b,
+            vector_count=2,
+        ),
+    ]
+    assert unique_post_ids_from_vectorized_datasets(datasets) == {"1", "2", "3"}
+    assert estimate_corpus_unique_count(datasets) == 3
+    rows = dataset_inventory_rows(datasets)
+    assert rows[0].unique_ids_available == 2
+    assert rows[0].has_meta_ids is True
+    rows2, unique = build_dataset_inventory_and_unique(datasets)
+    assert unique == 3
+    assert rows2[0].unique_ids_available == 2
+
+
+def test_estimate_corpus_unique_falls_back_to_vector_count(tmp_path: Path):
+    npy = tmp_path / "orphan.npy"
+    npy.write_bytes(b"")
+    datasets = [
+        VectorizedDataset(
+            jsonl_path=tmp_path / "x.jsonl",
+            csv_path=None,
+            embeddings_path=npy,
+            vector_count=7,
+        )
+    ]
+    assert unique_post_ids_from_vectorized_datasets(datasets) == set()
+    assert estimate_corpus_unique_count(datasets) == 7
+    row = dataset_inventory_rows(datasets)[0]
+    assert row.has_meta_ids is False
+    assert row.unique_ids_available == 7

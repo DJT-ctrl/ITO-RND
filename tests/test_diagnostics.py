@@ -4,6 +4,7 @@ import asyncio
 
 from pydantic_ai.models.test import TestModel
 
+from agents.cross_reference import select_cross_references
 from agents.diagnostics import (
     DiagnosticOutput,
     build_clarity_agent,
@@ -52,6 +53,29 @@ def test_diagnostic_prompt_includes_voice_profile_when_present():
 
     assert "subscriber's own writing style" in prompt
     assert "casual" in prompt
+
+
+def test_diagnostic_prompts_include_curated_stronger_reference_evidence():
+    from api.schemas import SimilarPost
+
+    stronger = SimilarPost(
+        post_id="stronger",
+        content="A sufficiently detailed historical LinkedIn post for meaningful comparison context.",
+        likes=20,
+        comments=4,
+        shares=2,
+        total_engagement=26,
+        engagement_percentile=90.0,
+        engagement_zscore=1.0,
+        cosine_distance=0.04,
+    )
+    deps = EvaluationDeps(
+        draft_content="Draft post about hiring a backend engineer.",
+        cross_references=select_cross_references([stronger], {"percentile": 70.0}),
+    )
+
+    for name in ("seo", "clarity", "tone"):
+        assert "Curated stronger close matches" in build_diagnostic_prompt(name, deps)
 
 
 def test_each_diagnostic_agent_returns_uniform_structured_output_with_test_model():

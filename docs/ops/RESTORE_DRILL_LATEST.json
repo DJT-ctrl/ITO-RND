@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "dump_path": "data/db_backups/posts_daily_simulated.dump",
+  "dump_age_seconds": 3600.0,
+  "restore_duration_seconds": 42.5,
+  "rpo_target_seconds": 86400,
+  "rto_target_seconds": 14400,
+  "rpo_met": true,
+  "rto_met": true,
+  "finished_at": "2026-07-17T16:43:06.381915+00:00",
+  "notes": "Simulated non-prod restore drill for issue #15 CI. Replace with a live timed restore before go-live (#27).",
+  "error": null
+}

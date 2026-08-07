@@ -15,7 +15,7 @@ from agents.variant_scoring import (
     fallback_scores_from_baseline,
     score_texts_concurrently,
 )
-from api.schemas import SimilarPost
+from api.schemas import CrossReferenceResult, SimilarPost
 from telemetry.collector import RunMetadataCollector
 
 
@@ -24,6 +24,7 @@ async def score_synthesis_drafts(
     *,
     predictor_agent: Agent,
     similar_posts: Sequence[SimilarPost],
+    cross_references: Optional[CrossReferenceResult] = None,
     voice_profile: Optional[dict] = None,
     baseline_percentile: Optional[float] = None,
     baseline_total_engagement: Optional[int] = None,
@@ -36,6 +37,7 @@ async def score_synthesis_drafts(
         pairs,
         predictor_agent=predictor_agent,
         similar_posts=similar_posts,
+        cross_references=cross_references,
         voice_profile=voice_profile,
         collector=collector,
         stage="synthesis",

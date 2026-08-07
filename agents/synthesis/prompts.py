@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Optional
 
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
+from agents.cross_reference import format_cross_reference_context
 from agents.schemas import build_voice_profile_section
+from api.schemas import CrossReferenceResult
 
 GENERIC_CSUITE_BRIEF = (
     "No prior critic run. Assume a skeptical CTO/CFO who wants quantified ROI, "
@@ -55,9 +57,17 @@ Keep each rewrite distinct. Stay on the same topic as the draft.
 """.strip()
 
 
-def build_synthesis_user_message(draft_content: str) -> str:
+def build_synthesis_user_message(
+    draft_content: str,
+    *,
+    cross_references: Optional[CrossReferenceResult] = None,
+) -> str:
     """Wrapped draft for the generation call."""
-    return (
+    cross_reference_context = format_cross_reference_context(cross_references)
+    message = (
         "Rewrite this LinkedIn draft into the three specialist variants.\n\n"
         f"{wrap_untrusted_text(draft_content)}"
     )
+    if cross_reference_context:
+        message += f"\n\nHistorical comparison evidence:\n{cross_reference_context}"
+    return message

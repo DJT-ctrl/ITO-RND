@@ -8,6 +8,12 @@ import numpy as np
 import pytest
 from pydantic_ai.models.test import TestModel
 
+from agents.cross_reference import (
+    CrossReferenceAnalysisItem,
+    CrossReferenceAnalysisOutput,
+    apply_cross_reference_analysis,
+    select_cross_references,
+)
 from agents.predictor import build_predictor_agent
 from agents.schemas import EvaluationDeps, PostEvaluationState
 from agents.variant_engine import (
@@ -90,6 +96,17 @@ class _RaisingPredictorAgent:
         )
 
 
+class _RecordingPredictorAgent:
+    def __init__(self):
+        self.cross_references = []
+
+    async def run(self, prompt: str, deps) -> SimpleNamespace:
+        self.cross_references.append(deps.cross_references)
+        return SimpleNamespace(
+            output=SimpleNamespace(predicted_engagement_percentile=70.0, predicted_total_engagement=50)
+        )
+
+
 def test_prompt_includes_predictor_diagnostics_and_neighbors():
     state = full_state()
     deps = EvaluationDeps(draft_content=state.draft_content, similar_posts=state.similar_posts)
@@ -113,6 +130,36 @@ def test_prompt_flags_missing_diagnostics_for_dimension_strategy():
     prompt = build_variant_prompt("dimension", deps, state)
 
     assert "Missing diagnostics: tone" in prompt
+
+
+def test_prompt_includes_completed_cross_reference_feedback():
+    state = full_state()
+    stronger = fake_post("stronger")
+    stronger.engagement_percentile = 92.0
+    state.cross_references = apply_cross_reference_analysis(
+        select_cross_references([stronger], {"percentile": 70.0}),
+        CrossReferenceAnalysisOutput(
+            references=[
+                CrossReferenceAnalysisItem(
+                    post_id="stronger",
+                    observed_strengths=["Outcome-led opening"],
+                    suggested_adaptation="Lead with one concrete outcome.",
+                )
+            ],
+            overall_feedback=["Make the opening more specific."],
+        ),
+    )
+    deps = EvaluationDeps(
+        draft_content=state.draft_content,
+        similar_posts=state.similar_posts,
+        cross_references=state.cross_references,
+    )
+
+    prompt = build_variant_prompt("dimension", deps, state)
+
+    assert "Outcome-led opening" in prompt
+    assert "Lead with one concrete outcome" in prompt
+    assert "Make the opening more specific" in prompt
 
 
 def test_generation_agent_returns_exactly_three_variants_with_test_model():
@@ -214,8 +261,8 @@ def test_default_shared_neighbors_mode_never_calls_embed_query():
     state = full_state()
     hook = build_variant_engine(_FixedPredictorAgent(), model=TestModel(), strategy="dimension")
 
-    with patch("agents.variant_scoring.embed_query") as mock_embed_query, patch(
-        "agents.variant_scoring.find_similar"
+    with patch("agents.variant_engine.embed_query") as mock_embed_query, patch(
+        "agents.variant_engine.find_similar"
     ) as mock_find_similar:
         asyncio.run(hook(state))
 
@@ -237,20 +284,65 @@ def test_reembed_neighbors_fetches_own_neighbors_per_variant():
         settings=fake_settings,
     )
 
-    with patch("agents.variant_scoring.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)) as mock_embed_query, patch(
-        "agents.variant_scoring.find_similar", return_value=[fake_row("own-neighbor")]
-    ) as mock_find_similar, patch("agents.variant_scoring.get_connection", return_value=MagicMock()), patch(
-        "agents.variant_scoring.register_vector"
+    with patch("agents.variant_engine.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)) as mock_embed_query, patch(
+        "agents.variant_engine.find_similar", return_value=[fake_row("own-neighbor")]
+    ) as mock_find_similar, patch("agents.variant_engine.get_connection", return_value=MagicMock()), patch(
+        "agents.variant_engine.register_vector"
     ):
         asyncio.run(hook(state))
 
     assert mock_embed_query.call_count == 3
-    assert mock_find_similar.call_count == 3
+    assert mock_find_similar.call_count == 6
     # Each call should re-embed the VARIANT's own text, not the original draft.
     embedded_texts = [call.args[0] for call in mock_embed_query.call_args_list]
     assert all(text != state.draft_content for text in embedded_texts)
     assert len(state.variants) == 3
     assert state.errors == []
+
+
+def test_reembed_neighbors_selects_fresh_global_references_per_variant():
+    state = full_state()
+    state.retrieval_user_id = "subscriber-1"
+    predictor = _RecordingPredictorAgent()
+    fake_settings = SimpleNamespace(gemini_api_key="fake", database_url="postgresql://fake/fake")
+    hook = build_variant_engine(
+        predictor,
+        model=TestModel(),
+        strategy="dimension",
+        reembed_neighbors=True,
+        settings=fake_settings,
+    )
+    ordinary = fake_row("variant-neighbor")
+    ordinary["engagement_percentile"] = 40.0
+    global_candidate = fake_row("fresh-global-reference")
+    global_candidate["engagement_percentile"] = 90.0
+
+    def return_scoped_or_global(*args, **kwargs):
+        return [ordinary] if kwargs["user_id"] is not None else [global_candidate]
+
+    with patch("agents.variant_engine.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)) as mock_embed_query, patch(
+        "agents.variant_engine.find_similar", side_effect=return_scoped_or_global
+    ) as mock_find_similar, patch("agents.variant_engine.get_connection", return_value=MagicMock()), patch(
+        "agents.variant_engine.register_vector"
+    ):
+        asyncio.run(hook(state))
+
+    assert mock_embed_query.call_count == 3
+    assert mock_find_similar.call_count == 6
+    scoped_calls = [
+        call for call in mock_find_similar.call_args_list if call.kwargs["user_id"] is not None
+    ]
+    global_calls = [
+        call for call in mock_find_similar.call_args_list if call.kwargs["user_id"] is None
+    ]
+    assert len(scoped_calls) == 3
+    assert len(global_calls) == 3
+    assert len(predictor.cross_references) == 3
+    assert all(reference.status == "ready" for reference in predictor.cross_references)
+    assert all(
+        reference.references[0].post.post_id == "fresh-global-reference"
+        for reference in predictor.cross_references
+    )
 
 
 def test_reembed_neighbor_fetch_failure_falls_back_gracefully():
@@ -268,16 +360,16 @@ def test_reembed_neighbor_fetch_failure_falls_back_gracefully():
     )
 
     with patch(
-        "agents.variant_scoring.embed_query",
+        "agents.variant_engine.embed_query",
         side_effect=[
             RuntimeError("embed boom"),
             (np.zeros(3072, dtype=np.float32), 10),
             (np.zeros(3072, dtype=np.float32), 10),
         ],
-    ), patch("agents.variant_scoring.find_similar", return_value=[fake_row("own-neighbor")]), patch(
-        "agents.variant_scoring.get_connection", return_value=MagicMock()
+    ), patch("agents.variant_engine.find_similar", return_value=[fake_row("own-neighbor")]), patch(
+        "agents.variant_engine.get_connection", return_value=MagicMock()
     ), patch(
-        "agents.variant_scoring.register_vector"
+        "agents.variant_engine.register_vector"
     ):
         asyncio.run(hook(state))
 
