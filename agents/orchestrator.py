@@ -381,6 +381,7 @@ async def run_evaluation_cycle(
     draft_follower_count: Optional[int] = None
     if user_id is not None:
         draft_follower_count = await _fetch_draft_follower_count(settings, user_id, collector=collector)
+    state.draft_follower_count = draft_follower_count
 
     def _neighbor_prediction():
         return compute_neighbor_prediction(

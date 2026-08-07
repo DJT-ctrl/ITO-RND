@@ -1,6 +1,6 @@
 # 09 — Build Plan
 
-**Status:** A–J + post-F package (I.1/I.2, advanced inject formats, G+) engineering done; F still **NO-GO** (2.97% < 5%)  
+**Status:** A–J + post-F package (I.1/I.2, advanced inject formats, G+) + K.1 coaching engineering done; F still **NO-GO** (2.97% < 5%)
 **Date:** 2026-07-15  
 **Source:** Planning docs 01–08 + peer review + `FEEDBACK_LOOP_PART2_PLAN.md`  
 **Active docs folder:** this directory (`current md/`)
@@ -27,6 +27,7 @@ These **letter** phases (0, A–J, G+) are the internal build track for **[Phase
 | **I** | Scale (async queue + roll-ups) | **Done** (caching deferred; flags safe) |
 | **J** | Injectability unlock (soften overwrite + shadow) | **Done** (live=`hard_lock`; shadow ON OK) |
 | **G+** | Auto-approve hybrid | **Done** (default OFF) |
+| **K.1** | Cluster-aware draft coaching | **Done** (default OFF; does not change scores) |
 
 Latest F re-run (afternoon): N=702, holdout=30, cal lift **2.97%**, shadow holdout **16/30** with
 MAE delta **−0.0004** — identical to morning. See [11_GO_NO_GO.md](11_GO_NO_GO.md).
@@ -157,6 +158,19 @@ Validated rows → mean_delta → calibrate percentile (A)
 - [x] `VALIDATION_FEEDBACK_AUTO_APPROVE_ENABLED` (default false)
 - [x] Daily max + `|delta|` cap gating; `reviewed_by=auto_approve`
 - [x] Dashboard toggles on Feedback Loop settings
+
+---
+
+## Phase K.1 checklist — cluster-aware draft coaching
+
+- [x] Additive `cluster_coaching` response contract; clients tolerate `null`
+- [x] Default-off persisted setting: `VALIDATION_CLUSTER_COACHING_ENABLED`
+- [x] Retrieve bounded approved cluster lessons with existing routing fallback
+- [x] Gemini 2.5 Flash returns one anchor-based detailed primary edit plus up to two supporting actions
+- [x] Validate literal draft anchor and evidence references before exposing output
+- [x] Keep coaching read-only: no predictor, calibration, injection, validation, or variant mutation
+- [x] Product API/frontend contract places coaching before legacy diagnostics
+- [x] Unit/API/runtime-flag coverage for disabled path, enabled serialization, and grounding guards
 
 ---
 

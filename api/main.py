@@ -32,6 +32,7 @@ from agents.audience_critic import (
     run_audience_critic,
 )
 from agents.cross_reference import build_cross_reference_analyst
+from agents.cluster_coaching import build_cluster_coaching_engine
 from agents.diagnostics import build_diagnostic_agents
 from agents.diagnostics import list_diagnostic_specs
 from agents.orchestrator import run_evaluation_cycle
@@ -66,6 +67,7 @@ from api.schemas import (
 )
 from api.security import ApiPrincipal, assert_user_id_authorized, configure_api_security, require_api_principal
 from config.settings import load_settings, pydantic_ai_gemini_model
+from feedback.runtime_flags import apply_overrides_to_settings
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
@@ -344,11 +346,12 @@ async def evaluate(
 ) -> EvaluateResponse:
     """Run the async evaluation cycle end-to-end over HTTP."""
     assert_user_id_authorized(principal, request_body.user_id)
+    runtime_settings = apply_overrides_to_settings(settings)
 
     eval_model, predictor, diagnostics, reference_analyst = _ensure_eval_agents()
-    resolved_seo_mode = request_body.seo_mode or settings.seo_discoverability_mode
+    resolved_seo_mode = request_body.seo_mode or runtime_settings.seo_discoverability_mode
     collector = RunMetadataCollector(
-        settings=settings,
+        settings=runtime_settings,
         user_id=request_body.user_id,
         agent_model=eval_model,
         variant_strategy=request_body.variant_strategy,
@@ -360,17 +363,28 @@ async def evaluate(
         predictor,
         strategy=request_body.variant_strategy,
         reembed_neighbors=request_body.reembed_variant_neighbors,
-        settings=settings,
+        settings=runtime_settings,
         collector=collector,
         neighbor_limit=request_body.neighbor_limit,
     )
+    coaching_hook = (
+        build_cluster_coaching_engine(runtime_settings, collector=collector)
+        if runtime_settings.validation_cluster_coaching_enabled
+        else None
+    )
+
+    async def finalize(state: PostEvaluationState) -> None:
+        if coaching_hook is not None:
+            await coaching_hook(state)
+        await variant_hook(state)
+
     try:
         state: PostEvaluationState = await run_evaluation_cycle(
             request_body.content,
-            settings,
+            runtime_settings,
             predictor=predictor,
             diagnostics=diagnostics,
-            finalize=variant_hook,
+            finalize=finalize,
             user_id=request_body.user_id,
             use_voice_profile=request_body.use_voice_profile,
             seo_mode=request_body.seo_mode,

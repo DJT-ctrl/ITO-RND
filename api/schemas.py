@@ -99,6 +99,53 @@ class DiagnosticResult(BaseModel):
     improvements: list[str] = Field(default_factory=list)
 
 
+class CoachingEvidence(BaseModel):
+    """Provenance for cluster-aware coaching guidance."""
+
+    cluster_id: Optional[str] = None
+    cluster_label: Optional[str] = None
+    sample_count: int = Field(default=0, ge=0)
+    validated_feedback_count: int = Field(default=0, ge=0)
+    confidence: Literal[
+        "cluster_validated", "shape_fallback", "diagnostic_neighbor"
+    ]
+    age_bucket: Optional[str] = None
+    summary: str = Field(..., min_length=1)
+
+
+class DetailedCoachingAction(BaseModel):
+    """The single highest-priority, draft-specific improvement."""
+
+    priority: Literal["high"] = "high"
+    title: str = Field(..., min_length=3, max_length=120)
+    draft_anchor: str = Field(..., min_length=3, max_length=300)
+    diagnosis: str = Field(..., min_length=20, max_length=600)
+    edit_instruction: str = Field(..., min_length=20, max_length=600)
+    example_replacement: str = Field(..., min_length=10, max_length=800)
+    expected_effect: str = Field(..., min_length=20, max_length=500)
+    evidence_refs: list[str] = Field(min_length=1, max_length=5)
+
+
+class CoachingAction(BaseModel):
+    """A lower-priority, distinct supporting improvement."""
+
+    priority: Literal["medium", "low"]
+    title: str = Field(..., min_length=3, max_length=120)
+    recommendation: str = Field(..., min_length=20, max_length=600)
+    rationale: str = Field(..., min_length=20, max_length=500)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ClusterCoachingResult(BaseModel):
+    """Evidence-grounded, draft-specific coaching shown before diagnostics."""
+
+    status: Literal["ready", "unavailable"]
+    summary: str = Field(..., min_length=1, max_length=800)
+    evidence: CoachingEvidence
+    primary_action: Optional[DetailedCoachingAction] = None
+    supporting_actions: list[CoachingAction] = Field(default_factory=list, max_length=2)
+
+
 class VariantResult(BaseModel):
     variant_text: str
     rationale: str
@@ -260,6 +307,7 @@ class EvaluateResponse(BaseModel):
     similar_posts: list[SimilarPost] = Field(default_factory=list)
     voice_profile: Optional[VoiceProfile] = None
     predictor_result: Optional[PredictorResult] = None
+    cluster_coaching: Optional[ClusterCoachingResult] = None
     diagnostics: dict[str, DiagnosticResult] = Field(
         default_factory=dict,
         description="Diagnostic worker outputs keyed by check name (e.g. seo, clarity, tone).",

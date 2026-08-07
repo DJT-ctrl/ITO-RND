@@ -14,6 +14,7 @@ class _FakeSettings:
     validation_feedback_injection_limit: int = 5
     validation_calibration_n_min: int = 30
     validation_cluster_n_min: int = 50
+    validation_cluster_coaching_enabled: bool = False
     other_field: str = "keep"
 
 
@@ -27,17 +28,20 @@ def test_save_and_apply_overrides(tmp_path: Path, monkeypatch):
         {
             "validation_calibration_enabled": False,
             "validation_feedback_injection_limit": 3,
+            "validation_cluster_coaching_enabled": True,
             "not_allowed": "ignored",
         }
     )
     loaded = rf.load_overrides()
     assert loaded["validation_calibration_enabled"] is False
     assert loaded["validation_feedback_injection_limit"] == 3
+    assert loaded["validation_cluster_coaching_enabled"] is True
     assert "not_allowed" not in loaded
 
     updated = rf.apply_overrides_to_settings(_FakeSettings())
     assert updated.validation_calibration_enabled is False
     assert updated.validation_feedback_injection_limit == 3
+    assert updated.validation_cluster_coaching_enabled is True
     assert updated.other_field == "keep"
     assert updated.validation_feedback_enabled is True
 

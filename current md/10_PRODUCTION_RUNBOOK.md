@@ -227,6 +227,26 @@ calibration/injection.
 
 Dashboard toggles: Feedback Loop → Shadow mode / Injectability mode / Soft blend weight.
 
+### Phase K.1 — Cluster-aware coaching
+
+Cluster-aware coaching is a **user-facing editorial aid**, not a learning or
+scoring mechanism. It remains OFF by default:
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `VALIDATION_CLUSTER_COACHING_ENABLED` | `false` | One extra Gemini 2.5 Flash call after evaluation; returns one detailed, evidence-grounded draft edit and up to two supporting actions |
+
+Enable it only through **Validation Pipeline → Feedback Loop → Show
+cluster-aware coaching**. The call retrieves approved cluster lessons when
+available and falls back to diagnostics plus close neighbors with a visible
+lower-confidence label. It never changes a predicted percentile, calibration,
+feedback injection, validation record, or variant score.
+
+To stop the additional Flash calls immediately, turn the toggle OFF or reset
+dashboard overrides. Product clients must continue to render successful
+prediction and diagnostic results when `cluster_coaching` is `null` or a
+non-fatal `cluster_coaching:` error appears in `errors[]`.
+
 ### Phase 11 — multi-horizon validation
 
 See [Phase_11.md](../Phase_11.md). Default ON:

@@ -408,6 +408,7 @@ VALIDATION_FEEDBACK_ENABLED=true
 VALIDATION_CALIBRATION_ENABLED=false
 VALIDATION_FEEDBACK_INJECTION_ENABLED=false
 VALIDATION_AGE_AWARE_ENABLED=false
+VALIDATION_CLUSTER_COACHING_ENABLED=false
 ```
 
 Age/mode (`validation_age_hours`, `validation_mode`) are recorded on every
@@ -419,6 +420,17 @@ Dashboard overrides in **Validation Pipeline → Feedback Loop** take precedence
 over `.env` values.
 Dashboard overrides in dashboard-for-devs **Validation Pipeline → Feedback Loop**
 take precedence over `.env` values.
+
+### Optional cluster-aware coaching
+
+`VALIDATION_CLUSTER_COACHING_ENABLED` is **false by default**. When enabled in
+**Validation Pipeline → Feedback Loop → Show cluster-aware coaching**, each
+`POST /api/v1/evaluate` makes one additional Gemini 2.5 Flash call after the
+prediction and diagnostics complete. It returns an evidence-grounded primary
+draft edit with a literal anchor and example replacement in `cluster_coaching`.
+It never changes the predicted engagement score, calibration, feedback
+injection, or variants. Turn the toggle off to stop new coaching calls
+immediately; clients must handle `cluster_coaching: null`.
 ### Generate template feedback (CLI)
 
 ```bash
@@ -489,9 +501,14 @@ With the API running (`docker compose up -d` or `uvicorn api.main:app`):
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/health` | Liveness check |
-| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/metrics` | Prometheus metrics (ops only; not product frontend) |
+| `GET` | `/api/v1/agents` | Agent catalog for UI discovery |
 | `POST` | `/api/v1/similar-posts` | Cosine-similarity retrieval over ingested corpus |
 | `POST` | `/api/v1/evaluate` | Full multi-agent evaluation cycle |
+| `POST` | `/api/v1/critique` | Standalone synthetic-audience critic |
+| `POST` | `/api/v1/optimise` | Standalone Stage 5 synthesis |
+
+Product frontend scope: [`Phase_12.md`](Phase_12.md) · Contract: [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md)
 
 **Similar posts example:**
 

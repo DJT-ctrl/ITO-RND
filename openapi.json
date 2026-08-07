@@ -273,6 +273,32 @@
                     "predicted_shares": 4,
                     "reasoning": "Neighbors with similar hiring announcements scored in the 75\u201385 percentile band."
                   },
+                  "cluster_coaching": {
+                    "status": "ready",
+                    "summary": "Lead with the operational outcome before the hiring announcement.",
+                    "evidence": {
+                      "cluster_id": "saas_b2b_short_prose_micro",
+                      "cluster_label": "saas_b2b: short prose posts (micro followers)",
+                      "sample_count": 18,
+                      "validated_feedback_count": 3,
+                      "confidence": "cluster_validated",
+                      "summary": "Approved lessons in this cluster favor specific reader-facing openings."
+                    },
+                    "primary_action": {
+                      "priority": "high",
+                      "title": "Lead with the customer outcome",
+                      "draft_anchor": "Excited to announce",
+                      "diagnosis": "The opening expresses enthusiasm but does not give the reader a concrete reason to continue before the company announcement.",
+                      "edit_instruction": "Replace the opening with the operational outcome this hire will help create, then introduce the role in the next sentence.",
+                      "example_replacement": "We are cutting customer setup time in half. That is why we hired a backend engineer to scale the workflow.",
+                      "expected_effect": "A specific outcome creates immediate reader relevance without promising a performance result.",
+                      "evidence_refs": [
+                        "neighbor:post-101",
+                        "feedback:prediction-101"
+                      ]
+                    },
+                    "supporting_actions": []
+                  },
                   "diagnostics": {
                     "seo": {
                       "score": 7.5,
@@ -688,6 +714,170 @@
         "title": "CSuiteLens",
         "description": "T7.11 \u2014 skeptical CTO/CFO lens."
       },
+      "ClusterCoachingResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 800,
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/CoachingEvidence"
+          },
+          "primary_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DetailedCoachingAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supporting_actions": {
+            "items": {
+              "$ref": "#/components/schemas/CoachingAction"
+            },
+            "type": "array",
+            "maxItems": 2,
+            "title": "Supporting Actions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "summary",
+          "evidence"
+        ],
+        "title": "ClusterCoachingResult",
+        "description": "Evidence-grounded, draft-specific coaching shown before diagnostics."
+      },
+      "CoachingAction": {
+        "properties": {
+          "priority": {
+            "type": "string",
+            "enum": [
+              "medium",
+              "low"
+            ],
+            "title": "Priority"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Title"
+          },
+          "recommendation": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 20,
+            "title": "Recommendation"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 20,
+            "title": "Rationale"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "title": "Evidence Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "priority",
+          "title",
+          "recommendation",
+          "rationale"
+        ],
+        "title": "CoachingAction",
+        "description": "A lower-priority, distinct supporting improvement."
+      },
+      "CoachingEvidence": {
+        "properties": {
+          "cluster_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cluster Id"
+          },
+          "cluster_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cluster Label"
+          },
+          "sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Count",
+            "default": 0
+          },
+          "validated_feedback_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Validated Feedback Count",
+            "default": 0
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "cluster_validated",
+              "shape_fallback",
+              "diagnostic_neighbor"
+            ],
+            "title": "Confidence"
+          },
+          "age_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Bucket"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Summary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "confidence",
+          "summary"
+        ],
+        "title": "CoachingEvidence",
+        "description": "Provenance for cluster-aware coaching guidance."
+      },
       "CritiqueRequest": {
         "properties": {
           "content": {
@@ -850,6 +1040,73 @@
         ],
         "title": "CrossReferenceResult",
         "description": "Curated, observational evidence from stronger close historical posts."
+      },
+      "DetailedCoachingAction": {
+        "properties": {
+          "priority": {
+            "type": "string",
+            "const": "high",
+            "title": "Priority",
+            "default": "high"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 3,
+            "title": "Title"
+          },
+          "draft_anchor": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 3,
+            "title": "Draft Anchor"
+          },
+          "diagnosis": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 20,
+            "title": "Diagnosis"
+          },
+          "edit_instruction": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 20,
+            "title": "Edit Instruction"
+          },
+          "example_replacement": {
+            "type": "string",
+            "maxLength": 800,
+            "minLength": 10,
+            "title": "Example Replacement"
+          },
+          "expected_effect": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 20,
+            "title": "Expected Effect"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Evidence Refs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "draft_anchor",
+          "diagnosis",
+          "edit_instruction",
+          "example_replacement",
+          "expected_effect",
+          "evidence_refs"
+        ],
+        "title": "DetailedCoachingAction",
+        "description": "The single highest-priority, draft-specific improvement."
       },
       "DiagnosticResult": {
         "properties": {
@@ -1025,6 +1282,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/PredictorResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cluster_coaching": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClusterCoachingResult"
               },
               {
                 "type": "null"

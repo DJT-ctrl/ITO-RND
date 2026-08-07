@@ -114,6 +114,7 @@ Run predictor, diagnostic workers, and variant engine on a draft.
 | `similar_posts` | `SimilarPost[]` | Retrieval neighbors |
 | `voice_profile` | `VoiceProfile` \| null | Present when `user_id` has enough posts |
 | `predictor_result` | `PredictorResult` \| null | Engagement prediction |
+| `cluster_coaching` | `ClusterCoachingResult` \| null | Optional, evidence-grounded primary feedback; `null` while server control is off or coaching is unavailable |
 | `diagnostics` | `Record<string, DiagnosticResult>` | Keys typically `seo`, `clarity`, `tone` |
 | `variants` | `VariantResult[]` | Up to 3 ranked rewrites |
 | `cross_references` | `CrossReferenceResult` \| null | Curated stronger close matches and bounded adaptation feedback |
@@ -131,6 +132,30 @@ Run predictor, diagnostic workers, and variant engine on a draft.
 | `flaws` | string[] |
 | `advantages` | string[] |
 | `improvements` | string[] |
+
+### `ClusterCoachingResult`
+
+`cluster_coaching` is server-controlled by `VALIDATION_CLUSTER_COACHING_ENABLED`
+and is **off by default**. Clients cannot enable it per request and must handle
+`null`. When available, render this as the primary feedback surface after the
+prediction and before the legacy diagnostic buckets.
+
+The result contains exactly one detailed `primary_action` and up to two
+`supporting_actions`. The primary action includes a literal `draft_anchor`, a
+diagnosis, an exact edit instruction, an example replacement or insertion, an
+expected reader-facing effect, and references to the bounded evidence supplied
+to Gemini 2.5 Flash. `evidence.confidence` is `cluster_validated` when approved
+same-cluster lessons were used, `shape_fallback` when the broader shape bucket
+was used, or `diagnostic_neighbor` when the cluster had no approved lessons.
+Historical performance remains observational, never a causal guarantee.
+
+| Field | Type | Notes |
+| ----- | ---- | ----- |
+| `status` | `"ready"` \| `"unavailable"` | `ready` includes a primary action; unavailable coaching is normally represented by `null` |
+| `summary` | string | Short editorial focus for the current draft |
+| `evidence` | `CoachingEvidence` | Resolved cluster, sample counts, confidence, and source summary |
+| `primary_action` | `DetailedCoachingAction` \| null | One highest-priority, anchor-based edit |
+| `supporting_actions` | `CoachingAction[]` | Zero to two distinct lower-priority actions |
 
 ### `VariantResult`
 

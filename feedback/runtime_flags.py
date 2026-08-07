@@ -38,6 +38,7 @@ ALLOWED_KEYS = frozenset(
         "validation_feedback_auto_approve_enabled",
         "validation_feedback_auto_approve_max_per_day",
         "validation_feedback_auto_approve_delta_max",
+        "validation_cluster_coaching_enabled",
         "validation_age_aware_enabled",
     }
 )
@@ -144,6 +145,9 @@ def apply_overrides_to_settings(settings: Any) -> Any:
                 )
             except (TypeError, ValueError):
                 allowed.pop(key, None)
+    coaching_enabled = allowed.get("validation_cluster_coaching_enabled")
+    if coaching_enabled is not None and not isinstance(coaching_enabled, bool):
+        allowed.pop("validation_cluster_coaching_enabled", None)
     if not allowed:
         return settings
     return replace(settings, **allowed)

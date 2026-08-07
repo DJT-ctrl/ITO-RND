@@ -5,6 +5,7 @@ calls in unit tests, per repo convention (see tests/test_embedder.py and
 tests/test_vector_store.py).
 """
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -12,7 +13,9 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+import api.main as api_main
 from api.main import app
+from api.schemas import ClusterCoachingResult, CoachingEvidence, DetailedCoachingAction
 from api.security import configure_api_security
 from config.settings import load_settings
 
@@ -31,6 +34,38 @@ _VARIANT_STUB_OUTPUT = {
     "predicted_engagement_percentile": 55.0,
     "predicted_total_engagement": 10,
 }
+
+
+def _coaching_stub() -> ClusterCoachingResult:
+    return ClusterCoachingResult(
+        status="ready",
+        summary="Make the opening specific before naming the role.",
+        evidence=CoachingEvidence(
+            cluster_id="short_prose_micro",
+            cluster_label="short prose posts (micro followers)",
+            sample_count=12,
+            validated_feedback_count=2,
+            confidence="cluster_validated",
+            summary="Approved lessons favor concrete openings.",
+        ),
+        primary_action=DetailedCoachingAction(
+            title="Lead with the outcome",
+            draft_anchor="Excited to announce",
+            diagnosis=(
+                "The opening is generic and gives readers no reason to continue before the "
+                "hiring announcement takes over."
+            ),
+            edit_instruction=(
+                "Replace the opening with the operational outcome this hire will enable, then "
+                "introduce the person and role."
+            ),
+            example_replacement="We are reducing customer setup time, so we hired a backend engineer to scale the work.",
+            expected_effect=(
+                "The reader gets a concrete reason to care before the post turns to the company update."
+            ),
+            evidence_refs=["neighbor:1"],
+        ),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -219,6 +254,85 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     assert body["run_metadata"] is not None
     assert body["run_metadata"]["total_input_tokens"] >= 0
     assert len(body["run_metadata"]["steps"]) >= 1
+
+
+@patch("api.main.build_cluster_coaching_engine")
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_keeps_coaching_off_by_default(
+    mock_embed_query,
+    mock_find_similar,
+    mock_get_connection,
+    mock_register_vector,
+    mock_build_variant_engine,
+    mock_build_coaching_engine,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api_main,
+        "settings",
+        replace(api_main.settings, validation_cluster_coaching_enabled=False),
+    )
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    with patch("api.main.predictor_agent", _AgentStub(_PREDICTOR_STUB_OUTPUT)), patch(
+        "api.main.diagnostic_agents", {"seo": _AgentStub({"score": 7.0})}
+    ):
+        response = client.post("/api/v1/evaluate", json={"content": "Excited to announce a launch."})
+
+    assert response.status_code == 200
+    assert response.json()["cluster_coaching"] is None
+    mock_build_coaching_engine.assert_not_called()
+
+
+@patch("api.main.build_cluster_coaching_engine")
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_returns_coaching_when_enabled(
+    mock_embed_query,
+    mock_find_similar,
+    mock_get_connection,
+    mock_register_vector,
+    mock_build_variant_engine,
+    mock_build_coaching_engine,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api_main,
+        "settings",
+        replace(api_main.settings, validation_cluster_coaching_enabled=True),
+    )
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    async def coaching_hook(state) -> None:
+        state.cluster_coaching = _coaching_stub()
+
+    mock_build_coaching_engine.return_value = coaching_hook
+    with patch("api.main.predictor_agent", _AgentStub(_PREDICTOR_STUB_OUTPUT)), patch(
+        "api.main.diagnostic_agents", {"seo": _AgentStub({"score": 7.0})}
+    ):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={"content": "Excited to announce a launch."},
+        )
+
+    assert response.status_code == 200
+    coaching = response.json()["cluster_coaching"]
+    assert coaching["primary_action"]["priority"] == "high"
+    assert coaching["primary_action"]["draft_anchor"] == "Excited to announce"
+    mock_build_coaching_engine.assert_called_once()
 
 
 @patch("api.main.build_variant_engine")

@@ -64,6 +64,30 @@ EVALUATE_RESPONSE_EXAMPLE = {
         "predicted_shares": 4,
         "reasoning": "Neighbors with similar hiring announcements scored in the 75–85 percentile band.",
     },
+    "cluster_coaching": {
+        "status": "ready",
+        "summary": "Lead with the operational outcome before the hiring announcement.",
+        "evidence": {
+            "cluster_id": "saas_b2b_short_prose_micro",
+            "cluster_label": "saas_b2b: short prose posts (micro followers)",
+            "sample_count": 18,
+            "validated_feedback_count": 3,
+            "confidence": "cluster_validated",
+            "age_bucket": None,
+            "summary": "Approved lessons in this cluster favor specific reader-facing openings.",
+        },
+        "primary_action": {
+            "priority": "high",
+            "title": "Lead with the customer outcome",
+            "draft_anchor": "Excited to announce",
+            "diagnosis": "The opening expresses enthusiasm but does not give the reader a concrete reason to continue before the company announcement.",
+            "edit_instruction": "Replace the opening with the operational outcome this hire will help create, then introduce the role in the next sentence.",
+            "example_replacement": "We are cutting customer setup time in half. That is why we hired a backend engineer to scale the workflow.",
+            "expected_effect": "A specific outcome creates immediate reader relevance without promising a performance result.",
+            "evidence_refs": ["neighbor:post-101", "feedback:prediction-101"],
+        },
+        "supporting_actions": [],
+    },
     "diagnostics": {
         "seo": {
             "score": 7.5,
