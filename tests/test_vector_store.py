@@ -59,6 +59,7 @@ def make_record(post_id: str) -> dict:
         "engagement_zscore": 0.8,
         "engagement_rate": None,
         "hook_type": None,
+        "hook_type_detail": None,
         "tone": None,
         "topic": None,
         "has_explicit_cta": None,

@@ -62,6 +62,7 @@ _COLUMNS = [
     "audience_adjusted_percentile",
     "audience_adjusted_zscore",
     "hook_type",
+    "hook_type_detail",
     "tone",
     "topic",
     "niche",

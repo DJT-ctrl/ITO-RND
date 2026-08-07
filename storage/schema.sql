@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS posts (
 
     -- 6. Qualitative tags (Stage 2 - Gemini, optional)
     hook_type           TEXT,
+    -- Original near-miss / unknown label when hook_type was coerced to "other"
+    hook_type_detail    TEXT,
     tone                TEXT,
     topic               TEXT,
     -- T10.6: coarse niche enum (phase_10.topics.NICHES); free-text stays in topic
@@ -95,6 +97,7 @@ ALTER TABLE posts ADD COLUMN IF NOT EXISTS author_timezone TEXT;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_percentile DOUBLE PRECISION;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS audience_adjusted_zscore DOUBLE PRECISION;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS niche TEXT;
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS hook_type_detail TEXT;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS posted_at TIMESTAMPTZ;
 ALTER TABLE posts ADD COLUMN IF NOT EXISTS engagement_age_hours DOUBLE PRECISION;
 CREATE INDEX IF NOT EXISTS posts_engagement_age_hours_idx

@@ -102,9 +102,11 @@ def test_finalize_coerces_invalid_gemini_enums():
     assert len(clean) == 2
     by_id = {r["post_id"]: r for r in clean}
     assert by_id["1"]["hook_type"] == "other"
+    assert by_id["1"]["hook_type_detail"] == "curiosity"
     assert by_id["1"]["tone"] == "emotional"
     assert by_id["1"]["has_explicit_cta"] is True
     assert by_id["2"]["hook_type"] == "question"
+    assert by_id["2"]["hook_type_detail"] is None
 
 
 def test_finalize_maps_quote_hook_type_to_other():
@@ -115,6 +117,39 @@ def test_finalize_maps_quote_hook_type_to_other():
     clean, _ = finalize_analysed_records(records)
     assert len(clean) == 2
     assert clean[0]["hook_type"] == "other"
+    assert clean[0]["hook_type_detail"] == "quote"
+    assert clean[1]["hook_type"] == "question"
+    assert clean[1]["hook_type_detail"] is None
+
+
+def test_finalize_preserves_hook_type_detail_on_resanitize():
+    """Re-running sanitize on an already-bucketed row must not wipe detail."""
+    from processors.finalize_records import sanitize_gemini_fields
+
+    once = sanitize_gemini_fields({"hook_type": "Quote"})
+    assert once["hook_type"] == "other"
+    assert once["hook_type_detail"] == "quote"
+    twice = sanitize_gemini_fields(once)
+    assert twice["hook_type"] == "other"
+    assert twice["hook_type_detail"] == "quote"
+
+
+def test_finalize_unknown_hook_type_keeps_detail_under_other():
+    records = [
+        _stage1_record(post_id="1", total_engagement=10, hook_type="meme"),
+    ]
+    clean, _ = finalize_analysed_records(records)
+    assert clean[0]["hook_type"] == "other"
+    assert clean[0]["hook_type_detail"] == "meme"
+
+
+def test_finalize_alias_to_known_bucket_clears_detail():
+    records = [
+        _stage1_record(post_id="1", total_engagement=10, hook_type="listicle"),
+    ]
+    clean, _ = finalize_analysed_records(records)
+    assert clean[0]["hook_type"] == "list"
+    assert clean[0]["hook_type_detail"] is None
 
 
 def test_finalize_does_not_abort_whole_batch_on_one_bad_row():
@@ -127,6 +162,7 @@ def test_finalize_does_not_abort_whole_batch_on_one_bad_row():
     clean, _ = finalize_analysed_records(records)
     assert len(clean) == 50
     assert clean[25]["hook_type"] == "other"
+    assert clean[25]["hook_type_detail"] == "curiosity"
 
 
 def test_finalize_maps_author_followers_and_strips_display_fields():

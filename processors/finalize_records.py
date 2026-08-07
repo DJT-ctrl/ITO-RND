@@ -107,6 +107,16 @@ def analysed_dataset_label(with_gemini: bool) -> str:
     return "linkedin_analysed" if with_gemini else "linkedin_python"
 
 
+def _normalize_label(value: Any) -> Optional[str]:
+    """Lowercase slug for enum / detail comparison (spaces/hyphens → underscores)."""
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.lower().replace(" ", "_").replace("-", "_")
+
+
 def _coerce_enum(
     value: Any,
     allowed: frozenset[str],
@@ -114,14 +124,9 @@ def _coerce_enum(
     *,
     unknown_default: Optional[str] = None,
 ) -> Optional[str]:
-    if value is None:
+    key = _normalize_label(value)
+    if key is None:
         return None
-    if isinstance(value, bool):
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    key = text.lower().replace(" ", "_").replace("-", "_")
     if key in allowed:
         return key
     mapped = aliases.get(key)
@@ -130,6 +135,35 @@ def _coerce_enum(
     if unknown_default in allowed:
         return unknown_default
     return None
+
+
+def _coerce_hook_type(
+    value: Any,
+    *,
+    existing_detail: Any = None,
+) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(canonical_hook_type, hook_type_detail)``.
+
+    When the input is not a first-class HookType and lands in ``other``
+    (via alias or unknown_default), preserve the original slug in detail so
+    we can promote it later. Known buckets (including Gemini returning
+    ``other`` itself) keep detail clear unless an existing detail is already
+    present on a re-sanitize of an ``other`` row.
+    """
+    key = _normalize_label(value)
+    if key is None:
+        return None, None
+    if key in _HOOK_TYPES:
+        if key == "other":
+            detail = _normalize_label(existing_detail)
+            return "other", detail
+        return key, None
+    mapped = _HOOK_TYPE_ALIASES.get(key)
+    if mapped in _HOOK_TYPES:
+        return mapped, (key if mapped == "other" else None)
+    if "other" in _HOOK_TYPES:
+        return "other", key
+    return None, None
 
 
 def _coerce_optional_bool(value: Any) -> Optional[bool]:
@@ -149,15 +183,19 @@ def _coerce_optional_bool(value: Any) -> Optional[bool]:
 
 
 def sanitize_gemini_fields(record: dict[str, Any]) -> dict[str, Any]:
-    """Coerce Gemini enums/bools so one odd label cannot kill a whole batch save."""
+    """Coerce Gemini enums/bools so one odd label cannot kill a whole batch save.
+
+    Near-miss / unknown ``hook_type`` values become ``other`` for bucketing,
+    with the original slug kept in ``hook_type_detail`` (e.g. quote → other).
+    """
     out = dict(record)
-    if "hook_type" in out or out.get("hook_type") is not None:
-        out["hook_type"] = _coerce_enum(
+    if "hook_type" in out or out.get("hook_type") is not None or out.get("hook_type_detail") is not None:
+        canonical, detail = _coerce_hook_type(
             out.get("hook_type"),
-            _HOOK_TYPES,
-            _HOOK_TYPE_ALIASES,
-            unknown_default="other",
+            existing_detail=out.get("hook_type_detail"),
         )
+        out["hook_type"] = canonical
+        out["hook_type_detail"] = detail
     if "tone" in out or out.get("tone") is not None:
         out["tone"] = _coerce_enum(out.get("tone"), _TONES, _TONE_ALIASES)
     if "has_explicit_cta" in out:
