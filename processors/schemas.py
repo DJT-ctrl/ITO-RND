@@ -94,6 +94,11 @@ class NormalizedPost(BaseModel):
     # None whenever the batch was run with --with-gemini omitted, or Gemini
     # returned a bad response for that post (see PostAnalyser.compute_gemini_features).
     hook_type: Optional[HookType] = None
+    # When hook_type was coerced to "other", the original Gemini/near-miss
+    # label (e.g. "quote", "curiosity") so we can promote it to a first-class
+    # HookType later without re-tagging. None when hook_type is a known bucket
+    # or Gemini returned "other" directly.
+    hook_type_detail: Optional[str] = Field(default=None, max_length=64)
     tone: Optional[Tone] = None
     topic: Optional[str] = None
     # T10.6 coarse niche enum (phase_10.topics.NICHES); derived from topic.

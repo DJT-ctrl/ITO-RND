@@ -47,7 +47,19 @@ def test_accepts_optional_gemini_fields_when_present():
     }
     post = NormalizedPost.model_validate(record)
     assert post.hook_type == "question"
+    assert post.hook_type_detail is None
     assert post.has_explicit_cta is True
+
+
+def test_accepts_hook_type_detail_under_other():
+    record = {
+        **VALID_RECORD,
+        "hook_type": "other",
+        "hook_type_detail": "quote",
+    }
+    post = NormalizedPost.model_validate(record)
+    assert post.hook_type == "other"
+    assert post.hook_type_detail == "quote"
 
 
 def test_rejects_missing_required_field():
