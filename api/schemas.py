@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from telemetry.schemas import RunMetadata
 
-API_VERSION = "1.0.0"
+API_VERSION = "1.1.0"
 API_PATH_VERSION = "v1"
 
 
@@ -53,7 +53,10 @@ class SimilarPost(BaseModel):
     hashtag_count: Optional[int] = None
     word_count: Optional[int] = None
     topic: Optional[str] = None
+    niche: Optional[str] = None
     hook_type: Optional[str] = None
+    linkedin_url: str = ""
+    engagement_anomaly_flag: bool = False
     # Phase 11: age when neighbor engagement was measured (hours since publish).
     posted_at: Optional[datetime] = None
     engagement_age_hours: Optional[float] = None
@@ -104,6 +107,35 @@ class VariantResult(BaseModel):
     predicted_total_engagement: int = Field(..., ge=0)
 
 
+class CrossReferencePost(BaseModel):
+    """One close historical post that outperformed the draft baseline."""
+
+    post: SimilarPost
+    comparison_metric: Literal[
+        "audience_adjusted_percentile", "engagement_percentile"
+    ]
+    effective_percentile: float = Field(..., ge=0, le=100)
+    percentile_uplift: float = Field(..., gt=0)
+    selection_score: float = Field(..., ge=0)
+    selection_reasons: list[str] = Field(default_factory=list)
+    observed_strengths: list[str] = Field(default_factory=list)
+    suggested_adaptation: Optional[str] = None
+
+
+class CrossReferenceResult(BaseModel):
+    """Curated, observational evidence from stronger close historical posts."""
+
+    status: Literal["ready", "insufficient_evidence", "analysis_unavailable"]
+    selection_method: str = "global_semantic_performance_v1"
+    baseline_percentile: Optional[float] = Field(default=None, ge=0, le=100)
+    baseline_method: Optional[str] = None
+    candidates_evaluated: int = Field(default=0, ge=0)
+    eligible_candidates: int = Field(default=0, ge=0)
+    references: list[CrossReferencePost] = Field(default_factory=list)
+    overall_feedback: list[str] = Field(default_factory=list)
+    caveats: list[str] = Field(default_factory=list)
+
+
 class EvaluateRequest(BaseModel):
     content: str = Field(..., min_length=1, description="Draft post text to evaluate")
     neighbor_limit: int = Field(
@@ -128,7 +160,8 @@ class EvaluateRequest(BaseModel):
         description=(
             "If true, each of the 3 variants re-embeds its own text and fetches its own "
             "nearest historical neighbors before being scored (more accurate when a variant "
-            "shifts topic/angle, at the cost of up to 3 extra Gemini embed calls + DB queries). "
+            "shifts topic/angle, at the cost of up to 3 extra Gemini embed calls and 6 extra "
+            "DB queries for scoped scoring neighbors plus global comparison candidates). "
             "If false (default), all variants are scored against the original draft's shared "
             "neighbors (cheaper, and keeps all 3 compared against one consistent baseline)."
         ),
@@ -232,6 +265,7 @@ class EvaluateResponse(BaseModel):
         description="Diagnostic worker outputs keyed by check name (e.g. seo, clarity, tone).",
     )
     variants: list[VariantResult] = Field(default_factory=list)
+    cross_references: Optional[CrossReferenceResult] = None
     errors: list[str] = Field(
         default_factory=list,
         description="Non-fatal agent failures collected during the evaluation cycle.",

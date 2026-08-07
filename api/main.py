@@ -31,6 +31,7 @@ from agents.audience_critic import (
     build_audience_critic_agent,
     run_audience_critic,
 )
+from agents.cross_reference import build_cross_reference_analyst
 from agents.diagnostics import build_diagnostic_agents
 from agents.diagnostics import list_diagnostic_specs
 from agents.orchestrator import run_evaluation_cycle
@@ -77,6 +78,7 @@ configure_api_security(settings)
 _eval_model: Optional[str] = None
 predictor_agent: Any = None
 diagnostic_agents: Any = None
+cross_reference_analyst: Any = None
 audience_critic_agent: Any = None
 
 _OPENAPI_DESCRIPTION = """
@@ -138,13 +140,13 @@ except ImportError:
     pass
 
 
-def _ensure_eval_agents() -> tuple[str, Any, Any]:
+def _ensure_eval_agents() -> tuple[str, Any, Any, Any]:
     """Build predictor/diagnostic agents on first use (not at import).
 
     Raises HTTPException(503) with actionable config guidance if the provider
     or model cannot be constructed.
     """
-    global _eval_model, predictor_agent, diagnostic_agents, audience_critic_agent
+    global _eval_model, predictor_agent, diagnostic_agents, cross_reference_analyst, audience_critic_agent
 
     if _eval_model is None:
         try:
@@ -183,6 +185,18 @@ def _ensure_eval_agents() -> tuple[str, Any, Any]:
                 ),
             ) from exc
 
+    if cross_reference_analyst is None:
+        try:
+            cross_reference_analyst = build_cross_reference_analyst(_eval_model)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Failed to initialize cross-reference analyst ({_eval_model!r}): {exc}. "
+                    "Install pydantic-ai-slim[google]>=2.5,<3 and set GEMINI_API_KEY."
+                ),
+            ) from exc
+
     if audience_critic_agent is None:
         try:
             audience_critic_agent = build_audience_critic_agent(_eval_model)
@@ -195,7 +209,7 @@ def _ensure_eval_agents() -> tuple[str, Any, Any]:
                 ),
             ) from exc
 
-    return _eval_model, predictor_agent, diagnostic_agents
+    return _eval_model, predictor_agent, diagnostic_agents, cross_reference_analyst
 
 
 @app.get(
@@ -243,6 +257,15 @@ def list_agents(request: Request) -> AgentCatalogResponse:
                 description=spec.get("focus", "Diagnostic quality check."),
             )
         )
+    agents.append(
+        AgentDescriptor(
+            id="cross_reference",
+            name="Cross-Reference Analyst",
+            kind="system",
+            stage="reporting",
+            description="Explains what stronger close historical matches do differently.",
+        )
+    )
     agents.append(
         AgentDescriptor(
             id="variant",
@@ -322,7 +345,7 @@ async def evaluate(
     """Run the async evaluation cycle end-to-end over HTTP."""
     assert_user_id_authorized(principal, request_body.user_id)
 
-    eval_model, predictor, diagnostics = _ensure_eval_agents()
+    eval_model, predictor, diagnostics, reference_analyst = _ensure_eval_agents()
     resolved_seo_mode = request_body.seo_mode or settings.seo_discoverability_mode
     collector = RunMetadataCollector(
         settings=settings,
@@ -358,6 +381,7 @@ async def evaluate(
             variant_strategy=request_body.variant_strategy,
             reembed_variant_neighbors=request_body.reembed_variant_neighbors,
             neighbor_limit=request_body.neighbor_limit,
+            cross_reference_analyst=reference_analyst,
         )
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -397,7 +421,7 @@ async def optimise(
     Does not replace evaluate-loop variants. Soft-fails scoring into result.errors.
     """
     assert_user_id_authorized(principal, request_body.user_id)
-    eval_model, predictor, _diagnostics = _ensure_eval_agents()
+    eval_model, predictor, _diagnostics, _reference_analyst = _ensure_eval_agents()
     voice_profile = None
     if request_body.user_id and request_body.use_voice_profile:
         conn = get_connection(settings)

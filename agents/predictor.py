@@ -14,6 +14,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
+from agents.cross_reference import format_cross_reference_context
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from agents.structured_output import agent_structured_output
@@ -94,6 +95,7 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     deterministic_section = _format_deterministic_score_section(deps.neighbor_prediction)
     draft_author_section = _format_draft_author_section(deps.draft_follower_count)
     feedback_section = _format_feedback_section(deps.feedback_context)
+    cross_reference_section = format_cross_reference_context(deps.cross_references)
     horizon_section = _format_horizon_section(deps)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
     draft_section = wrap_untrusted_text(deps.draft_content)
@@ -119,7 +121,7 @@ CRITICAL — time horizon:
 - Do **not** assume a default 48-hour window unless that is the stated horizon.
 - Neighbor engagement may be measured at different ages; prefer comparing against
   neighbors whose engagement age is closest to the target horizon when ages are given.
-{horizon_section}{voice_section}{draft_author_section}{deterministic_section}{feedback_section}
+{horizon_section}{voice_section}{draft_author_section}{deterministic_section}{feedback_section}{cross_reference_section}
 Draft post:
 {draft_section}
 
@@ -128,6 +130,7 @@ Nearest historical posts:
 
 Reason about:
 - How the draft's hook compares with high- and low-performing neighbors **at this horizon**.
+- What the curated stronger close matches suggest structurally, without treating them as causal proof.
 - Whether its length, specificity, CTA, media implication, and hashtag usage match patterns in the neighbors.
 - How post age / horizon affects expected engagement accrual (early vs mature).
 {reasoning_guidance}

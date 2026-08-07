@@ -3,7 +3,7 @@
   "info": {
     "title": "IntoTheOpen API",
     "description": "Public HTTP API for IntoTheOpen post evaluation and similarity retrieval.\n\n## Versioning\n\nAll stable integration endpoints live under **`/api/v1/`**. See\n`docs/api/VERSIONING.md` for deprecation and backward-compatibility rules.\n\n## Errors\n\nDocumented error shapes (`ApiErrorResponse`, `ValidationErrorResponse`) are\nstable for client generation. Runtime mapping to these envelopes is implemented\nin issue #7; until then, validation failures return HTTP 422 as documented and\nother failures may return a plain `detail` string.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/health": {
@@ -140,7 +140,10 @@
                       "hashtag_count": 2,
                       "word_count": 186,
                       "topic": "product launch",
-                      "hook_type": "story"
+                      "niche": "B2B SaaS",
+                      "hook_type": "story",
+                      "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                      "engagement_anomaly_flag": false
                     }
                   ]
                 }
@@ -247,7 +250,10 @@
                       "hashtag_count": 2,
                       "word_count": 186,
                       "topic": "product launch",
-                      "hook_type": "story"
+                      "niche": "B2B SaaS",
+                      "hook_type": "story",
+                      "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                      "engagement_anomaly_flag": false
                     }
                   ],
                   "voice_profile": {
@@ -312,8 +318,59 @@
                       "predicted_total_engagement": 48
                     }
                   ],
+                  "cross_references": {
+                    "status": "ready",
+                    "selection_method": "global_semantic_performance_v1",
+                    "baseline_percentile": 81.0,
+                    "baseline_method": "audience_adjusted_weighted_neighbors",
+                    "candidates_evaluated": 30,
+                    "eligible_candidates": 2,
+                    "references": [
+                      {
+                        "post": {
+                          "post_id": "post-224",
+                          "content": "Three lessons from hiring our first platform engineer.",
+                          "likes": 120,
+                          "comments": 18,
+                          "shares": 4,
+                          "total_engagement": 142,
+                          "engagement_percentile": 94.0,
+                          "engagement_zscore": 1.1,
+                          "cosine_distance": 0.07,
+                          "follower_count": 4200,
+                          "engagement_rate": 0.034,
+                          "audience_adjusted_percentile": 91.0,
+                          "hashtag_count": 2,
+                          "word_count": 186,
+                          "topic": "product launch",
+                          "niche": "B2B SaaS",
+                          "hook_type": "story",
+                          "linkedin_url": "https://www.linkedin.com/posts/example-101",
+                          "engagement_anomaly_flag": false
+                        },
+                        "comparison_metric": "audience_adjusted_percentile",
+                        "effective_percentile": 91.0,
+                        "percentile_uplift": 10.0,
+                        "selection_score": 34.8,
+                        "selection_reasons": [
+                          "Semantic match is within the 0.25 distance threshold (0.070).",
+                          "Its audience adjusted percentile is 91.0, 10.0 points above the draft baseline."
+                        ],
+                        "observed_strengths": [
+                          "Specific outcome-led opening"
+                        ],
+                        "suggested_adaptation": "Lead with the team outcome before the hiring announcement."
+                      }
+                    ],
+                    "overall_feedback": [
+                      "Make the opening concrete without copying the reference wording."
+                    ],
+                    "caveats": [
+                      "Historical performance is observational; these examples do not prove that a wording choice caused engagement."
+                    ]
+                  },
                   "errors": [],
-                  "embedding_model_version": "text-embedding-004"
+                  "embedding_model_version": "models/gemini-embedding-001"
                 }
               }
             }
@@ -647,6 +704,153 @@
         "title": "CritiqueRequest",
         "description": "Independent synthetic-audience critic (T7.11\u2013T7.13)."
       },
+      "CrossReferencePost": {
+        "properties": {
+          "post": {
+            "$ref": "#/components/schemas/SimilarPost"
+          },
+          "comparison_metric": {
+            "type": "string",
+            "enum": [
+              "audience_adjusted_percentile",
+              "engagement_percentile"
+            ],
+            "title": "Comparison Metric"
+          },
+          "effective_percentile": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Effective Percentile"
+          },
+          "percentile_uplift": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Percentile Uplift"
+          },
+          "selection_score": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Selection Score"
+          },
+          "selection_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selection Reasons"
+          },
+          "observed_strengths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Observed Strengths"
+          },
+          "suggested_adaptation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Adaptation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "post",
+          "comparison_metric",
+          "effective_percentile",
+          "percentile_uplift",
+          "selection_score"
+        ],
+        "title": "CrossReferencePost",
+        "description": "One close historical post that outperformed the draft baseline."
+      },
+      "CrossReferenceResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "insufficient_evidence",
+              "analysis_unavailable"
+            ],
+            "title": "Status"
+          },
+          "selection_method": {
+            "type": "string",
+            "title": "Selection Method",
+            "default": "global_semantic_performance_v1"
+          },
+          "baseline_percentile": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Percentile"
+          },
+          "baseline_method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Method"
+          },
+          "candidates_evaluated": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Candidates Evaluated",
+            "default": 0
+          },
+          "eligible_candidates": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Eligible Candidates",
+            "default": 0
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/CrossReferencePost"
+            },
+            "type": "array",
+            "title": "References"
+          },
+          "overall_feedback": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Overall Feedback"
+          },
+          "caveats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Caveats"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "CrossReferenceResult",
+        "description": "Curated, observational evidence from stronger close historical posts."
+      },
       "DiagnosticResult": {
         "properties": {
           "score": {
@@ -714,7 +918,7 @@
           "reembed_variant_neighbors": {
             "type": "boolean",
             "title": "Reembed Variant Neighbors",
-            "description": "If true, each of the 3 variants re-embeds its own text and fetches its own nearest historical neighbors before being scored (more accurate when a variant shifts topic/angle, at the cost of up to 3 extra Gemini embed calls + DB queries). If false (default), all variants are scored against the original draft's shared neighbors (cheaper, and keeps all 3 compared against one consistent baseline).",
+            "description": "If true, each of the 3 variants re-embeds its own text and fetches its own nearest historical neighbors before being scored (more accurate when a variant shifts topic/angle, at the cost of up to 3 extra Gemini embed calls and 6 extra DB queries for scoped scoring neighbors plus global comparison candidates). If false (default), all variants are scored against the original draft's shared neighbors (cheaper, and keeps all 3 compared against one consistent baseline).",
             "default": false
           },
           "user_id": {
@@ -841,6 +1045,16 @@
             },
             "type": "array",
             "title": "Variants"
+          },
+          "cross_references": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrossReferenceResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "errors": {
             "items": {
@@ -1351,6 +1565,17 @@
             ],
             "title": "Topic"
           },
+          "niche": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Niche"
+          },
           "hook_type": {
             "anyOf": [
               {
@@ -1361,6 +1586,16 @@
               }
             ],
             "title": "Hook Type"
+          },
+          "linkedin_url": {
+            "type": "string",
+            "title": "Linkedin Url",
+            "default": ""
+          },
+          "engagement_anomaly_flag": {
+            "type": "boolean",
+            "title": "Engagement Anomaly Flag",
+            "default": false
           },
           "posted_at": {
             "anyOf": [

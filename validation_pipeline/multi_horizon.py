@@ -159,7 +159,7 @@ def grade_same_age_prediction(
     finally:
         conn.close()
 
-    return prediction.model_copy(
+    enriched = prediction.model_copy(
         update={
             "status": "validated",
             "validated_at": validated_at,
@@ -174,6 +174,12 @@ def grade_same_age_prediction(
             "accuracy_score": scores.accuracy_score,
         }
     )
+    # Lane A never hits the due-validation worker; enqueue here so feedback
+    # jobs are created the same way as Lane B post-validate.
+    from feedback.batch import try_enqueue_feedback_after_validation
+
+    try_enqueue_feedback_after_validation(enriched, settings)
+    return enriched
 
 
 def planned_horizons_for_post(

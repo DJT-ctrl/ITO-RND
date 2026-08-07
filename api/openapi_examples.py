@@ -28,7 +28,10 @@ SIMILAR_POSTS_RESPONSE_EXAMPLE = {
             "hashtag_count": 2,
             "word_count": 186,
             "topic": "product launch",
+            "niche": "B2B SaaS",
             "hook_type": "story",
+            "linkedin_url": "https://www.linkedin.com/posts/example-101",
+            "engagement_anomaly_flag": False,
         }
     ],
 }
@@ -90,10 +93,44 @@ EVALUATE_RESPONSE_EXAMPLE = {
             "predicted_total_engagement": 48,
         }
     ],
+    "cross_references": {
+        "status": "ready",
+        "selection_method": "global_semantic_performance_v1",
+        "baseline_percentile": 81.0,
+        "baseline_method": "audience_adjusted_weighted_neighbors",
+        "candidates_evaluated": 30,
+        "eligible_candidates": 2,
+        "references": [
+            {
+                "post": {
+                    **SIMILAR_POSTS_RESPONSE_EXAMPLE["results"][0],
+                    "post_id": "post-224",
+                    "content": "Three lessons from hiring our first platform engineer.",
+                    "engagement_percentile": 94.0,
+                    "audience_adjusted_percentile": 91.0,
+                    "cosine_distance": 0.07,
+                },
+                "comparison_metric": "audience_adjusted_percentile",
+                "effective_percentile": 91.0,
+                "percentile_uplift": 10.0,
+                "selection_score": 34.8,
+                "selection_reasons": [
+                    "Semantic match is within the 0.25 distance threshold (0.070).",
+                    "Its audience adjusted percentile is 91.0, 10.0 points above the draft baseline.",
+                ],
+                "observed_strengths": ["Specific outcome-led opening"],
+                "suggested_adaptation": "Lead with the team outcome before the hiring announcement.",
+            }
+        ],
+        "overall_feedback": ["Make the opening concrete without copying the reference wording."],
+        "caveats": [
+            "Historical performance is observational; these examples do not prove that a wording choice caused engagement."
+        ],
+    },
     "errors": [],
     "run_metadata": None,
     "query_embedding": None,
-    "embedding_model_version": "text-embedding-004",
+    "embedding_model_version": "models/gemini-embedding-001",
 }
 
 VALIDATION_ERROR_EXAMPLE = {

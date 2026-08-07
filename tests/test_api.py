@@ -102,6 +102,7 @@ def test_agents_catalog_lists_core_and_diagnostics():
     assert "seo" in ids
     assert "clarity" in ids
     assert "tone" in ids
+    assert "cross_reference" in ids
     assert "variant" in ids
 
 
@@ -213,6 +214,7 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     assert body["predictor_result"]["reasoning"] == _PREDICTOR_STUB_OUTPUT["reasoning"]
     assert body["diagnostics"]["seo"]["score"] == 7.0
     assert body["variants"] == []
+    assert body["cross_references"]["status"] == "insufficient_evidence"
     assert body["errors"] == []
     assert body["run_metadata"] is not None
     assert body["run_metadata"]["total_input_tokens"] >= 0
@@ -396,7 +398,8 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
         )
 
     assert response.status_code == 200
-    assert mock_find_similar.call_args.kwargs["user_id"] == "user-42"
+    assert mock_find_similar.call_args_list[0].kwargs["user_id"] == "user-42"
+    assert mock_find_similar.call_args_list[1].kwargs["user_id"] is None
 
 
 @patch("api.main.build_variant_engine")

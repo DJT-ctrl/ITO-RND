@@ -214,6 +214,12 @@ class Settings:
     agent_step_timeout_s: float = 12.0
     finalize_timeout_s: float = 8.0
     agent_step_timeouts_enabled: bool = True
+    # Curated stronger-post evidence for evaluation feedback (global corpus).
+    cross_reference_enabled: bool = True
+    cross_reference_candidate_limit: int = 30
+    cross_reference_max_references: int = 3
+    cross_reference_min_percentile_uplift: float = 10.0
+    cross_reference_max_cosine_distance: float = 0.25
     # API hardening (issue #3): Bearer key auth + per-key rate limits.
     api_auth_enabled: bool = False
     api_keys_json: str = ""
@@ -391,6 +397,19 @@ def load_settings() -> Settings:
         agent_step_timeout_s=float(os.getenv("AGENT_STEP_TIMEOUT_S", "12")),
         finalize_timeout_s=float(os.getenv("FINALIZE_TIMEOUT_S", "8")),
         agent_step_timeouts_enabled=_env_bool("AGENT_STEP_TIMEOUTS_ENABLED", default=True),
+        cross_reference_enabled=_env_bool("CROSS_REFERENCE_ENABLED", default=True),
+        cross_reference_candidate_limit=int(
+            os.getenv("CROSS_REFERENCE_CANDIDATE_LIMIT", "30")
+        ),
+        cross_reference_max_references=int(
+            os.getenv("CROSS_REFERENCE_MAX_REFERENCES", "3")
+        ),
+        cross_reference_min_percentile_uplift=float(
+            os.getenv("CROSS_REFERENCE_MIN_PERCENTILE_UPLIFT", "10")
+        ),
+        cross_reference_max_cosine_distance=float(
+            os.getenv("CROSS_REFERENCE_MAX_COSINE_DISTANCE", "0.25")
+        ),
         api_auth_enabled=_env_bool("API_AUTH_ENABLED", default=False),
         api_keys_json=os.getenv("API_KEYS_JSON", ""),
         api_rate_limit=os.getenv("API_RATE_LIMIT", ""),

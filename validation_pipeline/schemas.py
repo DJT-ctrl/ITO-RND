@@ -48,6 +48,9 @@ class PredictionTelemetry(BaseModel):
     age_bucket: Optional[str] = None
     percentile_source: Optional[str] = None
     neighbor_age_prefer: Optional[bool] = None
+    cross_reference_status: Optional[str] = None
+    cross_reference_count: int = Field(default=0, ge=0)
+    cross_reference_adjusted_count: int = Field(default=0, ge=0)
 
 
 class EngagementForecast(BaseModel):

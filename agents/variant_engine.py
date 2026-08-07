@@ -29,28 +29,35 @@ Neighbor set used for step 2 (caller-selectable via `reembed_neighbors`):
   - Opt-in (True): re-embed each variant's own text and fetch ITS OWN
     nearest neighbors before scoring it. More accurate when a variant
     meaningfully shifts topic/angle (e.g. a "narrative" strategy variant
-    telling a different story), at the cost of up to 3 extra Gemini embed
-    calls + 3 extra DB queries.
+        telling a different story), at the cost of up to 3 extra Gemini embed
+        calls + 6 extra DB queries (ordinary scoring neighbors and global
+        comparison candidates for each variant).
 """
 
 import asyncio
-import time
-from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, List, Literal, Optional, Tuple
 
 from pgvector.psycopg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
+from agents.cross_reference import (
+    CrossReferencePolicy,
+    format_cross_reference_context,
+    select_cross_references,
+    unavailable_cross_references,
+)
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
+from agents.retrieval import retrieve_post_context
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section, resolve_neighbor_limit
 from agents.structured_output import agent_structured_output
-from api.schemas import SimilarPost
+from api.schemas import CrossReferenceResult, SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
+from processors.benchmark import compute_neighbor_prediction
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
 from telemetry.collector import RunMetadataCollector
-from telemetry.instrument import run_agent_step, run_timed_thread
+from telemetry.instrument import run_agent_step
 
 VariantStrategy = Literal["dimension", "narrative", "tiered"]
 
@@ -171,6 +178,7 @@ def build_variant_prompt(strategy: VariantStrategy, deps: EvaluationDeps, state:
     """
     spec = _STRATEGY_SPECS[strategy]
     voice_section = build_voice_profile_section(deps.voice_profile)
+    cross_reference_section = format_cross_reference_context(deps.cross_references)
     draft_section = wrap_untrusted_text(deps.draft_content)
 
     return f"""
@@ -192,6 +200,9 @@ Predictor assessment:
 
 Diagnostic criticism:
 {_build_diagnostic_context(strategy, state)}
+
+Curated stronger close matches:
+{cross_reference_section}
 
 Nearest historical posts (context on what performs well):
 {_build_neighbor_context(deps)}
@@ -233,70 +244,52 @@ def _fallback_scores(state: PostEvaluationState) -> Tuple[float, int]:
     return 0.0, 0
 
 
-async def _fetch_variant_neighbors(
+async def _fetch_variant_context(
     variant_text: str,
     settings: Settings,
     collector: Optional[RunMetadataCollector] = None,
     strategy_label: str = "variant",
     neighbor_limit: int = 10,
-) -> List[SimilarPost]:
-    """Re-embed one variant's own text and fetch ITS OWN nearest neighbors —
-    same blocking-call-in-a-thread pattern as agents/orchestrator.py's
-    _gather_similar_posts, and opens/closes its own DB connection so nothing
-    is held open across the concurrent per-variant scoring stage.
-    """
+    user_id: Optional[str] = None,
+    prefer_niche: Optional[str] = None,
+) -> tuple[List[SimilarPost], Optional[CrossReferenceResult]]:
+    """Fetch fresh ordinary and global evidence for one re-embedded variant."""
     limit = resolve_neighbor_limit(neighbor_limit)
     safe_label = strategy_label.replace(" ", "_").lower()[:32]
-
-    def _embed() -> Tuple[Any, int]:
-        return embed_query(variant_text, settings)
-
-    started_at = datetime.now(timezone.utc)
-    t0 = time.perf_counter()
-    try:
-        query_vector, prompt_tokens = await asyncio.to_thread(_embed)
-        if collector is not None:
-            collector.record_embedding(
-                step_id=f"variant.embed.{safe_label}",
-                label=f"Embed variant ({strategy_label})",
-                stage="variant",
-                prompt_tokens=prompt_tokens,
-                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
-                started_at=started_at,
-                ended_at=datetime.now(timezone.utc),
-            )
-    except Exception as exc:
-        if collector is not None:
-            collector.record_embedding(
-                step_id=f"variant.embed.{safe_label}",
-                label=f"Embed variant ({strategy_label})",
-                stage="variant",
-                prompt_tokens=0,
-                latency_ms=round((time.perf_counter() - t0) * 1000, 2),
-                started_at=started_at,
-                ended_at=datetime.now(timezone.utc),
-                status="error",
-                error=str(exc),
-            )
-        raise
-
-    def _fetch() -> List[dict]:
-        conn = get_connection(settings)
-        try:
-            register_vector(conn)
-            return find_similar(conn, query_vector, limit=limit)
-        finally:
-            conn.close()
-
-    rows = await run_timed_thread(
-        collector,
-        step_id=f"variant.vector_search.{safe_label}",
-        label=f"Variant vector search ({strategy_label})",
-        stage="variant",
-        call_type="db",
-        fn=_fetch,
+    context = await retrieve_post_context(
+        variant_text,
+        settings,
+        neighbor_limit=limit,
+        global_candidate_limit=getattr(settings, "cross_reference_candidate_limit", 30),
+        user_id=user_id,
+        prefer_niche=prefer_niche,
+        include_global_candidates=getattr(settings, "cross_reference_enabled", True),
+        collector=collector,
+        telemetry_prefix=f"variant.{safe_label}",
+        telemetry_stage="variant",
+        embedder=embed_query,
+        connection_factory=get_connection,
+        similarity_finder=find_similar,
+        vector_registrar=register_vector,
     )
-    return [SimilarPost(**row) for row in rows]
+    if not getattr(settings, "cross_reference_enabled", True):
+        return context.similar_posts, None
+
+    neighbor_prediction = compute_neighbor_prediction(context.similar_posts)
+    if context.global_candidate_error:
+        return context.similar_posts, unavailable_cross_references(
+            neighbor_prediction,
+            "Global cross-reference candidate retrieval failed for this re-embedded variant.",
+        )
+    return context.similar_posts, select_cross_references(
+        context.global_candidates,
+        neighbor_prediction,
+        policy=CrossReferencePolicy(
+            max_references=getattr(settings, "cross_reference_max_references", 3),
+            min_percentile_uplift=getattr(settings, "cross_reference_min_percentile_uplift", 10.0),
+            max_cosine_distance=getattr(settings, "cross_reference_max_cosine_distance", 0.25),
+        ),
+    )
 
 
 async def _score_variant(
@@ -312,16 +305,24 @@ async def _score_variant(
     shared stage-1 neighbors or this variant's own re-embedded neighbors
     (see module docstring for the tradeoff)."""
     if reembed_neighbors:
-        neighbors = await _fetch_variant_neighbors(
+        neighbors, cross_references = await _fetch_variant_context(
             item.variant_text,
             settings,
             collector=collector,
             strategy_label=item.strategy_label,
             neighbor_limit=neighbor_limit,
+            user_id=state.retrieval_user_id,
+            prefer_niche=state.retrieval_prefer_niche,
         )
     else:
         neighbors = state.similar_posts
-    deps = EvaluationDeps(draft_content=item.variant_text, similar_posts=neighbors, voice_profile=state.voice_profile)
+        cross_references = state.cross_references
+    deps = EvaluationDeps(
+        draft_content=item.variant_text,
+        similar_posts=neighbors,
+        cross_references=cross_references,
+        voice_profile=state.voice_profile,
+    )
     safe_label = item.strategy_label.replace(" ", "_").lower()[:32]
     return await run_agent_step(
         collector,
@@ -380,6 +381,7 @@ def build_variant_engine(
         deps = EvaluationDeps(
             draft_content=state.draft_content,
             similar_posts=state.similar_posts,
+            cross_references=state.cross_references,
             voice_profile=state.voice_profile,
         )
         prompt = build_variant_prompt(strategy, deps, state)

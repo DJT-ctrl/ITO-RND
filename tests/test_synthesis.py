@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic_ai.models.test import TestModel
 
+from agents.retrieval import RetrievalContext
 from agents.synthesis.generator import generate_synthesis_drafts
 from agents.synthesis.prompts import build_synthesis_system_prompt
 from agents.synthesis.recommend import recommend_synthesis_variant
@@ -16,6 +17,7 @@ from agents.synthesis.schemas import (
     SynthesisVariant,
 )
 from agents.synthesis.runner import run_synthesis
+from api.schemas import SimilarPost
 from config.settings import Settings
 
 
@@ -120,11 +122,16 @@ def test_generate_synthesis_drafts_with_test_model():
 
 @patch("agents.synthesis.runner.score_synthesis_drafts")
 @patch("agents.synthesis.runner.generate_synthesis_drafts")
-@patch("agents.synthesis.runner.fetch_neighbors_for_text")
+@patch("agents.synthesis.runner.retrieve_post_context")
 def test_run_synthesis_orchestrates_generate_score_recommend(
-    mock_fetch, mock_generate, mock_score
+    mock_retrieve, mock_generate, mock_score
 ):
-    mock_fetch.return_value = []
+    mock_retrieve.return_value = RetrievalContext(
+        query_embedding=[0.0] * 3072,
+        embedding_model_version="models/gemini-embedding-001",
+        similar_posts=[],
+        global_candidates=[],
+    )
     mock_generate.return_value = SynthesisDraftSet(
         maximizer=SynthesisDraftItem(
             agent_id="maximizer", optimized_text="max", rationale="r1"
@@ -175,3 +182,57 @@ def test_run_synthesis_orchestrates_generate_score_recommend(
     }
     mock_generate.assert_awaited()
     mock_score.assert_awaited()
+    assert mock_generate.call_args.kwargs["cross_references"].status == "insufficient_evidence"
+
+
+@patch("agents.synthesis.runner.score_synthesis_drafts")
+@patch("agents.synthesis.runner.generate_synthesis_drafts")
+@patch("agents.synthesis.runner.retrieve_post_context")
+def test_supplied_neighbors_do_not_become_cross_reference_evidence(
+    mock_retrieve, mock_generate, mock_score
+):
+    mock_generate.return_value = SynthesisDraftSet(
+        maximizer=SynthesisDraftItem(agent_id="maximizer", optimized_text="max", rationale="r1"),
+        counter=SynthesisDraftItem(agent_id="counter", optimized_text="ctr", rationale="r2"),
+        brand_purist=SynthesisDraftItem(agent_id="brand_purist", optimized_text="pur", rationale="r3"),
+    )
+    mock_score.return_value = (
+        [
+            SynthesisVariant(
+                agent_id=agent_id,
+                variant_name=agent_id,
+                optimized_text=agent_id,
+                rationale="rationale",
+                predicted_engagement_percentile=60.0,
+                predicted_total_engagement=30,
+            )
+            for agent_id in ("maximizer", "counter", "brand_purist")
+        ],
+        [],
+    )
+    neighbor = SimilarPost(
+        post_id="ordinary-only",
+        content="A detailed ordinary neighbor with enough content for a reliable scoring baseline.",
+        likes=5,
+        comments=1,
+        shares=0,
+        total_engagement=6,
+        engagement_percentile=55.0,
+        engagement_zscore=0.1,
+        cosine_distance=0.05,
+    )
+
+    result = asyncio.run(
+        run_synthesis(
+            "Draft post about ROI.",
+            _settings(),
+            similar_posts=[neighbor],
+            predictor_agent=MagicMock(),
+            model=TestModel(),
+        )
+    )
+
+    mock_retrieve.assert_not_awaited()
+    assert mock_generate.call_args.kwargs["cross_references"].status == "analysis_unavailable"
+    assert mock_score.call_args.kwargs["cross_references"].status == "analysis_unavailable"
+    assert any("cross-reference advice skipped" in error for error in result.errors)

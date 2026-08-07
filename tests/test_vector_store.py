@@ -276,7 +276,10 @@ def test_find_similar_selects_optional_audience_adjusted_columns():
     assert "hashtag_count" in executed_sql
     assert "word_count" in executed_sql
     assert "topic" in executed_sql
+    assert "niche" in executed_sql
     assert "hook_type" in executed_sql
+    assert "linkedin_url" in executed_sql
+    assert "engagement_anomaly_flag" in executed_sql
 
 
 def test_find_similar_scopes_by_user_id():

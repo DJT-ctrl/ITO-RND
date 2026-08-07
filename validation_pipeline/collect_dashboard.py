@@ -120,7 +120,7 @@ class CollectDashboardSnapshot:
     predicted_last_24h: int = 0
     lane_a_only: bool = True
     model_name: str = ""
-    max_predicts_per_run: int = 40
+    max_predicts_per_run: int = 2000
     database_available: bool = False
     vector_sum: int = 0
 
@@ -169,7 +169,8 @@ def build_collect_dashboard_snapshot(
         lane_a_only=lane_a_only,
         model_name=pydantic_ai_gemini_model(),
         max_predicts_per_run=int(
-            getattr(settings, "validation_multi_horizon_max_predicts_per_run", 40) or 40
+            getattr(settings, "validation_multi_horizon_max_predicts_per_run", 2000)
+            or 2000
         ),
         database_available=database_available,
         vector_sum=vector_sum,

@@ -11,10 +11,19 @@ spec at `/openapi.json` (snapshot: `openapi.json` in the repo root).
 | **Versioning mechanism** | Path-based — stable routes live under `/api/v1/` |
 | **Current stable version** | `v1` |
 | **Health probe** | `GET /health` returns `api_version: "v1"` (path version, not OpenAPI `info.version`) |
-| **OpenAPI `info.version`** | Semantic API release label (currently `1.0.0`); bump on contract publication changes |
+| **OpenAPI `info.version`** | Semantic API release label (currently `1.1.0`); bump on contract publication changes |
 
 We do **not** use header-based versioning for the MVP. Clients should target
 `/api/v1/...` explicitly.
+
+## Published v1.1.0 additions
+
+- `EvaluateResponse.cross_references`: optional, deterministic global-corpus
+   comparison evidence with bounded analyst explanation.
+- `SimilarPost.niche`, `SimilarPost.linkedin_url`, and
+   `SimilarPost.engagement_anomaly_flag`: optional/additive evidence fields.
+- Clarified `reembed_variant_neighbors` retrieval cost and its fresh scoped
+   plus global evidence behavior.
 
 ## Breaking vs non-breaking changes
 
