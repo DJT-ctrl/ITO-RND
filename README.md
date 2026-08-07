@@ -162,7 +162,9 @@ docker compose build api
 The image uses `python:3.12-slim`, installs `requirements.txt`, and runs
 `uvicorn api.main:app` on port 8000. Data files are excluded via
 `.dockerignore` — host-side scripts read from `data/` directly.
-
+`.dockerignore` — host-side scripts read from `data/` directly. The ops
+Streamlit UI lives in
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs).
 ---
 
 ## Run the stack
@@ -194,6 +196,12 @@ DB_HOST_PORT=5433 API_HOST_PORT=8001 GRAFANA_HOST_PORT=3001 docker compose up -d
 ```
 
 See [deploy/README.md](deploy/README.md) for systemd, Nginx, and common ops.
+
+**AWS runtime (issue #11):** [docs/ops/ADR-001-aws-runtime.md](docs/ops/ADR-001-aws-runtime.md) —
+MVP = single EC2 + Docker Compose (ECS deferred).
+
+**AWS IaC (issue #12):** [infra/README.md](infra/README.md) — Terraform for the
+single-EC2 Compose VPC (dev/staging/prod).
 
 ---
 
@@ -382,7 +390,10 @@ Use the separate ops UI repo
 [dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
 (sibling checkout + `pip install -e .` on this backend). Navigate to
 **Check and learn** for interactive validation control and charts.
-
+Use the separate
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
+repo for interactive **Collect & Predict**, **Validation Queue**, and
+**Accuracy History** pages.
 ---
 
 ## Reproduce the feedback loop
@@ -397,6 +408,7 @@ VALIDATION_FEEDBACK_ENABLED=true
 VALIDATION_CALIBRATION_ENABLED=false
 VALIDATION_FEEDBACK_INJECTION_ENABLED=false
 VALIDATION_AGE_AWARE_ENABLED=false
+VALIDATION_CLUSTER_COACHING_ENABLED=false
 ```
 
 Age/mode (`validation_age_hours`, `validation_mode`) are recorded on every
@@ -406,7 +418,19 @@ lesson learning. Toggle also available on **Feedback Loop**.
 
 Dashboard overrides in **Validation Pipeline → Feedback Loop** take precedence
 over `.env` values.
+Dashboard overrides in dashboard-for-devs **Validation Pipeline → Feedback Loop**
+take precedence over `.env` values.
 
+### Optional cluster-aware coaching
+
+`VALIDATION_CLUSTER_COACHING_ENABLED` is **false by default**. When enabled in
+**Validation Pipeline → Feedback Loop → Show cluster-aware coaching**, each
+`POST /api/v1/evaluate` makes one additional Gemini 2.5 Flash call after the
+prediction and diagnostics complete. It returns an evidence-grounded primary
+draft edit with a literal anchor and example replacement in `cluster_coaching`.
+It never changes the predicted engagement score, calibration, feedback
+injection, or variants. Turn the toggle off to stop new coaching calls
+immediately; clients must handle `cluster_coaching: null`.
 ### Generate template feedback (CLI)
 
 ```bash
@@ -441,7 +465,7 @@ better MAE than the global fallback.
 
 If MAE worsens after enabling calibration:
 
-1. Turn **Calibration** off in the Feedback Loop dashboard immediately
+1. Turn **Calibration** off in the Feedback Loop dashboard (dashboard-for-devs) immediately
 2. Export `eval_feedback_*.json` and Accuracy History data
 3. Re-enable only after a new held-out evaluation passes the gates above
 
@@ -458,14 +482,16 @@ The Streamlit ops/dev harness lives in a **separate** repository:
 git clone https://github.com/intotheopen/intotheopen-backend.git
 git clone https://github.com/intotheopen/dashboard-for-devs.git
 cd intotheopen-backend && pip install -e . && pip install -r requirements.txt
-cd ../dashboard-for-devs && pip install -r requirements.txt
+cd intotheopen-backend && pip install -r requirements.txtcd ../dashboard-for-devs && pip install -r requirements.txt
 streamlit run dashboard/app.py
 ```
 
 That UI is for developers/ops (corpus, validation, feedback, agentic). Ade’s
 product frontend is separate and should consume this backend’s FastAPI/OpenAPI
 surface (`/docs`), not Streamlit.
-
+That UI is for developers/ops (corpus, validation, feedback). The product
+frontend should consume this backend’s FastAPI/OpenAPI surface (`/docs`), not
+Streamlit.
 ---
 
 ## API endpoints
@@ -475,9 +501,14 @@ With the API running (`docker compose up -d` or `uvicorn api.main:app`):
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/health` | Liveness check |
-| `GET` | `/metrics` | Prometheus metrics |
+| `GET` | `/metrics` | Prometheus metrics (ops only; not product frontend) |
+| `GET` | `/api/v1/agents` | Agent catalog for UI discovery |
 | `POST` | `/api/v1/similar-posts` | Cosine-similarity retrieval over ingested corpus |
 | `POST` | `/api/v1/evaluate` | Full multi-agent evaluation cycle |
+| `POST` | `/api/v1/critique` | Standalone synthetic-audience critic |
+| `POST` | `/api/v1/optimise` | Standalone Stage 5 synthesis |
+
+Product frontend scope: [`Phase_12.md`](Phase_12.md) · Contract: [`docs/api/API_CONTRACT.md`](docs/api/API_CONTRACT.md)
 
 **Similar posts example:**
 
@@ -564,7 +595,10 @@ DATABASE_URL=postgresql://ito:<password>@localhost:5432/ito_posts
 Streamlit is no longer in this repo. Clone and run
 [dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
 with this backend installed editable (`pip install -e .`).
-
+Run Streamlit from the
+[dashboard-for-devs](https://github.com/intotheopen/dashboard-for-devs)
+checkout with this backend on `PYTHONPATH` (or editable-installed). See that
+repo’s README.
 ### Docker rebuild after code changes
 
 ```bash

@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from pydantic_ai.models.test import TestModel
 
+from agents.cross_reference import select_cross_references
 from agents.diagnostics import build_diagnostic_agents
 from agents.orchestrator import run_evaluation_cycle
 from agents.predictor import (
@@ -25,7 +26,7 @@ from config.settings import Settings
 
 @pytest.fixture(autouse=True)
 def _stub_discoverability_gather(monkeypatch):
-    """Avoid DB/cache access in orchestrator tests unless explicitly overridden."""
+    """Avoid DB/cache access in orchestrator integration tests unless explicitly overridden."""
 
     async def _fake_gather(draft, similar_posts, settings, *, use_google_trends=False, collector=None):
         return None, []
@@ -100,6 +101,24 @@ def test_predictor_prompt_handles_zero_neighbors():
 
     assert "Draft without neighbors" in prompt
     assert "No comparable historical posts were found" in prompt
+
+
+def test_predictor_prompt_includes_curated_stronger_reference_evidence():
+    stronger = fake_post("stronger")
+    stronger.engagement_percentile = 92.0
+    deps = EvaluationDeps(
+        draft_content="Draft post about a product launch.",
+        similar_posts=[fake_post("ordinary")],
+        cross_references=select_cross_references(
+            [stronger], {"percentile": 70.0, "method": "raw_fallback"}
+        ),
+    )
+
+    prompt = build_predictor_prompt(deps)
+
+    assert "Curated stronger close matches" in prompt
+    assert "92.0" in prompt
+    assert "Do not copy wording" in prompt
 
 
 def test_predictor_prompt_omits_audience_adjusted_lines_when_absent():

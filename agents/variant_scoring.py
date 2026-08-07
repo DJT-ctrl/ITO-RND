@@ -17,7 +17,7 @@ from pydantic_ai import Agent
 
 from agents.prompt_safety import build_evaluation_user_message
 from agents.schemas import EvaluationDeps
-from api.schemas import SimilarPost
+from api.schemas import CrossReferenceResult, SimilarPost
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection
@@ -105,6 +105,7 @@ async def score_text_with_predictor(
     *,
     predictor_agent: Agent,
     similar_posts: Sequence[SimilarPost],
+    cross_references: Optional[CrossReferenceResult] = None,
     voice_profile: Optional[dict] = None,
     collector: Optional[RunMetadataCollector] = None,
     step_id: str = "score.text",
@@ -115,6 +116,7 @@ async def score_text_with_predictor(
     deps = EvaluationDeps(
         draft_content=text,
         similar_posts=list(similar_posts),
+        cross_references=cross_references,
         voice_profile=voice_profile,
     )
     return await run_agent_step(
@@ -134,6 +136,7 @@ async def score_texts_concurrently(
     *,
     predictor_agent: Agent,
     similar_posts: Sequence[SimilarPost],
+    cross_references: Optional[CrossReferenceResult] = None,
     voice_profile: Optional[dict] = None,
     collector: Optional[RunMetadataCollector] = None,
     stage: str = "variant",
@@ -146,6 +149,7 @@ async def score_texts_concurrently(
             text,
             predictor_agent=predictor_agent,
             similar_posts=similar_posts,
+            cross_references=cross_references,
             voice_profile=voice_profile,
             collector=collector,
             step_id=f"{stage}.score.{safe}",

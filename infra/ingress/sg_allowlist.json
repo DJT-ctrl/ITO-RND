@@ -1,0 +1,21 @@
+{
+  "issue": 14,
+  "strategy": "nginx-on-host",
+  "waf": {
+    "status": "deferred",
+    "follow_up_issue": 17,
+    "reason": "Low-cost MVP defers AWS WAF until post-launch; title of #14 says defer WAF."
+  },
+  "public_ingress_tcp": [80, 443],
+  "forbidden_public_tcp": [8000, 5432, 3000, 9090, 9100, 8080],
+  "ssh_tcp": 22,
+  "ssh_policy": "optional_cidrs_only_prefer_ssm",
+  "tls": {
+    "termination": "nginx",
+    "certificate": "letsencrypt-certbot",
+    "http_behavior": "redirect_to_https"
+  },
+  "upstream": {
+    "api": "127.0.0.1:8000"
+  }
+}

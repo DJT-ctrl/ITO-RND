@@ -28,7 +28,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from api.schemas import SimilarPost
+from api.schemas import ClusterCoachingResult, CrossReferenceResult, SimilarPost
 from telemetry.schemas import RunMetadata
 
 SeoDiscoverabilityMode = Literal["corpus", "gemini_only"]
@@ -55,6 +55,7 @@ def resolve_neighbor_limit(neighbor_limit: Optional[int] = None) -> int:
 class EvaluationDeps:
     draft_content: str
     similar_posts: list[SimilarPost] = field(default_factory=list)
+    cross_references: Optional[CrossReferenceResult] = None
     # Personalization (dynamic style-profile prompting): a subscriber's
     # derived voice profile (agents/orchestrator.py fetches this via
     # storage/vector_store.get_user_voice_profile() when a user_id is
@@ -89,8 +90,15 @@ class EvaluationDeps:
 class PostEvaluationState(BaseModel):
     draft_content: str
     similar_posts: list[SimilarPost] = Field(default_factory=list)
+    # Internal retrieval inputs retained for a re-embedded variant's ordinary
+    # neighbor query. They are excluded from the API response contract.
+    retrieval_user_id: Optional[str] = Field(default=None, exclude=True)
+    retrieval_prefer_niche: Optional[str] = Field(default=None, exclude=True)
+    draft_follower_count: Optional[int] = Field(default=None, exclude=True)
+    cross_references: Optional[CrossReferenceResult] = None
     voice_profile: Optional[dict] = None
     predictor_result: Optional[dict] = None
+    cluster_coaching: Optional[ClusterCoachingResult] = None
     diagnostics: dict[str, dict] = Field(default_factory=dict)
     variants: list[dict] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)

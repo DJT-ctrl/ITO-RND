@@ -27,9 +27,12 @@ __all__ = [
     "resolve_data_path",
     "sync_google_api_key",
     "utc_artifact_stamp",
+    "validate_agent_model",
 ]
 
 # Always load repo-root .env regardless of Streamlit/shell working directory.
+# Production (issue #13) injects via Secrets Manager → ephemeral env file
+# instead of a durable server-side .env; see deploy/SECRETS.md.
 _PROJECT_ROOT = PROJECT_ROOT
 load_dotenv(_PROJECT_ROOT / ".env")
 
@@ -41,19 +44,51 @@ AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
 
 
 def pydantic_ai_gemini_model(model_id: Optional[str] = None) -> str:
-    """Format a Gemini model id for pydantic-ai's Google provider (google or google-gla)."""
-    raw = model_id or AGENT_GEMINI_MODEL
-    if raw.startswith("google-gla:") or raw.startswith("google:"):
-        raw = raw.split(":", 1)[1]
-    
+    """Normalize a Gemini model id for pydantic-ai's Google provider.
+
+    Always returns a ``google:`` prefixed string (required by
+    ``pydantic-ai-slim[google]>=2.5``). Legacy ``google-gla:`` prefixes are
+    rewritten so older env values / telemetry strings keep working.
+
+    This function is pure string normalization — it must not call
+    ``infer_model`` or touch the network, so importing ``config.settings``
+    (and therefore the API module) cannot crash on a provider mismatch.
+    """
+    raw = (model_id or AGENT_GEMINI_MODEL).strip()
+    for prefix in ("google-gla:", "google:"):
+        if raw.lower().startswith(prefix):
+            raw = raw.split(":", 1)[1].strip()
+            break
+    if not raw:
+        raise ValueError(
+            "Agent model id is empty. Set AGENT_GEMINI_MODEL "
+            "(e.g. gemini-2.5-flash-lite) in .env."
+        )
+    return f"google:{raw}"
+
+
+def validate_agent_model(model_id: Optional[str] = None) -> str:
+    """Resolve the agent model and verify pydantic-ai recognizes the provider.
+
+    Call this at request/startup time when you need a hard failure with a
+    clear message — not at import time.
+    """
+    resolved = pydantic_ai_gemini_model(model_id)
     try:
         from pydantic_ai import models
-        models.infer_model(f"google:{raw}")
-        return f"google:{raw}"
-    except Exception:
-        return f"google-gla:{raw}"
+
+        models.infer_model(resolved)
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid pydantic-ai agent model {resolved!r}: {exc}. "
+            "Install pydantic-ai-slim[google]>=2.5,<3, set GEMINI_API_KEY, "
+            "and use AGENT_GEMINI_MODEL like 'gemini-2.5-flash-lite' "
+            "(do not use the legacy google-gla: prefix)."
+        ) from exc
+    return resolved
 
 
+# Safe to compute at import: string formatting only, no provider probe.
 PYDANTIC_AI_GEMINI_MODEL = pydantic_ai_gemini_model()
 
 
@@ -132,6 +167,8 @@ class Settings:
     validation_feedback_auto_approve_enabled: bool = False
     validation_feedback_auto_approve_max_per_day: int = 20
     validation_feedback_auto_approve_delta_max: float = 40.0
+    # Phase K: cluster-aware draft coaching (one extra Gemini Flash call; default off).
+    validation_cluster_coaching_enabled: bool = False
     # Age-aware learning filter (default off): record age/mode always; when ON,
     # exclude forced_early from calibration / feedback learning.
     validation_age_aware_enabled: bool = False
@@ -140,7 +177,9 @@ class Settings:
     # Phase 11: multi-horizon age-aware validation.
     validation_multi_horizon_enabled: bool = True
     validation_multi_horizon_learning: bool = True
-    validation_multi_horizon_max_predicts_per_run: int = 40
+    validation_multi_horizon_max_predicts_per_run: int = 2000
+    # Concurrent Gemini predict workers (same idea as corpus Stage 2 --gemini-workers).
+    validation_predict_workers: int = 10
     # Lane B: schedule 24/48/72h predicts + Apify rescrapes. Off = Lane A only
     # (same-age instant grades; no delayed rescrape — useful without a always-on DB).
     validation_fixed_horizon_enabled: bool = True
@@ -172,6 +211,21 @@ class Settings:
     # T10.10: Dev AI workflow critic (Gemini Pro).
     agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
     agentic_pro_digest_dry_run: bool = False
+    # Issue #22: bound slow orchestration steps so /evaluate p95 stays finite.
+    # Agent stage wall time ≈ max(agent latencies) under asyncio.gather.
+    agent_step_timeout_s: float = 12.0
+    finalize_timeout_s: float = 8.0
+    agent_step_timeouts_enabled: bool = True
+    # Curated stronger-post evidence for evaluation feedback (global corpus).
+    cross_reference_enabled: bool = True
+    cross_reference_candidate_limit: int = 30
+    cross_reference_max_references: int = 3
+    cross_reference_min_percentile_uplift: float = 10.0
+    cross_reference_max_cosine_distance: float = 0.25
+    # API hardening (issue #3): Bearer key auth + per-key rate limits.
+    api_auth_enabled: bool = False
+    api_keys_json: str = ""
+    api_rate_limit: str = ""
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -190,6 +244,11 @@ def load_settings() -> Settings:
         return importlib.reload(sys.modules[__name__]).load_settings()
 
     load_dotenv(_PROJECT_ROOT / ".env", override=True)
+    # Production: overlay AWS Secrets Manager values when ITO_AWS_SECRET_* is set.
+    from config.aws_secrets import load_aws_secrets_into_environ, resolve_secret_id
+
+    if resolve_secret_id():
+        load_aws_secrets_into_environ(override=True)
     sync_google_api_key()
     settings = Settings(
         apify_api_token=os.getenv("APIFY_API_TOKEN", ""),
@@ -264,6 +323,9 @@ def load_settings() -> Settings:
         validation_feedback_auto_approve_delta_max=float(
             os.getenv("VALIDATION_FEEDBACK_AUTO_APPROVE_DELTA_MAX", "40")
         ),
+        validation_cluster_coaching_enabled=_env_bool(
+            "VALIDATION_CLUSTER_COACHING_ENABLED", default=False
+        ),
         validation_age_aware_enabled=_env_bool(
             "VALIDATION_AGE_AWARE_ENABLED", default=False
         ),
@@ -280,7 +342,10 @@ def load_settings() -> Settings:
             "VALIDATION_MULTI_HORIZON_LEARNING", default=True
         ),
         validation_multi_horizon_max_predicts_per_run=int(
-            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "40")
+            os.getenv("VALIDATION_MULTI_HORIZON_MAX_PREDICTS_PER_RUN", "2000")
+        ),
+        validation_predict_workers=int(
+            os.getenv("VALIDATION_PREDICT_WORKERS", "10")
         ),
         validation_fixed_horizon_enabled=_env_bool(
             "VALIDATION_FIXED_HORIZON_ENABLED", default=True
@@ -334,6 +399,25 @@ def load_settings() -> Settings:
         agentic_pro_digest_dry_run=_env_bool(
             "AGENTIC_PRO_DIGEST_DRY_RUN", default=False
         ),
+        agent_step_timeout_s=float(os.getenv("AGENT_STEP_TIMEOUT_S", "12")),
+        finalize_timeout_s=float(os.getenv("FINALIZE_TIMEOUT_S", "8")),
+        agent_step_timeouts_enabled=_env_bool("AGENT_STEP_TIMEOUTS_ENABLED", default=True),
+        cross_reference_enabled=_env_bool("CROSS_REFERENCE_ENABLED", default=True),
+        cross_reference_candidate_limit=int(
+            os.getenv("CROSS_REFERENCE_CANDIDATE_LIMIT", "30")
+        ),
+        cross_reference_max_references=int(
+            os.getenv("CROSS_REFERENCE_MAX_REFERENCES", "3")
+        ),
+        cross_reference_min_percentile_uplift=float(
+            os.getenv("CROSS_REFERENCE_MIN_PERCENTILE_UPLIFT", "10")
+        ),
+        cross_reference_max_cosine_distance=float(
+            os.getenv("CROSS_REFERENCE_MAX_COSINE_DISTANCE", "0.25")
+        ),
+        api_auth_enabled=_env_bool("API_AUTH_ENABLED", default=False),
+        api_keys_json=os.getenv("API_KEYS_JSON", ""),
+        api_rate_limit=os.getenv("API_RATE_LIMIT", ""),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings

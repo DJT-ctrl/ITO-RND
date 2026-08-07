@@ -12,6 +12,11 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel
 from pydantic_ai import UnexpectedModelBehavior
 
+from agents.cross_reference import (
+    CrossReferencePolicy,
+    select_cross_references,
+    unavailable_cross_references,
+)
 from agents.orchestrator import _gather_similar_posts
 from agents.predictor import PredictorOutput, build_predictor_agent, resolve_final_prediction
 from agents.prompt_safety import build_evaluation_user_message
@@ -270,12 +275,14 @@ async def _predict_for_post_impl(
     )
     age_bucket = bucket_for_hours(horizon)
     state = PostEvaluationState(draft_content=post.content)
-    await _gather_similar_posts(
+    retrieval_context = await _gather_similar_posts(
         state,
         settings,
         user_id=None,
         prefer_niche=post.niche,
         prefer_age_hours=horizon,
+        include_global_candidates=settings.cross_reference_enabled,
+        global_candidate_limit=settings.cross_reference_candidate_limit,
     )
 
     neighbor_prediction = compute_neighbor_prediction(
@@ -308,9 +315,42 @@ async def _predict_for_post_impl(
         if feedback_cluster_id:
             neighbor_prediction.setdefault("cluster_id", feedback_cluster_id)
 
+    cross_references = None
+    if settings.cross_reference_enabled:
+        if retrieval_context.global_candidate_error:
+            cross_references = unavailable_cross_references(
+                neighbor_prediction,
+                "Global cross-reference candidate retrieval failed during validation prediction.",
+            )
+        else:
+            cross_references = select_cross_references(
+                retrieval_context.global_candidates,
+                neighbor_prediction,
+                policy=CrossReferencePolicy(
+                    max_references=settings.cross_reference_max_references,
+                    min_percentile_uplift=settings.cross_reference_min_percentile_uplift,
+                    max_cosine_distance=settings.cross_reference_max_cosine_distance,
+                ),
+                prefer_niche=post.niche,
+                prefer_age_hours=horizon,
+            )
+
+    cross_reference_status = cross_references.status if cross_references else None
+    cross_reference_count = len(cross_references.references) if cross_references else 0
+    cross_reference_adjusted_count = (
+        sum(
+            1
+            for reference in cross_references.references
+            if reference.comparison_metric == "audience_adjusted_percentile"
+        )
+        if cross_references
+        else 0
+    )
+
     deps = EvaluationDeps(
         draft_content=post.content,
         similar_posts=state.similar_posts,
+        cross_references=cross_references,
         neighbor_prediction=neighbor_prediction,
         draft_follower_count=post.follower_count,
         feedback_context=feedback_context,
@@ -342,6 +382,9 @@ async def _predict_for_post_impl(
                 "age_bucket": age_bucket,
                 "neighbor_age_prefer": True,
             },
+            cross_reference_status=cross_reference_status,
+            cross_reference_count=cross_reference_count,
+            cross_reference_adjusted_count=cross_reference_adjusted_count,
         )
         return _deterministic_prediction_output(
             neighbor_prediction,
@@ -388,6 +431,9 @@ async def _predict_for_post_impl(
         feedback_count=feedback_count,
         cluster_id=feedback_cluster_id,
         injectability=injectability_meta,
+        cross_reference_status=cross_reference_status,
+        cross_reference_count=cross_reference_count,
+        cross_reference_adjusted_count=cross_reference_adjusted_count,
     )
 
     if isinstance(output, PredictorOutput):

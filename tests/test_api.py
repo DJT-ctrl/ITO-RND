@@ -5,6 +5,7 @@ calls in unit tests, per repo convention (see tests/test_embedder.py and
 tests/test_vector_store.py).
 """
 
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -12,9 +13,74 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+import api.main as api_main
 from api.main import app
+from api.schemas import ClusterCoachingResult, CoachingEvidence, DetailedCoachingAction
+from api.security import configure_api_security
+from config.settings import load_settings
 
 client = TestClient(app)
+
+_PREDICTOR_STUB_OUTPUT = {
+    "predicted_engagement_percentile": 81.0,
+    "predicted_total_engagement": 42,
+    "reasoning": "Stub predictor reasoning for unit tests.",
+}
+
+_VARIANT_STUB_OUTPUT = {
+    "variant_text": "Stub variant text for unit tests.",
+    "rationale": "Stub rationale.",
+    "strategy_label": "stub",
+    "predicted_engagement_percentile": 55.0,
+    "predicted_total_engagement": 10,
+}
+
+
+def _coaching_stub() -> ClusterCoachingResult:
+    return ClusterCoachingResult(
+        status="ready",
+        summary="Make the opening specific before naming the role.",
+        evidence=CoachingEvidence(
+            cluster_id="short_prose_micro",
+            cluster_label="short prose posts (micro followers)",
+            sample_count=12,
+            validated_feedback_count=2,
+            confidence="cluster_validated",
+            summary="Approved lessons favor concrete openings.",
+        ),
+        primary_action=DetailedCoachingAction(
+            title="Lead with the outcome",
+            draft_anchor="Excited to announce",
+            diagnosis=(
+                "The opening is generic and gives readers no reason to continue before the "
+                "hiring announcement takes over."
+            ),
+            edit_instruction=(
+                "Replace the opening with the operational outcome this hire will enable, then "
+                "introduce the person and role."
+            ),
+            example_replacement="We are reducing customer setup time, so we hired a backend engineer to scale the work.",
+            expected_effect=(
+                "The reader gets a concrete reason to care before the post turns to the company update."
+            ),
+            evidence_refs=["neighbor:1"],
+        ),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _disable_api_auth_for_unit_tests():
+    """Keep route tests independent of local API_AUTH_ENABLED=.env."""
+    from dataclasses import replace
+
+    open_settings = replace(
+        load_settings(),
+        api_auth_enabled=False,
+        api_keys_json="",
+        api_rate_limit="",
+    )
+    configure_api_security(open_settings)
+    yield
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +124,21 @@ class _AgentStub:
 def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "api_version": "v1"}
+
+
+def test_agents_catalog_lists_core_and_diagnostics():
+    response = client.get("/api/v1/agents")
+    assert response.status_code == 200
+    body = response.json()
+
+    ids = [a["id"] for a in body["agents"]]
+    assert "predictor" in ids
+    assert "seo" in ids
+    assert "clarity" in ids
+    assert "tone" in ids
+    assert "cross_reference" in ids
+    assert "variant" in ids
 
 
 @patch("api.main.register_vector")
@@ -131,9 +211,11 @@ async def _noop_finalize(state) -> None:
     return None
 
 
-def _stub_variant_hook(marker: dict):
+def _stub_variant_hook(marker: dict | None = None):
+    payload = {**_VARIANT_STUB_OUTPUT, **(marker or {})}
+
     async def _hook(state) -> None:
-        state.variants = [marker]
+        state.variants = [payload]
 
     return _hook
 
@@ -152,7 +234,7 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(_PREDICTOR_STUB_OUTPUT)
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -162,16 +244,95 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
     body = response.json()
     assert body["draft_content"] == "Excited to announce our new product launch!"
     assert len(body["similar_posts"]) == 2
-    assert body["predictor_result"] == {
-        "predicted_engagement_percentile": 81.0,
-        "predicted_total_engagement": 42,
-    }
-    assert body["diagnostics"] == {"seo": {"score": 7.0}}
+    assert body["predictor_result"]["predicted_engagement_percentile"] == 81.0
+    assert body["predictor_result"]["predicted_total_engagement"] == 42
+    assert body["predictor_result"]["reasoning"] == _PREDICTOR_STUB_OUTPUT["reasoning"]
+    assert body["diagnostics"]["seo"]["score"] == 7.0
     assert body["variants"] == []
+    assert body["cross_references"]["status"] == "insufficient_evidence"
     assert body["errors"] == []
     assert body["run_metadata"] is not None
     assert body["run_metadata"]["total_input_tokens"] >= 0
     assert len(body["run_metadata"]["steps"]) >= 1
+
+
+@patch("api.main.build_cluster_coaching_engine")
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_keeps_coaching_off_by_default(
+    mock_embed_query,
+    mock_find_similar,
+    mock_get_connection,
+    mock_register_vector,
+    mock_build_variant_engine,
+    mock_build_coaching_engine,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api_main,
+        "settings",
+        replace(api_main.settings, validation_cluster_coaching_enabled=False),
+    )
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    with patch("api.main.predictor_agent", _AgentStub(_PREDICTOR_STUB_OUTPUT)), patch(
+        "api.main.diagnostic_agents", {"seo": _AgentStub({"score": 7.0})}
+    ):
+        response = client.post("/api/v1/evaluate", json={"content": "Excited to announce a launch."})
+
+    assert response.status_code == 200
+    assert response.json()["cluster_coaching"] is None
+    mock_build_coaching_engine.assert_not_called()
+
+
+@patch("api.main.build_cluster_coaching_engine")
+@patch("api.main.build_variant_engine")
+@patch("agents.orchestrator.register_vector")
+@patch("agents.orchestrator.get_connection")
+@patch("agents.orchestrator.find_similar")
+@patch("agents.orchestrator.embed_query")
+def test_evaluate_endpoint_returns_coaching_when_enabled(
+    mock_embed_query,
+    mock_find_similar,
+    mock_get_connection,
+    mock_register_vector,
+    mock_build_variant_engine,
+    mock_build_coaching_engine,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        api_main,
+        "settings",
+        replace(api_main.settings, validation_cluster_coaching_enabled=True),
+    )
+    mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
+    mock_find_similar.return_value = [fake_row("1")]
+    mock_get_connection.return_value = MagicMock()
+    mock_build_variant_engine.return_value = _noop_finalize
+
+    async def coaching_hook(state) -> None:
+        state.cluster_coaching = _coaching_stub()
+
+    mock_build_coaching_engine.return_value = coaching_hook
+    with patch("api.main.predictor_agent", _AgentStub(_PREDICTOR_STUB_OUTPUT)), patch(
+        "api.main.diagnostic_agents", {"seo": _AgentStub({"score": 7.0})}
+    ):
+        response = client.post(
+            "/api/v1/evaluate",
+            json={"content": "Excited to announce a launch."},
+        )
+
+    assert response.status_code == 200
+    coaching = response.json()["cluster_coaching"]
+    assert coaching["primary_action"]["priority"] == "high"
+    assert coaching["primary_action"]["draft_anchor"] == "Excited to announce"
+    mock_build_coaching_engine.assert_called_once()
 
 
 @patch("api.main.build_variant_engine")
@@ -188,9 +349,9 @@ def test_evaluate_endpoint_passes_selected_variant_strategy(
     mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
-    mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
+    mock_build_variant_engine.return_value = _stub_variant_hook()
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(_PREDICTOR_STUB_OUTPUT)
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -200,7 +361,7 @@ def test_evaluate_endpoint_passes_selected_variant_strategy(
         )
 
     assert response.status_code == 200
-    assert response.json()["variants"] == [{"strategy_label": "stub"}]
+    assert response.json()["variants"] == [_VARIANT_STUB_OUTPUT]
     mock_build_variant_engine.assert_called_once()
     assert mock_build_variant_engine.call_args.kwargs["strategy"] == "tiered"
     assert mock_build_variant_engine.call_args.kwargs["reembed_neighbors"] is False
@@ -219,9 +380,9 @@ def test_evaluate_endpoint_passes_reembed_variant_neighbors_flag(
     mock_embed_query.return_value = (np.zeros(3072, dtype=np.float32), 10)
     mock_find_similar.return_value = [fake_row("1")]
     mock_get_connection.return_value = MagicMock()
-    mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
+    mock_build_variant_engine.return_value = _stub_variant_hook()
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(_PREDICTOR_STUB_OUTPUT)
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -249,7 +410,13 @@ def test_evaluate_endpoint_passes_neighbor_limit(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _stub_variant_hook({"strategy_label": "stub"})
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(
+        {
+            "predicted_engagement_percentile": 81.0,
+            "predicted_total_engagement": 42,
+            "reasoning": "Stub predictor reasoning for unit tests.",
+        }
+    )
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -299,7 +466,7 @@ def test_evaluate_endpoint_defaults_variant_strategy_to_dimension(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(_PREDICTOR_STUB_OUTPUT)
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -331,7 +498,7 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(_PREDICTOR_STUB_OUTPUT)
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):
@@ -345,7 +512,8 @@ def test_evaluate_endpoint_forwards_user_id_and_voice_profile_flag(
         )
 
     assert response.status_code == 200
-    assert mock_find_similar.call_args.kwargs["user_id"] == "user-42"
+    assert mock_find_similar.call_args_list[0].kwargs["user_id"] == "user-42"
+    assert mock_find_similar.call_args_list[1].kwargs["user_id"] is None
 
 
 @patch("api.main.build_variant_engine")
@@ -361,7 +529,13 @@ def test_evaluate_accepts_visual_diagnostics_fields(
     mock_get_connection.return_value = MagicMock()
     mock_build_variant_engine.return_value = _noop_finalize
 
-    predictor = _AgentStub({"predicted_engagement_percentile": 81.0, "predicted_total_engagement": 42})
+    predictor = _AgentStub(
+        {
+            "predicted_engagement_percentile": 81.0,
+            "predicted_total_engagement": 42,
+            "reasoning": "Stub predictor reasoning for unit tests.",
+        }
+    )
     diagnostics = {"seo": _AgentStub({"score": 7.0})}
 
     with patch("api.main.predictor_agent", predictor), patch("api.main.diagnostic_agents", diagnostics):

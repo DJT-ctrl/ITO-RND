@@ -465,3 +465,19 @@ def bulk_import_vectorized_and_predict(
             on_progress=kwargs.get("on_progress"),
         )
     )
+
+
+def __getattr__(name: str):
+    """Re-export Collect inventory helpers (live in collect_inventory)."""
+    _reexports = {
+        "DatasetInventoryRow",
+        "build_dataset_inventory_and_unique",
+        "dataset_inventory_rows",
+        "estimate_corpus_unique_count",
+        "unique_post_ids_from_vectorized_datasets",
+    }
+    if name in _reexports:
+        from validation_pipeline import collect_inventory as _inv
+
+        return getattr(_inv, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily ITO Postgres backup timer (issue #15)
+Requires=ito-db-backup.service
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=ito-db-backup.service
+
+[Install]
+WantedBy=timers.target

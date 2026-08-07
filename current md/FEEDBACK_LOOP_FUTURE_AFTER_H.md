@@ -19,7 +19,7 @@
 
 - Keep collecting with shadow ON; re-run F when lift may clear 5% or shadow beats live
 - Only then consider calibration / soft_blend / injection flag flips
-- Gemini context caching (I.3), H+, K remain deferred
+- Gemini context caching (I.3), H+, and K.2 benchmark versioning remain deferred
 - Note: `global_mean_delta` ≈ 5 is training bias, **not** MAE lift %
 
 **Still open before prod learning ON:**
@@ -346,7 +346,42 @@ Today `run_cluster_centroids` uses **mean embedding per metadata cluster**. True
 
 ---
 
-## Phase K (optional) — Corpus & benchmark versioning
+## Phase K.1 — Cluster-aware draft coaching
+
+**Status:** Engineering **done** (2026-08-07). Default **OFF**.
+
+**Goal:** Convert validated cluster evidence, closest historical neighbors, and
+completed diagnostics into one concrete, draft-specific primary edit instead
+of presenting only analytic bucket lessons.
+
+### Build
+
+- `VALIDATION_CLUSTER_COACHING_ENABLED=false` by default; persisted Feedback
+   Loop setting controls it for new evaluations.
+- The read-only finalize stage runs after predictor/diagnostics and before the
+   unchanged variant engine. It never modifies a score, calibration, feedback
+   row, injection block, or variant ranking.
+- Gemini 2.5 Flash receives a bounded, sanitized evidence set: up to three
+   approved cluster lessons, three close neighbors, the resolved cluster rollup,
+   and completed diagnostic findings.
+- It must return one high-priority action with a literal draft anchor, diagnosis,
+   edit instruction, example replacement/insertion, expected reader effect, and
+   permitted evidence references; up to two supporting actions are optional.
+- Exact cluster lessons are preferred. Shape fallback is labeled; when no
+   approved lessons exist, diagnostics plus close neighbors remain usable but
+   are explicitly `diagnostic_neighbor` lower-confidence coaching.
+
+### Operational boundary
+
+- One extra Gemini Flash call only when enabled.
+- Product clients render `cluster_coaching` before legacy diagnostic buckets
+   and omit the panel for `null`.
+- Disable the Feedback Loop toggle to stop calls immediately; partial coach
+   failures remain non-fatal in `errors[]`.
+
+---
+
+## Phase K.2 (optional) — Corpus & benchmark versioning
 
 **Goal:** Prevent silent lesson rot when corpus percentiles refresh.
 

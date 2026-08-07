@@ -1,0 +1,9 @@
+# Example — copy to terraform.tfvars (gitignored) after #12 apply.
+aws_region                = "eu-west-2"
+environment               = "dev"
+project                   = "intotheopen"
+compose_host_instance_id  = "i-0123456789abcdef0"
+compose_host_role_name    = "intotheopen-dev-compose-host"
+log_retention_days        = 14
+alert_email               = ""
+alert_https_endpoint      = ""

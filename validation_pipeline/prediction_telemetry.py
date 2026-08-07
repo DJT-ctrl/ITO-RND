@@ -27,6 +27,9 @@ def build_prediction_telemetry(
     feedback_count: int,
     cluster_id: Optional[str],
     injectability: Optional[dict[str, Any]] = None,
+    cross_reference_status: Optional[str] = None,
+    cross_reference_count: int = 0,
+    cross_reference_adjusted_count: int = 0,
 ) -> PredictionTelemetry:
     """Normalize optional neighbor metadata into a stable persisted schema."""
     neighbor = neighbor_prediction or {}
@@ -68,6 +71,9 @@ def build_prediction_telemetry(
             if inj.get("neighbor_age_prefer") is not None
             else None
         ),
+        cross_reference_status=cross_reference_status,
+        cross_reference_count=max(0, int(cross_reference_count)),
+        cross_reference_adjusted_count=max(0, int(cross_reference_adjusted_count)),
     )
 
 

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from agents.clarity_metrics import format_clarity_context_section
+from agents.cross_reference import format_cross_reference_context
 from agents.discoverability import format_discoverability_context_section
 from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
@@ -64,10 +65,20 @@ _DIAGNOSTIC_SPECS = {
 }
 
 
+def list_diagnostic_specs() -> dict[str, dict[str, str]]:
+    """Return a shallow copy of diagnostic registry metadata.
+
+    Frontends and API wrappers use this to discover currently configured
+    diagnostic workers without hardcoding names.
+    """
+    return {k: dict(v) for k, v in _DIAGNOSTIC_SPECS.items()}
+
+
 def build_diagnostic_prompt(name: str, deps: EvaluationDeps) -> str:
     """Build one diagnostic worker's prompt."""
     spec = _DIAGNOSTIC_SPECS[name]
     voice_section = build_voice_profile_section(deps.voice_profile)
+    cross_reference_section = format_cross_reference_context(deps.cross_references)
     draft_section = wrap_untrusted_text(deps.draft_content)
     return f"""
 {PROMPT_DATA_PREAMBLE}
@@ -77,6 +88,7 @@ You are the {spec['title']} Diagnostic Worker in a LinkedIn post evaluation pipe
 Your focus:
 {spec['focus']}
 {voice_section}
+{cross_reference_section}
 Draft post:
 {draft_section}
 

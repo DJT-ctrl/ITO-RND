@@ -148,8 +148,14 @@ def save_embeddings(vectors: np.ndarray, platform: str, base_dir: str = "data/em
     The .npy file holds only the raw vectors (no post_id/content) — pair
     vector[i] with its source post by re-deriving the same valid subset
     (word_count >= 10, non-blank content) used by embed_batch().
+
+    Relative ``base_dir`` values are resolved from the backend repo root via
+    ``resolve_data_path`` so Streamlit's cwd (e.g. dashboard-for-devs) cannot
+    write embeddings into a split local ``data/`` tree.
     """
-    out_dir = Path(base_dir)
+    from config.paths import resolve_data_path
+
+    out_dir = resolve_data_path(base_dir) if not Path(base_dir).is_absolute() else Path(base_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     file_path = out_dir / f"{platform}_gemini_{timestamp}.npy"

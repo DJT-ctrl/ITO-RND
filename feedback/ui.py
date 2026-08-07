@@ -55,6 +55,7 @@ These switches control the three learning mechanisms. **They matter.**
 | **Adjust scores from past mistakes** | A | Next predictions get a numeric offset from past errors | Measure baseline without the nudge |
 | **Save lessons after grading** | B | After each validation, store a template lesson | Pause writing new lessons |
 | **Show lessons to the AI** | D | Predictor sees recent same-bucket lessons | A/B without lesson text |
+| **Show cluster-aware coaching** | K | Gemini Flash returns one detailed draft edit | No extra call or coaching result |
 
 Safe production default: **lessons ON**, **calibration and injection OFF**
 until Phase F (offline eval) shows a clear lift.
@@ -225,6 +226,19 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
     with g10:
         st.write("")
 
+    coach_col, _ = st.columns([1, 2])
+    with coach_col:
+        coaching_on = st.toggle(
+            "Show cluster-aware coaching",
+            value=settings.validation_cluster_coaching_enabled,
+            help=(
+                "Phase K · Makes one extra Gemini 2.5 Flash call after diagnostics to return "
+                "one evidence-grounded, draft-specific edit plus optional supporting actions. "
+                "It never changes predicted engagement or variants. Default OFF."
+            ),
+            key="fb_toggle_cluster_coaching",
+        )
+
     a1, a2, a3, a4 = st.columns(4)
     with a1:
         auto_on = st.toggle(
@@ -284,6 +298,7 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
                 "validation_feedback_auto_approve_enabled": bool(auto_on),
                 "validation_feedback_auto_approve_max_per_day": int(auto_max),
                 "validation_feedback_auto_approve_delta_max": float(auto_delta),
+                "validation_cluster_coaching_enabled": bool(coaching_on),
             }
         )
         st.success("Saved — applies on this page reload and to new worker/predict runs.")
@@ -324,6 +339,7 @@ Overrides save to `data/feedback_loop_overrides.json` and apply on the next
         validation_feedback_auto_approve_enabled=bool(auto_on),
         validation_feedback_auto_approve_max_per_day=int(auto_max),
         validation_feedback_auto_approve_delta_max=float(auto_delta),
+        validation_cluster_coaching_enabled=bool(coaching_on),
     )
 
 

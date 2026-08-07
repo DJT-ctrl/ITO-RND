@@ -12,6 +12,7 @@ from agents.synthesis.prompts import (
     build_synthesis_user_message,
 )
 from agents.synthesis.schemas import SynthesisDraftSet
+from api.schemas import CrossReferenceResult
 from config.settings import pydantic_ai_gemini_model
 
 
@@ -31,6 +32,7 @@ async def generate_synthesis_drafts(
     *,
     primary_objection: Optional[str] = None,
     voice_profile: Optional[dict] = None,
+    cross_references: Optional[CrossReferenceResult] = None,
     agent: Agent[None, SynthesisDraftSet] | None = None,
     model: Any = None,
 ) -> SynthesisDraftSet:
@@ -47,7 +49,9 @@ async def generate_synthesis_drafts(
             ),
             retries=2,
         )
-    result = await agent.run(build_synthesis_user_message(content))
+    result = await agent.run(
+        build_synthesis_user_message(content, cross_references=cross_references)
+    )
     drafts = result.output
     # Normalize agent_ids in case the model drifts.
     drafts.maximizer.agent_id = "maximizer"

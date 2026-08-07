@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from pydantic_ai import UnexpectedModelBehavior
 
+from agents.retrieval import RetrievalContext
+from api.schemas import SimilarPost
 from config.settings import Settings
 from validation_pipeline.predict import PredictionOutput, predict_for_post, save_prediction
 from validation_pipeline.schemas import CollectedPost, PredictionRecord, PredictionTelemetry
@@ -60,12 +62,32 @@ def test_predict_for_post_falls_back_on_malformed_gemini_response(
     agent = MagicMock()
     agent.run = AsyncMock(side_effect=UnexpectedModelBehavior("Content field missing from Gemini response"))
     mock_build_agent.return_value = agent
+    mock_gather.return_value = RetrievalContext(
+        query_embedding=[0.0] * 3072,
+        embedding_model_version="models/gemini-embedding-001",
+        similar_posts=[],
+        global_candidates=[
+            SimilarPost(
+                post_id="strong-global",
+                content="A sufficiently detailed historical LinkedIn post for meaningful comparison context.",
+                likes=20,
+                comments=4,
+                shares=2,
+                total_engagement=26,
+                engagement_percentile=90.0,
+                engagement_zscore=1.0,
+                cosine_distance=0.04,
+            )
+        ],
+    )
 
     result = asyncio.run(predict_for_post(_post(), _settings()))
 
     assert result.predicted_engagement_percentile == 62.5
     assert result.predicted_total_engagement == 240
     assert "deterministic neighbor weighting" in result.reasoning.lower()
+    assert result.telemetry.cross_reference_status == "ready"
+    assert result.telemetry.cross_reference_count == 1
 
 
 @patch("validation_pipeline.predict.insert_prediction")

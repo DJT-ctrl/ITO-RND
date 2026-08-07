@@ -43,9 +43,19 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 
 from agents.clarity_metrics import compute_clarity_metrics
+from agents.cross_reference import (
+    CrossReferenceAnalysisOutput,
+    CrossReferencePolicy,
+    apply_cross_reference_analysis,
+    build_cross_reference_analysis_prompt,
+    mark_analysis_unavailable,
+    select_cross_references,
+    unavailable_cross_references,
+)
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
 from agents.predictor import apply_deterministic_prediction
 from agents.prompt_safety import build_evaluation_user_message
+from agents.retrieval import RetrievalContext, retrieve_post_context
 from agents.schemas import (
     EvaluationDeps,
     PostEvaluationState,
@@ -60,7 +70,7 @@ from agents.visual_diagnostics import (
 )
 from config.settings import Settings, pydantic_ai_gemini_model
 from processors.benchmark import compute_neighbor_prediction
-from processors.embedder import embed_query, EMBEDDING_MODEL_VERSION
+from processors.embedder import embed_query
 from storage.profile_store import get_follower_count
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
@@ -93,7 +103,9 @@ async def _gather_similar_posts(
     prefer_age_hours: Optional[float] = None,
     collector: Optional[RunMetadataCollector] = None,
     neighbor_limit: int = 10,
-) -> None:
+    include_global_candidates: bool = False,
+    global_candidate_limit: int = 30,
+) -> RetrievalContext:
     """Populate state.similar_posts with the nearest vector neighbors.
 
     `neighbor_limit` defaults to 10 (sheet/T7.1 default) and may be raised
@@ -115,68 +127,25 @@ async def _gather_similar_posts(
     own posts, with an automatic fallback to the global corpus when they
     don't have enough of their own (see find_similar()'s docstring).
     """
-    limit = resolve_neighbor_limit(neighbor_limit)
-
-    def _embed() -> tuple[Any, int]:
-        return embed_query(state.draft_content, settings)
-
-    started_at = _utc_now()
-    t0 = time.perf_counter()
-    try:
-        query_vector, prompt_tokens = await asyncio.to_thread(_embed)
-        state.query_embedding = [float(x) for x in query_vector.tolist()]
-        state.embedding_model_version = EMBEDDING_MODEL_VERSION
-        if collector is not None:
-            collector.record_embedding(
-                step_id="retrieval.embed_query",
-                label="Embed draft query",
-                stage="retrieval",
-                prompt_tokens=prompt_tokens,
-                latency_ms=_elapsed_ms(t0),
-                started_at=started_at,
-                ended_at=_utc_now(),
-            )
-    except Exception as exc:
-        if collector is not None:
-            collector.record_embedding(
-                step_id="retrieval.embed_query",
-                label="Embed draft query",
-                stage="retrieval",
-                prompt_tokens=0,
-                latency_ms=_elapsed_ms(t0),
-                started_at=started_at,
-                ended_at=_utc_now(),
-                status="error",
-                error=str(exc),
-            )
-        raise
-
-    def _fetch() -> list[dict]:
-        conn = get_connection(settings)
-        try:
-            register_vector(conn)
-            return find_similar(
-                conn,
-                query_vector,
-                limit=limit,
-                user_id=user_id,
-                prefer_niche=prefer_niche,
-                prefer_age_hours=prefer_age_hours,
-            )
-        finally:
-            conn.close()
-
-    rows = await run_timed_thread(
-        collector,
-        step_id="retrieval.vector_search",
-        label="Vector similarity search",
-        stage="retrieval",
-        call_type="db",
-        fn=_fetch,
+    context = await retrieve_post_context(
+        state.draft_content,
+        settings,
+        neighbor_limit=resolve_neighbor_limit(neighbor_limit),
+        global_candidate_limit=global_candidate_limit,
+        user_id=user_id,
+        prefer_niche=prefer_niche,
+        prefer_age_hours=prefer_age_hours,
+        include_global_candidates=include_global_candidates,
+        collector=collector,
+        embedder=embed_query,
+        connection_factory=get_connection,
+        similarity_finder=find_similar,
+        vector_registrar=register_vector,
     )
-    from api.schemas import SimilarPost
-
-    state.similar_posts = [SimilarPost(**row) for row in rows]
+    state.query_embedding = context.query_embedding
+    state.embedding_model_version = context.embedding_model_version
+    state.similar_posts = context.similar_posts
+    return context
 
 
 async def _fetch_voice_profile(
@@ -318,6 +287,7 @@ async def run_evaluation_cycle(
     variant_strategy: Optional[str] = None,
     reembed_variant_neighbors: bool = False,
     neighbor_limit: int = 10,
+    cross_reference_analyst: Optional[EvaluationAgent] = None,
 ) -> PostEvaluationState:
     """Run one full content-evaluation cycle for `draft_content`.
 
@@ -389,15 +359,21 @@ async def run_evaluation_cycle(
     else:
         collector._neighbor_limit = resolved_neighbor_limit
 
-    state = PostEvaluationState(draft_content=draft_content)
+    state = PostEvaluationState(
+        draft_content=draft_content,
+        retrieval_user_id=user_id,
+        retrieval_prefer_niche=prefer_niche,
+    )
 
-    await _gather_similar_posts(
+    retrieval_context = await _gather_similar_posts(
         state,
         settings,
         user_id=user_id,
         prefer_niche=prefer_niche,
         collector=collector,
         neighbor_limit=resolved_neighbor_limit,
+        include_global_candidates=settings.cross_reference_enabled,
+        global_candidate_limit=settings.cross_reference_candidate_limit,
     )
     if user_id is not None and use_voice_profile:
         await _fetch_voice_profile(state, settings, user_id, collector=collector)
@@ -405,6 +381,7 @@ async def run_evaluation_cycle(
     draft_follower_count: Optional[int] = None
     if user_id is not None:
         draft_follower_count = await _fetch_draft_follower_count(settings, user_id, collector=collector)
+    state.draft_follower_count = draft_follower_count
 
     def _neighbor_prediction():
         return compute_neighbor_prediction(
@@ -419,6 +396,28 @@ async def run_evaluation_cycle(
         call_type="compute",
         fn=_neighbor_prediction,
     )
+    if settings.cross_reference_enabled:
+        if retrieval_context.global_candidate_error:
+            state.cross_references = unavailable_cross_references(
+                neighbor_prediction,
+                "Global cross-reference candidate retrieval failed: "
+                f"{retrieval_context.global_candidate_error}",
+            )
+            state.errors.append(
+                "cross_references: global candidate retrieval failed — "
+                f"{retrieval_context.global_candidate_error}"
+            )
+        else:
+            state.cross_references = select_cross_references(
+                retrieval_context.global_candidates,
+                neighbor_prediction,
+                policy=CrossReferencePolicy(
+                    max_references=settings.cross_reference_max_references,
+                    min_percentile_uplift=settings.cross_reference_min_percentile_uplift,
+                    max_cosine_distance=settings.cross_reference_max_cosine_distance,
+                ),
+                prefer_niche=prefer_niche,
+            )
 
     resolved_seo_mode: SeoDiscoverabilityMode = seo_mode or settings.seo_discoverability_mode  # type: ignore[assignment]
     if resolved_seo_mode not in ("corpus", "gemini_only"):
@@ -475,6 +474,7 @@ async def run_evaluation_cycle(
     deps = EvaluationDeps(
         draft_content=draft_content,
         similar_posts=state.similar_posts,
+        cross_references=state.cross_references,
         voice_profile=state.voice_profile,
         discoverability_context=discoverability_context,
         seo_mode=resolved_seo_mode,
@@ -524,6 +524,37 @@ async def run_evaluation_cycle(
             state.predictor_result = output
         else:
             state.diagnostics[key] = output
+
+    if (
+        cross_reference_analyst is not None
+        and state.cross_references is not None
+        and state.cross_references.status == "ready"
+        and state.cross_references.references
+    ):
+        try:
+            analysis_result = await _run_agent_with_telemetry(
+                collector,
+                "cross_reference",
+                cross_reference_analyst,
+                build_cross_reference_analysis_prompt(deps, state),
+                deps,
+            )
+            if isinstance(analysis_result.output, CrossReferenceAnalysisOutput):
+                analysis_output = analysis_result.output
+            else:
+                analysis_output = CrossReferenceAnalysisOutput.model_validate(
+                    _as_dict(analysis_result.output)
+                )
+            state.cross_references = apply_cross_reference_analysis(
+                state.cross_references,
+                analysis_output,
+            )
+        except Exception as exc:
+            state.cross_references = mark_analysis_unavailable(
+                state.cross_references,
+                "Cross-reference explanation unavailable; deterministic references remain usable.",
+            )
+            state.errors.append(f"cross_reference: {exc}")
 
     if finalize is not None:
         await finalize(state)

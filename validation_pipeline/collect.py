@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from config.paths import resolve_data_path, utc_artifact_stamp
 from config.settings import Settings, load_settings

@@ -22,7 +22,6 @@ a separate CLI step.
 """
 
 import argparse
-import glob
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -40,10 +39,13 @@ logger = logging.getLogger(__name__)
 
 def _latest_npy(embeddings_dir: str = "data/embeddings") -> Path:
     """Return the most recent linkedin_gemini_*.npy file under embeddings_dir."""
-    files = sorted(glob.glob(f"{embeddings_dir}/linkedin_gemini_*.npy"))
+    from config.paths import resolve_data_path
+
+    root = resolve_data_path(embeddings_dir) if not Path(embeddings_dir).is_absolute() else Path(embeddings_dir)
+    files = sorted(root.glob("linkedin_gemini_*.npy"))
     if not files:
-        raise ValueError(f"No embedding files found under {embeddings_dir}/linkedin_gemini_*.npy")
-    return Path(files[-1])
+        raise ValueError(f"No embedding files found under {root}/linkedin_gemini_*.npy")
+    return files[-1]
 
 
 def _maybe_backup(settings: Settings, *, skip_backup: bool) -> None:
