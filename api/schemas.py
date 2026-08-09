@@ -182,3 +182,90 @@ class OptimiseRequest(BaseModel):
         description="When user_id is set, derive and apply the subscriber voice profile.",
     )
 
+
+class SubscriberEvidenceBriefRequest(BaseModel):
+    """Consent-backed inputs for a Phase 19 concierge evidence baseline."""
+
+    subscriber_id: str = Field(..., min_length=1, max_length=120)
+    public_profile_url: str = Field(..., min_length=1, max_length=500)
+    profile_authorized: bool = Field(
+        ...,
+        description="Subscriber confirms authorization to analyze their public LinkedIn profile.",
+    )
+    role_description: str = Field(..., min_length=2, max_length=1_000)
+    primary_niche: str = Field(..., min_length=2, max_length=120)
+    sub_niche: str = Field(default="", max_length=240)
+    target_audience: str = Field(..., min_length=2, max_length=500)
+    objectives: list[str] = Field(default_factory=list, max_length=10)
+    locale: str = Field(default="", max_length=160)
+    seed_accounts: list[str] = Field(default_factory=list, max_length=20)
+
+
+class SubscriberEvidenceBriefResponse(BaseModel):
+    id: str
+    subscriber_id: str
+    public_profile_url: str
+    profile_authorized: bool
+    role_description: str
+    primary_niche: str
+    sub_niche: str
+    target_audience: str
+    objectives: list[str]
+    locale: str
+    seed_accounts: list[str]
+    status: Literal["draft", "approved", "paused"]
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SubscriberBaselinePlanResponse(BaseModel):
+    id: str
+    brief_id: str
+    provider: Literal["apify"]
+    baseline_budget_usd: float = Field(..., ge=0, le=10)
+    daily_candidate_limit: int = Field(..., ge=1, le=100)
+    source_priorities: list[str]
+    proposed_queries: list[str]
+    rationale: str
+    status: Literal["proposed", "approved", "superseded"]
+    created_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+
+
+class SubscriberEvidencePlanResponse(BaseModel):
+    brief: SubscriberEvidenceBriefResponse
+    plan: SubscriberBaselinePlanResponse
+
+
+class SubscriberEvidenceReceiptResponse(BaseModel):
+    id: str
+    subscriber_id: str
+    collection_job_id: str
+    collected_count: int
+    rejected_count: int
+    actual_cost_usd: float
+    coverage_gaps: list[str]
+    next_refresh_at: Optional[datetime] = None
+    summary: str
+    created_at: Optional[datetime] = None
+
+
+class SubscriberEvidenceJobResponse(BaseModel):
+    id: str
+    subscriber_id: str
+    brief_id: str
+    plan_id: str
+    job_kind: Literal["baseline", "daily_refresh"]
+    gap_reason: str
+    status: Literal["planned", "running", "completed", "failed", "skipped"]
+    estimated_cost_usd: float
+    actual_cost_usd: float
+    candidate_count: int
+    accepted_count: int
+    rejected_count: int
+    recommended_seeds: list[str]
+    error_detail: Optional[str] = None
+    created_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+

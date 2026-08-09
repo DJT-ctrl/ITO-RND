@@ -161,6 +161,7 @@ class Settings:
     # T10.3: schedule cadences (hours). Validation/feedback run every tick.
     agentic_general_refresh_interval_hours: float = 3.0
     agentic_niche_scrape_interval_hours: float = 24.0
+    agentic_subscriber_evidence_interval_hours: float = 24.0
     agentic_pro_digest_interval_hours: float = 24.0
     agentic_validation_limit: int = 50
     agentic_feedback_limit: int = 20
@@ -312,6 +313,9 @@ def load_settings() -> Settings:
         ),
         agentic_niche_scrape_interval_hours=float(
             os.getenv("AGENTIC_NICHE_SCRAPE_INTERVAL_HOURS", "24")
+        ),
+        agentic_subscriber_evidence_interval_hours=float(
+            os.getenv("AGENTIC_SUBSCRIBER_EVIDENCE_INTERVAL_HOURS", "24")
         ),
         agentic_pro_digest_interval_hours=float(
             os.getenv("AGENTIC_PRO_DIGEST_INTERVAL_HOURS", "24")

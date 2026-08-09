@@ -46,6 +46,7 @@ def _settings(**overrides):
         agentic_gemini_monthly_cap_usd=200.0,
         agentic_general_refresh_interval_hours=3.0,
         agentic_niche_scrape_interval_hours=24.0,
+        agentic_subscriber_evidence_interval_hours=24.0,
         agentic_pro_digest_interval_hours=24.0,
         agentic_validation_limit=50,
         agentic_feedback_limit=20,
@@ -183,7 +184,7 @@ def test_build_digest_snapshot_mocked(
         gemini_used_usd=2.0,
         gemini_cap_usd=10.0,
     )
-    mock_flags.return_value = JobFlags(pro_digest=True)
+    mock_flags.return_value = JobFlags(pro_digest=True, subscriber_evidence=False)
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_rows.return_value = {
         "pro_digest": {
@@ -273,6 +274,7 @@ def test_run_critic_dry_run_path() -> None:
     assert result.payload.get("dry_run") is True
 
 
+@patch("phase_10.tick.is_tick_paused", return_value=False)
 @patch("phase_10.tick.allow_paid_step", return_value=BudgetDecision(allowed=True))
 @patch("phase_10.tick.schedule_store.upsert_run")
 @patch("phase_10.tick.schedule_store.load_run_rows", return_value={})
@@ -284,6 +286,7 @@ def test_tick_runs_pro_digest_handler(
     _rows,
     mock_upsert,
     _gate,
+    _paused,
 ) -> None:
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_flags.return_value = JobFlags(
@@ -292,6 +295,7 @@ def test_tick_runs_pro_digest_handler(
         pro_digest=True,
         validation_worker=False,
         feedback_worker=False,
+        subscriber_evidence=False,
     )
 
     def _digest(_settings):
@@ -308,6 +312,7 @@ def test_tick_runs_pro_digest_handler(
     assert "pro_digest" in HANDLERS
 
 
+@patch("phase_10.tick.is_tick_paused", return_value=False)
 @patch("phase_10.tick.allow_paid_step")
 @patch("phase_10.tick.schedule_store.upsert_run")
 @patch("phase_10.tick.schedule_store.load_run_rows", return_value={})
@@ -319,6 +324,7 @@ def test_tick_pro_digest_budget_skip(
     _rows,
     mock_upsert,
     mock_gate,
+    _paused,
 ) -> None:
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_flags.return_value = JobFlags(
@@ -327,6 +333,7 @@ def test_tick_pro_digest_budget_skip(
         pro_digest=True,
         validation_worker=False,
         feedback_worker=False,
+        subscriber_evidence=False,
     )
     mock_gate.return_value = BudgetDecision(
         allowed=False, reason="over gemini daily cap"

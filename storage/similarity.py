@@ -62,8 +62,9 @@ def find_similar(
     """Return the ``limit`` posts closest to ``query_vector`` (cosine distance).
 
     Uses the halfvec(3072) HNSW index. Tenant scoping: if ``user_id`` is set,
-    search that subscriber first; cold-start falls back to the global corpus
-    when fewer than ``min_user_results`` rows return.
+    Phase 19 retrieval prefers subscriber-private evidence, then shared-niche
+    membership, then the global corpus with soft niche prefer. Cold-start falls
+    back to global when fewer than ``min_user_results`` rows return.
 
     T10.8: when ``prefer_niche`` is a valid taxonomy id and soft prefer is on,
     over-fetch then re-rank same-niche neighbors ahead of others. Never
@@ -79,8 +80,17 @@ def find_similar(
     if use_soft_topic or use_soft_age:
         fetch_limit = min(max(limit * max(1, overfetch_factor), limit), _SOFT_TOPIC_OVERFETCH_CAP)
 
-    rows = _find_similar_query(conn, query_vector, fetch_limit, user_id)
-    if user_id is not None and len(rows) < min_user_results and fallback_to_global:
+    if user_id is not None:
+        rows = _find_similar_layered(
+            conn,
+            query_vector,
+            fetch_limit,
+            user_id=user_id,
+            prefer_niche=niche,
+            fallback_to_global=fallback_to_global,
+            min_user_results=min_user_results,
+        )
+    else:
         rows = _find_similar_query(conn, query_vector, fetch_limit, user_id=None)
 
     if use_soft_topic and use_soft_age:
@@ -95,6 +105,57 @@ def find_similar(
     elif use_soft_age:
         rows = apply_soft_age_prefer(rows, float(prefer_age_hours), limit)
     return rows[:limit] if len(rows) > limit else rows
+
+
+def _merge_unique_rows(*groups: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for group in groups:
+        for row in group:
+            post_id = str(row.get("post_id") or "")
+            if post_id and post_id in seen:
+                continue
+            if post_id:
+                seen.add(post_id)
+            merged.append(row)
+            if len(merged) >= limit:
+                return merged
+    return merged
+
+
+def _find_similar_layered(
+    conn: psycopg.Connection,
+    query_vector: np.ndarray,
+    limit: int,
+    *,
+    user_id: str,
+    prefer_niche: str | None,
+    fallback_to_global: bool,
+    min_user_results: int,
+) -> list[dict[str, Any]]:
+    """Subscriber private → shared niche membership → global fallback."""
+    private = _find_similar_membership(
+        conn, query_vector, limit, user_id=user_id, scope="subscriber_private"
+    )
+    if len(private) < limit:
+        # Also include posts stamped with user_id (ingest path for private).
+        owned = _find_similar_query(conn, query_vector, limit, user_id)
+        private = _merge_unique_rows(private, owned, limit=limit)
+
+    shared: list[dict[str, Any]] = []
+    if len(private) < min_user_results:
+        shared = _find_similar_membership(
+            conn, query_vector, limit, user_id=user_id, scope="shared_niche"
+        )
+        if prefer_niche and len(shared) < limit:
+            niche_rows = _find_similar_by_niche(conn, query_vector, limit, prefer_niche)
+            shared = _merge_unique_rows(shared, niche_rows, limit=limit)
+
+    rows = _merge_unique_rows(private, shared, limit=limit)
+    if fallback_to_global and len(rows) < min_user_results:
+        global_rows = _find_similar_query(conn, query_vector, limit, user_id=None)
+        rows = _merge_unique_rows(rows, global_rows, limit=limit)
+    return rows
 
 
 def _find_similar_query(
@@ -121,6 +182,59 @@ def _find_similar_query(
     )
     with conn.cursor() as cur:
         cur.execute(sql, params)
+        columns = [col.name for col in cur.description]
+        rows = cur.fetchall()
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def _find_similar_membership(
+    conn: psycopg.Connection,
+    query_vector: np.ndarray,
+    limit: int,
+    *,
+    user_id: str,
+    scope: str,
+) -> list[dict[str, Any]]:
+    """Nearest neighbours among posts linked via Phase 19 evidence membership."""
+    select_clause = ", ".join(f"p.{col}" for col in _SIMILAR_COLUMNS)
+    sql = (
+        f"SELECT {select_clause}, "
+        f"p.embedding::halfvec(3072) <=> %s::halfvec(3072) AS cosine_distance "
+        f"FROM posts p "
+        f"JOIN subscriber_evidence_items i ON i.post_id = p.post_id "
+        f"JOIN subscriber_evidence_membership m ON m.evidence_id = i.id "
+        f"WHERE m.subscriber_id = %s AND m.scope = %s AND i.decision = 'accepted' "
+        f"ORDER BY p.embedding::halfvec(3072) <=> %s::halfvec(3072) "
+        f"LIMIT %s"
+    )
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (query_vector, user_id, scope, query_vector, limit))
+            columns = [col.name for col in cur.description]
+            rows = cur.fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+    except Exception:
+        # Membership tables may be absent on older DBs before create_schema.
+        return []
+
+
+def _find_similar_by_niche(
+    conn: psycopg.Connection,
+    query_vector: np.ndarray,
+    limit: int,
+    niche: str,
+) -> list[dict[str, Any]]:
+    select_clause = ", ".join(_SIMILAR_COLUMNS)
+    sql = (
+        f"SELECT {select_clause}, "
+        f"embedding::halfvec(3072) <=> %s::halfvec(3072) AS cosine_distance "
+        f"FROM posts "
+        f"WHERE niche = %s "
+        f"ORDER BY embedding::halfvec(3072) <=> %s::halfvec(3072) "
+        f"LIMIT %s"
+    )
+    with conn.cursor() as cur:
+        cur.execute(sql, (query_vector, niche, query_vector, limit))
         columns = [col.name for col in cur.description]
         rows = cur.fetchall()
     return [dict(zip(columns, row)) for row in rows]

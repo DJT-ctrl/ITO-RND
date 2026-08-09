@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 TICK_PRIORITY: tuple[str, ...] = (
     "validation_worker",
     "niche_scrape",
+    "subscriber_evidence",
     "general_refresh",
     "feedback_worker",
     "pro_digest",
@@ -34,6 +35,7 @@ STUB_REASONS: dict[str, str] = {}
 _INTERVAL_ATTR = {
     "general_refresh": "agentic_general_refresh_interval_hours",
     "niche_scrape": "agentic_niche_scrape_interval_hours",
+    "subscriber_evidence": "agentic_subscriber_evidence_interval_hours",
     "pro_digest": "agentic_pro_digest_interval_hours",
 }
 
@@ -55,7 +57,9 @@ class TickResult:
 def _interval_hours(job_id: str, settings: Settings) -> float | None:
     """Hours between runs. None = every tick when enabled."""
     attr = _INTERVAL_ATTR.get(job_id)
-    return getattr(settings, attr) if attr else None
+    if attr is None:
+        return None
+    return getattr(settings, attr, None)
 
 
 def _aware(dt: datetime | None, tz) -> datetime | None:
@@ -117,6 +121,12 @@ def _run_niche_scrape(settings: Settings) -> str:
     return run_niche_scrape(settings).summary
 
 
+def _run_subscriber_evidence(settings: Settings) -> str:
+    from phase_19.collector import run_subscriber_evidence_refresh
+
+    return run_subscriber_evidence_refresh(settings)
+
+
 def _run_pro_digest(settings: Settings) -> str:
     from phase_10.digests import run_pro_digest
 
@@ -128,6 +138,7 @@ HANDLERS: dict[str, Handler] = {
     "feedback_worker": _run_feedback,
     "general_refresh": _run_general_refresh,
     "niche_scrape": _run_niche_scrape,
+    "subscriber_evidence": _run_subscriber_evidence,
     "pro_digest": _run_pro_digest,
 }
 

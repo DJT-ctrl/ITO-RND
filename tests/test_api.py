@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
+from phase_19.service import SubscriberEvidenceNotFoundError
 
 client = TestClient(app)
 
@@ -59,6 +60,174 @@ def test_health_check():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def _evidence_brief_payload(status: str = "draft") -> dict:
+    return {
+        "id": "brief-1",
+        "subscriber_id": "sports-user-1",
+        "public_profile_url": "https://www.linkedin.com/in/sports-user-1/",
+        "profile_authorized": True,
+        "role_description": "Football academy founder",
+        "primary_niche": "sports",
+        "sub_niche": "football coaching",
+        "target_audience": "academy owners",
+        "objectives": ["authority"],
+        "locale": "United Kingdom",
+        "seed_accounts": [],
+        "status": status,
+        "created_at": "2026-08-07T12:00:00+00:00",
+        "updated_at": "2026-08-07T12:00:00+00:00",
+    }
+
+
+def _baseline_plan_payload(status: str = "proposed") -> dict:
+    return {
+        "id": "plan-1",
+        "brief_id": "brief-1",
+        "provider": "apify",
+        "baseline_budget_usd": 10.0,
+        "daily_candidate_limit": 100,
+        "source_priorities": ["subscriber_public_profile", "niche_keyword_queries"],
+        "proposed_queries": ["sports football coaching", "sports football coaching academy owners"],
+        "rationale": "A capped plan that does not collect data until approved.",
+        "status": status,
+        "created_at": "2026-08-07T12:00:00+00:00",
+        "approved_at": None,
+    }
+
+
+@patch("api.main.propose_baseline")
+def test_create_subscriber_evidence_brief_proposes_without_collection(mock_propose) -> None:
+    mock_propose.return_value = (_evidence_brief_payload(), _baseline_plan_payload())
+
+    response = client.post(
+        "/api/v1/subscriber-evidence/briefs",
+        json={
+            "subscriber_id": "sports-user-1",
+            "public_profile_url": "https://www.linkedin.com/in/sports-user-1/",
+            "profile_authorized": True,
+            "role_description": "Football academy founder",
+            "primary_niche": "sports",
+            "sub_niche": "football coaching",
+            "target_audience": "academy owners",
+            "objectives": ["authority"],
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["plan"]["baseline_budget_usd"] == 10.0
+    assert response.json()["plan"]["daily_candidate_limit"] == 100
+    assert mock_propose.call_args.args[0].subscriber_id == "sports-user-1"
+    assert mock_propose.call_args.args[0].profile_authorized is True
+
+
+@patch("api.main.get_baseline")
+def test_read_subscriber_evidence_brief_returns_not_found(mock_get) -> None:
+    mock_get.side_effect = SubscriberEvidenceNotFoundError("brief missing")
+
+    response = client.get("/api/v1/subscriber-evidence/briefs/missing-user")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "brief missing"
+
+
+@patch("api.main.approve_baseline")
+def test_approve_subscriber_evidence_plan_delegates_to_service(mock_approve) -> None:
+    mock_approve.return_value = (
+        _evidence_brief_payload(status="approved"),
+        _baseline_plan_payload(status="approved"),
+    )
+
+    response = client.post("/api/v1/subscriber-evidence/briefs/sports-user-1/approve")
+
+    assert response.status_code == 200
+    assert response.json()["brief"]["status"] == "approved"
+    assert response.json()["plan"]["status"] == "approved"
+    mock_approve.assert_called_once()
+
+
+@patch("api.main.pause_baseline")
+def test_pause_subscriber_evidence_delegates_to_service(mock_pause) -> None:
+    mock_pause.return_value = (
+        _evidence_brief_payload(status="paused"),
+        _baseline_plan_payload(status="approved"),
+    )
+
+    response = client.post("/api/v1/subscriber-evidence/briefs/sports-user-1/pause")
+
+    assert response.status_code == 200
+    assert response.json()["brief"]["status"] == "paused"
+    mock_pause.assert_called_once()
+
+
+@patch("api.main.resume_baseline")
+def test_resume_subscriber_evidence_delegates_to_service(mock_resume) -> None:
+    mock_resume.return_value = (
+        _evidence_brief_payload(status="approved"),
+        _baseline_plan_payload(status="approved"),
+    )
+
+    response = client.post("/api/v1/subscriber-evidence/briefs/sports-user-1/resume")
+
+    assert response.status_code == 200
+    assert response.json()["brief"]["status"] == "approved"
+    mock_resume.assert_called_once()
+
+
+@patch("api.main.list_receipts")
+def test_list_subscriber_evidence_receipts(mock_list) -> None:
+    mock_list.return_value = [
+        {
+            "id": "r1",
+            "subscriber_id": "sports-user-1",
+            "collection_job_id": "job-1",
+            "collected_count": 3,
+            "rejected_count": 1,
+            "actual_cost_usd": 0.42,
+            "coverage_gaps": ["baseline_capture"],
+            "next_refresh_at": "2026-08-08T12:00:00+00:00",
+            "summary": "baseline: accepted=3",
+            "created_at": "2026-08-07T12:00:00+00:00",
+        }
+    ]
+
+    response = client.get("/api/v1/subscriber-evidence/briefs/sports-user-1/receipts")
+
+    assert response.status_code == 200
+    assert response.json()[0]["collected_count"] == 3
+    mock_list.assert_called_once()
+
+
+@patch("api.main.list_jobs")
+def test_list_subscriber_evidence_jobs(mock_list) -> None:
+    mock_list.return_value = [
+        {
+            "id": "job-1",
+            "subscriber_id": "sports-user-1",
+            "brief_id": "brief-1",
+            "plan_id": "plan-1",
+            "job_kind": "baseline",
+            "gap_reason": "baseline_capture",
+            "status": "completed",
+            "estimated_cost_usd": 0.5,
+            "actual_cost_usd": 0.42,
+            "candidate_count": 4,
+            "accepted_count": 3,
+            "rejected_count": 1,
+            "recommended_seeds": [],
+            "error_detail": None,
+            "created_at": "2026-08-07T12:00:00+00:00",
+            "started_at": "2026-08-07T12:00:01+00:00",
+            "finished_at": "2026-08-07T12:01:00+00:00",
+        }
+    ]
+
+    response = client.get("/api/v1/subscriber-evidence/briefs/sports-user-1/jobs")
+
+    assert response.status_code == 200
+    assert response.json()[0]["job_kind"] == "baseline"
+    mock_list.assert_called_once()
 
 
 @patch("api.main.register_vector")

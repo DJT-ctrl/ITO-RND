@@ -36,8 +36,24 @@ from api.schemas import (
     SimilarPost,
     SimilarPostsRequest,
     SimilarPostsResponse,
+    SubscriberEvidenceBriefRequest,
+    SubscriberEvidenceJobResponse,
+    SubscriberEvidencePlanResponse,
+    SubscriberEvidenceReceiptResponse,
 )
 from config.settings import load_settings, pydantic_ai_gemini_model
+from phase_19.models import SubscriberEvidenceBrief
+from phase_19.service import (
+    SubscriberEvidenceError,
+    SubscriberEvidenceNotFoundError,
+    approve_baseline,
+    get_baseline,
+    list_jobs,
+    list_receipts,
+    pause_baseline,
+    propose_baseline,
+    resume_baseline,
+)
 from processors.embedder import embed_query
 from storage.vector_store import find_similar, get_connection, get_user_voice_profile
 from telemetry.collector import RunMetadataCollector
@@ -69,6 +85,139 @@ except ImportError:
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _evidence_response(brief: dict, plan: dict) -> SubscriberEvidencePlanResponse:
+    return SubscriberEvidencePlanResponse(brief=brief, plan=plan)
+
+
+@app.post(
+    "/api/v1/subscriber-evidence/briefs",
+    response_model=SubscriberEvidencePlanResponse,
+    status_code=201,
+)
+def create_subscriber_evidence_brief(
+    request: SubscriberEvidenceBriefRequest,
+) -> SubscriberEvidencePlanResponse:
+    """Create or revise a consented brief and propose a bounded baseline plan.
+
+    This endpoint does not call an external provider or enqueue collection.
+    A revised brief supersedes its earlier approved plan and requires fresh
+    approval before the Release B worker may spend.
+    """
+    brief = SubscriberEvidenceBrief(
+        subscriber_id=request.subscriber_id,
+        public_profile_url=request.public_profile_url,
+        profile_authorized=request.profile_authorized,
+        role_description=request.role_description,
+        primary_niche=request.primary_niche,
+        sub_niche=request.sub_niche,
+        target_audience=request.target_audience,
+        objectives=tuple(request.objectives),
+        locale=request.locale,
+        seed_accounts=tuple(request.seed_accounts),
+    )
+    try:
+        saved_brief, plan = propose_baseline(brief, settings=settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _evidence_response(saved_brief, plan)
+
+
+@app.get(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}",
+    response_model=SubscriberEvidencePlanResponse,
+)
+def read_subscriber_evidence_brief(subscriber_id: str) -> SubscriberEvidencePlanResponse:
+    """Get one subscriber's brief and current reviewed baseline plan."""
+    try:
+        brief, plan = get_baseline(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _evidence_response(brief, plan)
+
+
+@app.post(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/approve",
+    response_model=SubscriberEvidencePlanResponse,
+)
+def approve_subscriber_evidence_plan(subscriber_id: str) -> SubscriberEvidencePlanResponse:
+    """Approve the current plan. Enables the collection worker; does not scrape inline."""
+    try:
+        brief, plan = approve_baseline(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _evidence_response(brief, plan)
+
+
+@app.post(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/pause",
+    response_model=SubscriberEvidencePlanResponse,
+)
+def pause_subscriber_evidence(subscriber_id: str) -> SubscriberEvidencePlanResponse:
+    """Pause automated collection for an approved brief."""
+    try:
+        brief, plan = pause_baseline(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _evidence_response(brief, plan)
+
+
+@app.post(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/resume",
+    response_model=SubscriberEvidencePlanResponse,
+)
+def resume_subscriber_evidence(subscriber_id: str) -> SubscriberEvidencePlanResponse:
+    """Resume a paused brief that still has an approved plan."""
+    try:
+        brief, plan = resume_baseline(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _evidence_response(brief, plan)
+
+
+@app.get(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/receipts",
+    response_model=list[SubscriberEvidenceReceiptResponse],
+)
+def read_subscriber_evidence_receipts(
+    subscriber_id: str,
+) -> list[SubscriberEvidenceReceiptResponse]:
+    """Return recent collection receipts for one subscriber."""
+    try:
+        rows = list_receipts(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [SubscriberEvidenceReceiptResponse(**row) for row in rows]
+
+
+@app.get(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/jobs",
+    response_model=list[SubscriberEvidenceJobResponse],
+)
+def read_subscriber_evidence_jobs(
+    subscriber_id: str,
+) -> list[SubscriberEvidenceJobResponse]:
+    """Return recent collection jobs for operator review."""
+    try:
+        rows = list_jobs(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [SubscriberEvidenceJobResponse(**row) for row in rows]
 
 
 @app.post("/api/v1/similar-posts", response_model=SimilarPostsResponse)

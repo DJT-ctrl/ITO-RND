@@ -21,6 +21,7 @@ include = [
   "telemetry*",
   "validation_pipeline*",
   "phase_10*",
+  "phase_19*",
   "post_mortems*",
   "trend_radar*",
 ]
