@@ -62,7 +62,7 @@ class _FixedPredictorAgent:
     def __init__(self):
         self._calls = 0
 
-    async def run(self, prompt: str, deps) -> SimpleNamespace:
+    async def run(self, prompt: str, deps, **kwargs) -> SimpleNamespace:
         self._calls += 1
         # First variant gets lowest score, later variants get higher scores,
         # so sorting must reorder them (proves sort isn't accidentally a no-op).
@@ -81,7 +81,7 @@ class _RaisingPredictorAgent:
     def __init__(self):
         self._calls = 0
 
-    async def run(self, prompt: str, deps) -> SimpleNamespace:
+    async def run(self, prompt: str, deps, **kwargs) -> SimpleNamespace:
         self._calls += 1
         if self._calls == 2:
             raise RuntimeError("predictor boom")
@@ -237,10 +237,10 @@ def test_reembed_neighbors_fetches_own_neighbors_per_variant():
         settings=fake_settings,
     )
 
-    with patch("agents.variant_scoring.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)) as mock_embed_query, patch(
-        "agents.variant_scoring.find_similar", return_value=[fake_row("own-neighbor")]
-    ) as mock_find_similar, patch("agents.variant_scoring.get_connection", return_value=MagicMock()), patch(
-        "agents.variant_scoring.register_vector"
+    with patch("agents.variant_engine.embed_query", return_value=(np.zeros(3072, dtype=np.float32), 10)) as mock_embed_query, patch(
+        "agents.variant_engine.find_similar", return_value=[fake_row("own-neighbor")]
+    ) as mock_find_similar, patch("agents.variant_engine.get_connection", return_value=MagicMock()), patch(
+        "agents.variant_engine.register_vector"
     ):
         asyncio.run(hook(state))
 
@@ -268,16 +268,16 @@ def test_reembed_neighbor_fetch_failure_falls_back_gracefully():
     )
 
     with patch(
-        "agents.variant_scoring.embed_query",
+        "agents.variant_engine.embed_query",
         side_effect=[
             RuntimeError("embed boom"),
             (np.zeros(3072, dtype=np.float32), 10),
             (np.zeros(3072, dtype=np.float32), 10),
         ],
-    ), patch("agents.variant_scoring.find_similar", return_value=[fake_row("own-neighbor")]), patch(
-        "agents.variant_scoring.get_connection", return_value=MagicMock()
+    ), patch("agents.variant_engine.find_similar", return_value=[fake_row("own-neighbor")]), patch(
+        "agents.variant_engine.get_connection", return_value=MagicMock()
     ), patch(
-        "agents.variant_scoring.register_vector"
+        "agents.variant_engine.register_vector"
     ):
         asyncio.run(hook(state))
 

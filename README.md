@@ -470,6 +470,8 @@ surface (`/docs`), not Streamlit.
 
 ## API endpoints
 
+Full frontend contract: **[API.md](API.md)**. Live OpenAPI: http://localhost:8000/docs
+
 With the API running (`docker compose up -d` or `uvicorn api.main:app`):
 
 | Method | Path | Description |
@@ -478,6 +480,18 @@ With the API running (`docker compose up -d` or `uvicorn api.main:app`):
 | `GET` | `/metrics` | Prometheus metrics |
 | `POST` | `/api/v1/similar-posts` | Cosine-similarity retrieval over ingested corpus |
 | `POST` | `/api/v1/evaluate` | Full multi-agent evaluation cycle |
+| `POST` | `/api/v1/critique` | Independent audience critic |
+| `POST` | `/api/v1/optimise` | Independent Stage-5 synthesis rewrites |
+| `POST` | `/api/v1/corpus/ingest` | Queue embed + pgvector ingest (async job) |
+| `GET` | `/api/v1/corpus/jobs/{job_id}` | Corpus job status |
+| `GET` | `/api/v1/corpus/stats` | Corpus post count + benchmarks |
+| `POST` | `/api/v1/feedback/run` | Drain pending feedback jobs |
+| `GET` | `/api/v1/feedback/coverage` | Feedback coverage counts |
+| `GET` | `/api/v1/feedback/review` | Pending hybrid feedback review queue |
+| `GET` | `/api/v1/stats` | Combined corpus / feedback / budget stats |
+| `POST`/`GET` | `/api/v1/subscriber-evidence/briefs` | Personalization brief + plan |
+| `POST` | `.../approve` `.../pause` `.../resume` `.../refresh-now` | Evidence controls |
+| `GET` | `.../status` `.../receipts` `.../jobs` | Evidence transparency |
 
 **Similar posts example:**
 

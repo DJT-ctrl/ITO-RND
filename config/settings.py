@@ -173,6 +173,11 @@ class Settings:
     # T10.10: Dev AI workflow critic (Gemini Pro).
     agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
     agentic_pro_digest_dry_run: bool = False
+    # Browser frontend CORS (comma-separated origins in env).
+    cors_allowed_origins: tuple[str, ...] = (
+        "http://localhost:3000",
+        "http://localhost:5173",
+    )
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -338,6 +343,10 @@ def load_settings() -> Settings:
         agentic_pro_digest_dry_run=_env_bool(
             "AGENTIC_PRO_DIGEST_DRY_RUN", default=False
         ),
+        cors_allowed_origins=_env_csv(
+            "CORS_ALLOWED_ORIGINS",
+            default=("http://localhost:3000", "http://localhost:5173"),
+        ),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings
@@ -350,6 +359,13 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
 def _env_injectability_mode(

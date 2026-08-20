@@ -670,3 +670,203 @@ def test_optimise_endpoint_returns_synthesis_result(mock_run_synthesis):
     assert body["critic_objection_used"] == "No ROI proof."
     mock_run_synthesis.assert_called_once()
     assert "Unlock synergy" in mock_run_synthesis.call_args.args[0]
+
+
+# ---------------------------------------------------------------------------
+# New product routes: evidence status, corpus, feedback, stats, CORS
+# ---------------------------------------------------------------------------
+
+
+@patch("api.main.get_evidence_status")
+def test_subscriber_evidence_status(mock_status) -> None:
+    mock_status.return_value = {
+        "subscriber_id": "sports-user-1",
+        "brief_status": "approved",
+        "plan_status": "approved",
+        "plan_id": "plan-1",
+        "baseline_budget_usd": 10.0,
+        "daily_candidate_limit": 100,
+        "coverage": {
+            "accepted_count": 12,
+            "newest_at": "2026-08-08T12:00:00+00:00",
+            "distinct_authors": 4,
+            "dominant_author_share": 0.4,
+        },
+        "budget": {
+            "lifetime_baseline_spent_usd": 1.25,
+            "day_candidates": 10,
+            "day_spent_usd": 0.2,
+        },
+    }
+
+    response = client.get("/api/v1/subscriber-evidence/briefs/sports-user-1/status")
+
+    assert response.status_code == 200
+    assert response.json()["coverage"]["accepted_count"] == 12
+    mock_status.assert_called_once()
+
+
+@patch("api.main.get_evidence_status")
+def test_subscriber_evidence_status_not_found(mock_status) -> None:
+    mock_status.side_effect = SubscriberEvidenceNotFoundError("brief missing")
+    response = client.get("/api/v1/subscriber-evidence/briefs/missing/status")
+    assert response.status_code == 404
+
+
+@patch("api.main.refresh_subscriber_now")
+def test_subscriber_evidence_refresh_now(mock_refresh) -> None:
+    mock_refresh.return_value = {
+        "subscriber_id": "sports-user-1",
+        "action": "skipped",
+        "detail": "skipped: no coverage gap",
+        "job_id": "job-9",
+        "receipt_id": None,
+    }
+    response = client.post("/api/v1/subscriber-evidence/briefs/sports-user-1/refresh-now")
+    assert response.status_code == 200
+    assert response.json()["action"] == "skipped"
+    mock_refresh.assert_called_once()
+
+
+@patch("api.main.run_corpus_ingest")
+def test_corpus_ingest_queues_job(mock_ingest, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "api.main.settings",
+        SimpleNamespace(
+            database_url="postgresql://test",
+            cors_allowed_origins=("http://localhost:3000",),
+        ),
+    )
+    mock_ingest.return_value = {
+        "mode": "embed_and_ingest",
+        "upserted": 3,
+        "skipped": 0,
+        "processed_file": "data/processed/x.jsonl",
+        "embeddings_file": None,
+    }
+
+    response = client.post(
+        "/api/v1/corpus/ingest",
+        json={"mode": "embed_and_ingest", "limit": 5},
+    )
+
+    assert response.status_code == 202
+    job_id = response.json()["id"]
+    assert response.json()["kind"] == "corpus_ingest"
+
+    # BackgroundTasks run inline with TestClient
+    status = client.get(f"/api/v1/corpus/jobs/{job_id}")
+    assert status.status_code == 200
+    assert status.json()["status"] == "completed"
+    assert status.json()["result"]["upserted"] == 3
+    mock_ingest.assert_called_once()
+
+
+def test_corpus_job_unknown() -> None:
+    response = client.get("/api/v1/corpus/jobs/does-not-exist")
+    assert response.status_code == 404
+
+
+@patch("api.main.get_corpus_stats")
+def test_corpus_stats(mock_stats) -> None:
+    mock_stats.return_value = {
+        "post_count": 42,
+        "benchmarks": {"sample_size": 42},
+        "benchmarks_stale": False,
+        "benchmarks_path": "data/processed/corpus_benchmarks.json",
+    }
+    response = client.get("/api/v1/corpus/stats")
+    assert response.status_code == 200
+    assert response.json()["post_count"] == 42
+
+
+@patch("api.main.run_feedback_worker")
+def test_feedback_run(mock_worker) -> None:
+    mock_worker.return_value = SimpleNamespace(
+        claimed=2, succeeded=2, failed=0, dead_lettered=0
+    )
+    response = client.post("/api/v1/feedback/run", json={"limit": 10})
+    assert response.status_code == 200
+    assert response.json() == {
+        "claimed": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "dead_lettered": 0,
+    }
+    mock_worker.assert_called_once()
+
+
+@patch("api.main.get_feedback_stats")
+def test_feedback_coverage(mock_stats) -> None:
+    mock_stats.return_value = {
+        "coverage": {"validated": 10, "with_feedback": 7, "missing_feedback": 3},
+        "learning": {"n_validated": 10},
+        "feedback_enabled": True,
+        "injection_enabled": False,
+    }
+    response = client.get("/api/v1/feedback/coverage")
+    assert response.status_code == 200
+    assert response.json()["missing_feedback"] == 3
+
+
+@patch("api.main.list_pending_feedback_for_review")
+@patch("api.main.get_connection")
+@patch("api.main.create_schema")
+def test_feedback_review(mock_schema, mock_conn, mock_list, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "api.main.settings",
+        SimpleNamespace(database_url="postgresql://test"),
+    )
+    mock_conn.return_value = MagicMock()
+    mock_list.return_value = []
+    response = client.get("/api/v1/feedback/review?limit=5")
+    assert response.status_code == 200
+    assert response.json() == []
+    mock_list.assert_called_once()
+    mock_schema.assert_called_once()
+
+
+@patch("api.main.get_all_stats")
+def test_stats_rollup(mock_all) -> None:
+    mock_all.return_value = {
+        "corpus": {
+            "post_count": 10,
+            "benchmarks": None,
+            "benchmarks_stale": True,
+            "benchmarks_path": "data/processed/corpus_benchmarks.json",
+        },
+        "feedback": {
+            "coverage": {"validated": 1, "with_feedback": 1, "missing_feedback": 0},
+            "learning": {},
+            "feedback_enabled": True,
+            "injection_enabled": False,
+        },
+        "budget": {
+            "apify_used_usd": 1.0,
+            "apify_cap_usd": 25.0,
+            "gemini_used_usd": 0.5,
+            "gemini_cap_usd": 10.0,
+            "apify_month_used_usd": 2.0,
+            "apify_month_cap_usd": 500.0,
+            "gemini_month_used_usd": 1.0,
+            "gemini_month_cap_usd": 200.0,
+            "note": "",
+        },
+    }
+    response = client.get("/api/v1/stats")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["corpus"]["post_count"] == 10
+    assert body["budget"]["apify_cap_usd"] == 25.0
+
+
+def test_cors_allows_configured_origin() -> None:
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code in {200, 204}
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"

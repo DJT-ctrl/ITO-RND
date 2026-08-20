@@ -307,6 +307,7 @@ async def _score_variant(
     settings: Optional[Settings],
     collector: Optional[RunMetadataCollector] = None,
     neighbor_limit: int = 10,
+    model: Any = None,
 ) -> Any:
     """Score one variant with the T3.2 predictor agent, using either the
     shared stage-1 neighbors or this variant's own re-embedded neighbors
@@ -331,7 +332,7 @@ async def _score_variant(
         agent=predictor_agent,
         prompt=build_evaluation_user_message(item.variant_text),
         deps=deps,
-        model=pydantic_ai_gemini_model(),
+        model=pydantic_ai_gemini_model() if model is None else str(model),
     )
 
 
@@ -412,6 +413,7 @@ def build_variant_engine(
                     settings,
                     collector,
                     neighbor_limit=resolved_neighbor_limit,
+                    model=model,
                 )
                 for item in draft_items
             ),

@@ -773,3 +773,61 @@ def member_post_ids(
             tuple(params),
         )
         return [str(row[0]) for row in cur.fetchall() if row[0]]
+
+
+def list_accepted_posts(
+    conn: psycopg.Connection,
+    subscriber_id: str,
+    *,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Accepted evidence rows with preview text and LinkedIn URLs for the UI."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                i.id,
+                i.post_id,
+                COALESCE(NULLIF(i.source_url, ''), NULLIF(p.linkedin_url, ''), '') AS url,
+                COALESCE(
+                    NULLIF(i.content_preview, ''),
+                    LEFT(COALESCE(p.content, ''), 280),
+                    ''
+                ) AS preview,
+                i.source_type,
+                i.author_key,
+                i.created_at,
+                COALESCE(p.total_engagement, 0) AS total_engagement
+            FROM subscriber_evidence_items i
+            JOIN subscriber_evidence_membership m ON m.evidence_id = i.id
+            LEFT JOIN posts p ON p.post_id = i.post_id
+            WHERE m.subscriber_id = %s
+              AND i.decision = 'accepted'
+            ORDER BY
+                CASE i.source_type
+                    WHEN 'subscriber_public_profile' THEN 1
+                    WHEN 'approved_seed_accounts' THEN 2
+                    WHEN 'niche_keyword_queries' THEN 3
+                    ELSE 4
+                END ASC,
+                i.created_at DESC
+            LIMIT %s
+            """,
+            (subscriber_id, limit),
+        )
+        rows = cur.fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        out.append(
+            {
+                "id": str(row[0]),
+                "post_id": str(row[1]) if row[1] else None,
+                "url": str(row[2] or ""),
+                "preview": str(row[3] or ""),
+                "source_type": str(row[4] or "unknown"),
+                "author_key": str(row[5] or ""),
+                "created_at": row[6],
+                "total_engagement": int(row[7] or 0),
+            }
+        )
+    return out

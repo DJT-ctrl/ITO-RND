@@ -1,21 +1,15 @@
-"""FastAPI app (T2.1/T2.2): a health check + the cosine-similarity retrieval
-endpoint.
+"""FastAPI app: draft evaluation, corpus ingest, feedback, personalization, stats.
 
-Handler flow for POST /api/v1/similar-posts:
-  1. embed_query(content, settings)  — embed the incoming draft text
-     (task_type="RETRIEVAL_QUERY", see processors/embedder.py).
-  2. find_similar(conn, vector, limit) — cosine-distance nearest-neighbour
-     lookup against the halfvec(3072) HNSW index (storage/vector_store.py).
-  3. Wrap the returned rows into SimilarPost objects.
-
-Settings are loaded once at module scope (same pattern every other entry
-point in this repo uses). A fresh DB connection is opened per request —
-simplest correct option for this phase's scale; a connection pool is a
-legitimate future optimization but is scope creep for now (see
-PhaseT2plan.md Decision #3).
+Settings load once at module scope. A fresh DB connection opens per request
+where needed (connection pooling is a future optimization).
 """
 
-from fastapi import FastAPI, HTTPException
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from pgvector.psycopg import register_vector
 
 from agents.audience_critic import (
@@ -29,9 +23,20 @@ from agents.predictor import build_predictor_agent
 from agents.schemas import PostEvaluationState
 from agents.synthesis import SynthesisResult, run_synthesis
 from agents.variant_engine import build_variant_engine
+from api import job_store
+from api.corpus_ops import get_corpus_stats, run_corpus_ingest
 from api.schemas import (
+    AllStatsResponse,
+    AsyncJobResponse,
+    BudgetStatsResponse,
+    CorpusIngestRequest,
+    CorpusStatsResponse,
     CritiqueRequest,
     EvaluateRequest,
+    FeedbackCoverageResponse,
+    FeedbackRunRequest,
+    FeedbackRunResponse,
+    FeedbackStatsResponse,
     OptimiseRequest,
     SimilarPost,
     SimilarPostsRequest,
@@ -39,23 +44,38 @@ from api.schemas import (
     SubscriberEvidenceBriefRequest,
     SubscriberEvidenceJobResponse,
     SubscriberEvidencePlanResponse,
+    SubscriberEvidencePostResponse,
     SubscriberEvidenceReceiptResponse,
+    SubscriberEvidenceRefreshResponse,
+    SubscriberEvidenceStatusResponse,
 )
+from api.stats_ops import get_all_stats, get_budget_stats, get_feedback_stats
 from config.settings import load_settings, pydantic_ai_gemini_model
+from feedback.batch import run_feedback_worker
+from feedback.schemas import FeedbackRecord
+from feedback.store import list_pending_feedback_for_review
 from phase_19.models import SubscriberEvidenceBrief
 from phase_19.service import (
     SubscriberEvidenceError,
     SubscriberEvidenceNotFoundError,
     approve_baseline,
     get_baseline,
+    get_evidence_status,
+    list_accepted_posts,
     list_jobs,
     list_receipts,
     pause_baseline,
     propose_baseline,
+    refresh_subscriber_now,
     resume_baseline,
 )
 from processors.embedder import embed_query
-from storage.vector_store import find_similar, get_connection, get_user_voice_profile
+from storage.vector_store import (
+    create_schema,
+    find_similar,
+    get_connection,
+    get_user_voice_profile,
+)
 from telemetry.collector import RunMetadataCollector
 
 settings = load_settings()
@@ -64,16 +84,22 @@ predictor_agent = build_predictor_agent(_eval_model)
 diagnostic_agents = build_diagnostic_agents(_eval_model)
 audience_critic_agent = build_audience_critic_agent(_eval_model)
 
-app = FastAPI(title="ITO Post Similarity API")
+app = FastAPI(
+    title="ITO Post Similarity API",
+    description="Product HTTP API for draft evaluation, corpus ingest, feedback, and personalization.",
+    version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(settings.cors_allowed_origins),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Telemetry: expose Prometheus metrics at /metrics for the local Prometheus
 # scraper (see docker-compose.yml's `prometheus` service + deploy/telemetry/).
-# This publishes request rate, latency histograms, and status-code counters
-# for every route — the app-level half of the monolith stack's telemetry
-# (cAdvisor/node-exporter cover the container/host half).
-#
-# Imported optionally so the app — and the existing mocked test suite — still
-# runs if prometheus-fastapi-instrumentator isn't installed in a given env.
 try:
     from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -89,6 +115,37 @@ def health() -> dict[str, str]:
 
 def _evidence_response(brief: dict, plan: dict) -> SubscriberEvidencePlanResponse:
     return SubscriberEvidencePlanResponse(brief=brief, plan=plan)
+
+
+def _job_response(row: dict[str, Any]) -> AsyncJobResponse:
+    return AsyncJobResponse(**row)
+
+
+def _run_corpus_job(
+    job_id: str,
+    *,
+    mode: str,
+    processed_file: str | None,
+    embeddings_file: str | None,
+    limit: int | None,
+) -> None:
+    job_store.mark_running(job_id)
+    try:
+        result = run_corpus_ingest(
+            mode=mode,  # type: ignore[arg-type]
+            processed_file=processed_file,
+            embeddings_file=embeddings_file,
+            limit=limit,
+            settings=settings,
+        )
+        job_store.mark_completed(job_id, result)
+    except Exception as exc:  # noqa: BLE001 — surface any failure on the job record
+        job_store.mark_failed(job_id, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Phase 19 — subscriber evidence / personalization
+# ---------------------------------------------------------------------------
 
 
 @app.post(
@@ -220,6 +277,63 @@ def read_subscriber_evidence_jobs(
     return [SubscriberEvidenceJobResponse(**row) for row in rows]
 
 
+@app.get(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/status",
+    response_model=SubscriberEvidenceStatusResponse,
+)
+def read_subscriber_evidence_status(
+    subscriber_id: str,
+) -> SubscriberEvidenceStatusResponse:
+    """Coverage + budget snapshot for the personalization strength UI."""
+    try:
+        row = get_evidence_status(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return SubscriberEvidenceStatusResponse(**row)
+
+
+@app.get(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/posts",
+    response_model=list[SubscriberEvidencePostResponse],
+)
+def read_subscriber_evidence_posts(
+    subscriber_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[SubscriberEvidencePostResponse]:
+    """Accepted evidence posts with preview text and LinkedIn URLs."""
+    try:
+        rows = list_accepted_posts(subscriber_id, settings=settings, limit=limit)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return [SubscriberEvidencePostResponse(**row) for row in rows]
+
+
+@app.post(
+    "/api/v1/subscriber-evidence/briefs/{subscriber_id}/refresh-now",
+    response_model=SubscriberEvidenceRefreshResponse,
+)
+def refresh_subscriber_evidence_now(
+    subscriber_id: str,
+) -> SubscriberEvidenceRefreshResponse:
+    """Run one collection cycle now (may call Apify and spend budget)."""
+    try:
+        row = refresh_subscriber_now(subscriber_id, settings=settings)
+    except SubscriberEvidenceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except SubscriberEvidenceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return SubscriberEvidenceRefreshResponse(**row)
+
+
+# ---------------------------------------------------------------------------
+# Draft studio — compare / evaluate / critique / optimise
+# ---------------------------------------------------------------------------
+
+
 @app.post("/api/v1/similar-posts", response_model=SimilarPostsResponse)
 def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
     try:
@@ -229,12 +343,6 @@ def similar_posts(request: SimilarPostsRequest) -> SimilarPostsResponse:
 
     conn = get_connection(settings)
     try:
-        # get_connection() intentionally doesn't register the pgvector
-        # adapter (see its docstring — the `vector` extension may not exist
-        # on a brand-new database). Here, the schema is already assumed to
-        # exist (this is a read-only query endpoint), so it's safe to
-        # register the adapter immediately so `query_vector` (a numpy
-        # array) can be passed directly as a query parameter.
         register_vector(conn)
         rows = find_similar(conn, query_vector, limit=request.limit, user_id=request.user_id)
     finally:
@@ -333,3 +441,133 @@ async def optimise(request: OptimiseRequest) -> SynthesisResult:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Corpus — add analysed posts to the vector DB
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/api/v1/corpus/ingest",
+    response_model=AsyncJobResponse,
+    status_code=202,
+)
+def corpus_ingest(
+    request: CorpusIngestRequest,
+    background_tasks: BackgroundTasks,
+) -> AsyncJobResponse:
+    """Queue analyse→embed→pgvector (or ingest-only) work as a background job."""
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="DATABASE_URL is not set.")
+    meta = {
+        "mode": request.mode,
+        "processed_file": request.processed_file,
+        "embeddings_file": request.embeddings_file,
+        "limit": request.limit,
+    }
+    job = job_store.create_job("corpus_ingest", meta=meta)
+    background_tasks.add_task(
+        _run_corpus_job,
+        job["id"],
+        mode=request.mode,
+        processed_file=request.processed_file,
+        embeddings_file=request.embeddings_file,
+        limit=request.limit,
+    )
+    return _job_response(job)
+
+
+@app.get("/api/v1/corpus/jobs/{job_id}", response_model=AsyncJobResponse)
+def corpus_job_status(job_id: str) -> AsyncJobResponse:
+    job = job_store.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Unknown job {job_id!r}.")
+    return _job_response(job)
+
+
+@app.get("/api/v1/corpus/stats", response_model=CorpusStatsResponse)
+def corpus_stats() -> CorpusStatsResponse:
+    try:
+        return CorpusStatsResponse(**get_corpus_stats(settings=settings))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Feedback loop
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/feedback/run", response_model=FeedbackRunResponse)
+def feedback_run(request: FeedbackRunRequest | None = None) -> FeedbackRunResponse:
+    """Claim and process pending feedback_jobs (template + optional hybrid)."""
+    body = request or FeedbackRunRequest()
+    try:
+        result = run_feedback_worker(settings, limit=body.limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FeedbackRunResponse(
+        claimed=result.claimed,
+        succeeded=result.succeeded,
+        failed=result.failed,
+        dead_lettered=result.dead_lettered,
+    )
+
+
+@app.get("/api/v1/feedback/coverage", response_model=FeedbackCoverageResponse)
+def feedback_coverage() -> FeedbackCoverageResponse:
+    try:
+        stats = get_feedback_stats(settings=settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FeedbackCoverageResponse(**stats["coverage"])
+
+
+@app.get("/api/v1/feedback/review", response_model=list[FeedbackRecord])
+def feedback_review(
+    limit: int = Query(default=30, ge=1, le=200),
+) -> list[FeedbackRecord]:
+    """Pending hybrid feedback rows awaiting approve/reject."""
+    if not settings.database_url:
+        raise HTTPException(status_code=503, detail="DATABASE_URL is not set.")
+    conn = get_connection(settings)
+    try:
+        create_schema(conn)
+        return list_pending_feedback_for_review(conn, limit=limit)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/v1/stats/corpus", response_model=CorpusStatsResponse)
+def stats_corpus() -> CorpusStatsResponse:
+    return corpus_stats()
+
+
+@app.get("/api/v1/stats/feedback", response_model=FeedbackStatsResponse)
+def stats_feedback() -> FeedbackStatsResponse:
+    try:
+        row = get_feedback_stats(settings=settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return FeedbackStatsResponse(**row)
+
+
+@app.get("/api/v1/stats/budget", response_model=BudgetStatsResponse)
+def stats_budget() -> BudgetStatsResponse:
+    return BudgetStatsResponse(**get_budget_stats(settings=settings))
+
+
+@app.get("/api/v1/stats", response_model=AllStatsResponse)
+def stats_all() -> AllStatsResponse:
+    row = get_all_stats(settings=settings)
+    return AllStatsResponse(
+        corpus=CorpusStatsResponse(**row["corpus"]),
+        feedback=FeedbackStatsResponse(**row["feedback"]),
+        budget=BudgetStatsResponse(**row["budget"]),
+    )
