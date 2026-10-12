@@ -1,5 +1,7 @@
 # Stored-post feedback
 
+**Not tested end to end.** Unit tests in `tests/test_post_feedback.py` passed without Postgres or Gemini. The batch has not been run against a real database, a real model call, or the review screen. Track that under [LATER.md](../LATER.md).
+
 Offline write-ups for posts that are already in Postgres. Each note says what worked, what to change, and how the post compares with similar posts. It does not change live prediction scores.
 
 This is not the draft evaluation path. A draft you send through evaluation already gets SEO, clarity, and tone feedback (`agents/diagnostics.py`) plus predictor reasoning (`agents/predictor.py`). Those agents stay as they are.
@@ -95,6 +97,12 @@ python -m pytest tests/test_post_feedback.py -q
 ```
 
 The tests do not need Postgres or Gemini. They check that the prompt only carries supplied evidence, that generation works under `TestModel`, that anomaly and unlabelled posts are excluded, and that a second insert for the same post does nothing.
+
+Those checks are the only verification so far. Still to do, and listed in [LATER.md](../LATER.md):
+
+- `--dry-run` against a database that already has labelled posts
+- A small `--limit` run that actually calls Gemini and writes rows
+- Approve or reject one row in `render_post_feedback_section`
 
 ## Not in this version
 
