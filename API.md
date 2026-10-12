@@ -215,6 +215,32 @@ Poll until `status` is `completed` or `failed`. On success, `result.upserted` is
 
 ---
 
+### Company Search & Bulk Corpus Ingestion
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/v1/companies/resolve-urls` | Resolve bulk company names to canonical LinkedIn URLs |
+| `POST` | `/api/v1/corpus/company-collect` | Scrape 10 most recent posts from company pages and ingest into vector corpus |
+
+**Resolve body:**
+```json
+{
+  "companies": ["Stripe", "OpenAI", "https://www.linkedin.com/company/microsoft"]
+}
+```
+
+**Company Collect body:**
+```json
+{
+  "companies": ["Stripe", "OpenAI"],
+  "max_posts_per_company": 10,
+  "with_gemini": true,
+  "run_async": false
+}
+```
+
+---
+
 ## Frontend screen → endpoint map
 
 | UI screen | Endpoints |

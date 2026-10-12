@@ -16,6 +16,7 @@ Two deliberate stages keep costs down and hallucinations out:
 
 import json
 import logging
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -46,7 +47,7 @@ DEFAULT_GEMINI_WORKERS = 10
 _HOOK_TYPES = ("question", "bold_statement", "story", "list", "announcement", "other")
 _TONES = ("professional", "casual", "emotional", "humorous", "urgent")
 _GEMINI_FEATURE_KEYS = ("hook_type", "tone", "topic", "has_explicit_cta", "writing_style")
-DEFAULT_GEMINI_MODEL = GEMINI_MODEL
+DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 # Covers the most common Unicode emoji blocks without pulling in a full library.
 _EMOJI_RE = re.compile(
     "["
@@ -140,7 +141,7 @@ class PostAnalyser:
         if not self._settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is not set (check your .env file).")
         self._client = genai.Client(api_key=self._settings.gemini_api_key)
-        self._model = DEFAULT_GEMINI_MODEL
+        self._model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     @staticmethod
     def _empty_gemini_features() -> dict[str, Any]:
@@ -255,7 +256,27 @@ class PostAnalyser:
         post_id = post.get("id") or python_features.get("post_id") or "unknown"
         content: str = post.get("content") or ""
         if not content.strip():
-            return self._fail(f"Post {post_id}: empty content — skipping Gemini Stage 2")
+            logger.info(
+                "Post %s: empty text content (has_media=%s) — assigning standard default features",
+                post_id,
+                python_features.get("has_media"),
+            )
+            from phase_10.tagging import apply_niche
+            if python_features.get("has_media"):
+                return apply_niche({
+                    "hook_type": "other",
+                    "tone": "professional",
+                    "topic": "visual_media",
+                    "has_explicit_cta": False,
+                    "writing_style": "Media/image post with no text body.",
+                })
+            return apply_niche({
+                "hook_type": "other",
+                "tone": "professional",
+                "topic": "other",
+                "has_explicit_cta": False,
+                "writing_style": "Empty text post.",
+            })
 
         prompt = _build_gemini_prompt(
             content=content,
@@ -308,6 +329,7 @@ def map_gemini_features(
     max_workers: int = DEFAULT_GEMINI_WORKERS,
     on_progress: Optional[Callable[[int, int], None]] = None,
     on_error: Optional[Callable[[str], None]] = None,
+    probe: bool = False,
 ) -> list[dict[str, Any]]:
     """Run Stage 2 for many posts, preserving input order.
 
@@ -322,6 +344,11 @@ def map_gemini_features(
     total = len(posts)
     if total == 0:
         return []
+
+    if probe:
+        probe_ok, probe_msg = verify_gemini_api(settings)
+        if not probe_ok:
+            raise RuntimeError(f"Gemini API verification failed: {probe_msg}")
 
     workers = max(1, int(max_workers))
     results: list[Optional[dict[str, Any]]] = [None] * total

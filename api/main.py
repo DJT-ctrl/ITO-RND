@@ -29,6 +29,11 @@ from api.schemas import (
     AllStatsResponse,
     AsyncJobResponse,
     BudgetStatsResponse,
+    CompanyCorpusCollectRequest,
+    CompanyCorpusCollectResponse,
+    CompanyResolveItem,
+    CompanyResolveRequest,
+    CompanyResolveResponse,
     CorpusIngestRequest,
     CorpusStatsResponse,
     CritiqueRequest,
@@ -571,3 +576,123 @@ def stats_all() -> AllStatsResponse:
         feedback=FeedbackStatsResponse(**row["feedback"]),
         budget=BudgetStatsResponse(**row["budget"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Company Search & Bulk Corpus Ingestion
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/companies/resolve-urls", response_model=CompanyResolveResponse)
+def resolve_company_linkedin_urls(request: CompanyResolveRequest) -> CompanyResolveResponse:
+    """Resolve bulk company names or URLs to canonical LinkedIn company URLs."""
+    from processors.company_collector import parse_bulk_company_input, resolve_company_urls
+
+    parsed = parse_bulk_company_input(request.companies)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="No company names or URLs provided.")
+
+    resolved_items = resolve_company_urls(parsed, settings=settings)
+    return CompanyResolveResponse(
+        results=[
+            CompanyResolveItem(
+                input_text=item.input_text,
+                company_name=item.company_name,
+                linkedin_url=item.linkedin_url,
+                slug=item.slug,
+                confidence=item.confidence,
+                status=item.status,
+                notes=item.notes,
+            )
+            for item in resolved_items
+        ]
+    )
+
+
+@app.post("/api/v1/corpus/company-collect", response_model=CompanyCorpusCollectResponse)
+def company_corpus_collect(
+    request: CompanyCorpusCollectRequest,
+    background_tasks: BackgroundTasks,
+) -> CompanyCorpusCollectResponse:
+    """Scrape 10 most recent posts from company LinkedIn URLs and ingest into pgvector."""
+    from processors.company_collector import parse_bulk_company_input, run_company_corpus_flow
+
+    parsed = parse_bulk_company_input(request.companies)
+    if not parsed:
+        raise HTTPException(status_code=400, detail="No company names or URLs provided.")
+
+    if not settings.apify_api_token:
+        raise HTTPException(status_code=503, detail="APIFY_API_TOKEN is not set.")
+
+    if request.run_async:
+        job_id = job_store.create_job(
+            "company_corpus_collect",
+            meta={
+                "companies": parsed,
+                "max_posts": request.max_posts_per_company,
+                "with_gemini": request.with_gemini,
+            },
+        )
+
+        def _bg():
+            job_store.mark_running(job_id)
+            try:
+                res = run_company_corpus_flow(
+                    parsed,
+                    max_posts_per_company=request.max_posts_per_company,
+                    settings=settings,
+                    with_gemini=request.with_gemini,
+                )
+                if res.status == "success":
+                    job_store.mark_completed(
+                        job_id,
+                        result={
+                            "total_posts_scraped": res.total_posts_scraped,
+                            "total_posts_ingested": res.total_posts_ingested,
+                            "raw_file_path": res.raw_file_path,
+                            "analysed_jsonl": res.analysed_jsonl,
+                            "embeddings_path": res.embeddings_path,
+                            "apify_cost_usd": res.apify_cost_usd,
+                        },
+                    )
+                else:
+                    job_store.mark_failed(job_id, error="; ".join(res.errors))
+            except Exception as exc:
+                job_store.mark_failed(job_id, error=str(exc))
+
+        background_tasks.add_task(_bg)
+        return CompanyCorpusCollectResponse(
+            status="queued",
+            job_id=job_id,
+        )
+
+    res = run_company_corpus_flow(
+        parsed,
+        max_posts_per_company=request.max_posts_per_company,
+        settings=settings,
+        with_gemini=request.with_gemini,
+    )
+
+    return CompanyCorpusCollectResponse(
+        status=res.status,
+        resolved_companies=[
+            CompanyResolveItem(
+                input_text=item.input_text,
+                company_name=item.company_name,
+                linkedin_url=item.linkedin_url,
+                slug=item.slug,
+                confidence=item.confidence,
+                status=item.status,
+                notes=item.notes,
+            )
+            for item in res.resolved_companies
+        ],
+        total_posts_scraped=res.total_posts_scraped,
+        total_posts_ingested=res.total_posts_ingested,
+        raw_file_path=res.raw_file_path,
+        analysed_jsonl=res.analysed_jsonl,
+        embeddings_path=res.embeddings_path,
+        apify_cost_usd=res.apify_cost_usd,
+        errors=res.errors,
+    )
+

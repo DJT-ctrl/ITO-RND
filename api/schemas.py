@@ -395,3 +395,42 @@ class AllStatsResponse(BaseModel):
     corpus: CorpusStatsResponse
     feedback: FeedbackStatsResponse
     budget: BudgetStatsResponse
+
+
+class CompanyResolveItem(BaseModel):
+    input_text: str
+    company_name: str
+    linkedin_url: str
+    slug: str
+    confidence: str = "high"
+    status: str = "resolved"
+    notes: str = ""
+
+
+class CompanyResolveRequest(BaseModel):
+    companies: list[str] = Field(..., min_length=1, description="List of company names or LinkedIn URLs")
+
+
+class CompanyResolveResponse(BaseModel):
+    results: list[CompanyResolveItem]
+
+
+class CompanyCorpusCollectRequest(BaseModel):
+    companies: list[str] = Field(..., min_length=1, description="Company names or URLs to scrape and ingest")
+    max_posts_per_company: int = Field(default=10, ge=1, le=100)
+    with_gemini: bool = Field(default=True, description="Run Stage 2 Gemini qualitative feature analysis")
+    run_async: bool = Field(default=False, description="Run as background job")
+
+
+class CompanyCorpusCollectResponse(BaseModel):
+    status: str
+    resolved_companies: list[CompanyResolveItem] = Field(default_factory=list)
+    total_posts_scraped: int = 0
+    total_posts_ingested: int = 0
+    raw_file_path: Optional[str] = None
+    analysed_jsonl: Optional[str] = None
+    embeddings_path: Optional[str] = None
+    apify_cost_usd: float = 0.0
+    errors: list[str] = Field(default_factory=list)
+    job_id: Optional[str] = None
+

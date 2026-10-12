@@ -58,6 +58,8 @@ def test_extract_scan_timestamp_from_post_file():
     assert extract_scan_timestamp("linkedin_20260710T191600Z.json") == "20260710T191600Z"
     assert extract_scan_timestamp(Path("data/raw/linkedin_20260710T191600Z.json")) == "20260710T191600Z"
     assert extract_scan_timestamp("linkedin_2026-07-10_191600Z.json") == "2026-07-10_191600Z"
+    assert extract_scan_timestamp("linkedin_company_2026-07-10_191600Z.json") == "2026-07-10_191600Z"
+    assert extract_scan_timestamp("linkedin_company_20260710T191600Z.json") == "20260710T191600Z"
     assert extract_scan_timestamp("linkedin_profiles_20260710T191600Z.json") is None
 
 
