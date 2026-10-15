@@ -88,7 +88,7 @@ def test_predictor_prompt_includes_neighbor_context():
 
     assert PROMPT_DATA_PREAMBLE in prompt
     assert "<post_content>" in prompt
-    assert "Draft post about a product launch" in prompt
+    assert "Draft post about a product launch" not in prompt
     assert "Neighbor 1" in prompt
     assert "Total engagement: 26" in prompt
     assert "Engagement percentile: 82.0" in prompt
@@ -98,7 +98,7 @@ def test_predictor_prompt_includes_neighbor_context():
 def test_predictor_prompt_handles_zero_neighbors():
     prompt = build_predictor_prompt(EvaluationDeps(draft_content="Draft without neighbors."))
 
-    assert "Draft without neighbors" in prompt
+    assert "Draft without neighbors" not in prompt
     assert "No comparable historical posts were found" in prompt
 
 
@@ -393,5 +393,5 @@ def test_predictor_and_diagnostics_integrate_with_orchestrator():
     }
     assert set(state.diagnostics) == {"seo", "clarity", "tone"}
     for output in state.diagnostics.values():
-        assert set(output) == {"score", "flaws", "advantages", "improvements"}
+        assert set(output) == {"score", "flaws", "advantages", "improvements", "score_source"}
     assert state.errors == []

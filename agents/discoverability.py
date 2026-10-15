@@ -189,8 +189,9 @@ def format_discoverability_context_section(context: dict[str, Any]) -> str:
         signal_lines = []
         for signal in deterministic.get("signals", []):
             value = signal.get("value")
-            if signal["check"] == "opening_line" and isinstance(value, str):
-                value_display = wrap_untrusted_text(value)
+            if signal["check"] == "opening_line":
+                # The opening sentence is draft text. It stays in the user message.
+                value_display = None
             else:
                 value_display = value
             signal_lines.append(

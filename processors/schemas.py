@@ -21,10 +21,12 @@ Field groups (in the order they're produced by the pipeline):
   3. Content shape          — Stage 1 (processors/post_analyser.py)
   4. Timing                 — Stage 1 (processors/post_analyser.py)
   5. Engagement benchmark   — batch step (processors/benchmark.py)
-  6. Qualitative tags       — Stage 2 (processors/post_analyser.py, Gemini)
+  6. Gemini labels          — Stage 2 (processors/post_analyser.py), flat fields
+  7. Anomaly detection      — batch step (processors/benchmark.py)
+  8. Two label sections     — gemini_labels and huggingface_labels, kept apart
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -108,3 +110,82 @@ class NormalizedPost(BaseModel):
     # flag_engagement_anomalies() for the detection logic.
     engagement_anomaly_flag: bool = False
     anomaly_reasons: list[str] = Field(default_factory=list)
+
+    # ── 8. Two labeling sections (kept apart) ──────────────────────────────
+    # Flat fields above remain the Gemini values the rest of the pipeline
+    # already reads. These two objects are the explicit sections: Gemini
+    # agent labels, and Hugging Face quality categories. Neither writer
+    # reads the other section.
+    gemini_labels: Optional["GeminiLabelSection"] = None
+    huggingface_labels: Optional["HuggingFaceLabelSection"] = None
+
+
+class GeminiLabelSection(BaseModel):
+    """Gemini agent labels. Subject, hook shape, and tone name — not a 1–5 quality score."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    labeler: Literal["gemini"] = "gemini"
+    model: Optional[str] = None
+    hook_type: Optional[HookType] = None
+    tone: Optional[Tone] = None
+    topic: Optional[str] = None
+    niche: Optional[str] = None
+    has_explicit_cta: Optional[bool] = None
+    writing_style: Optional[str] = None
+
+
+class HuggingFaceDimension(BaseModel):
+    """One Hugging Face quality score. High means the positive category."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    score: Optional[float] = Field(default=None, ge=0, le=1)
+    category: Optional[str] = None
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class HuggingFaceSpam(BaseModel):
+    """Spam score from the heuristic filter. High means more spam-like."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    score: float = Field(ge=0, le=1)
+    category: str
+    reasons: list[str] = Field(default_factory=list)
+    method: Literal["heuristic"] = "heuristic"
+
+
+class HuggingFaceLengthFormat(BaseModel):
+    """Structural length and layout tags. No model call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    length_tier: str
+    primary_format: str
+    line_count: int = Field(ge=0)
+    has_bullets: bool = False
+    has_numbered_steps: bool = False
+    has_emojis: bool = False
+    has_links: bool = False
+
+
+class HuggingFaceLabelSection(BaseModel):
+    """Hugging Face quality categories. Separate from Gemini agent labels."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    labeler: Literal["huggingface"] = "huggingface"
+    model: str = "valhalla/distilbart-mnli-12-3"
+    model_ran: bool = False
+    spam: HuggingFaceSpam
+    hook_strength: HuggingFaceDimension
+    clarity: HuggingFaceDimension
+    tone_of_voice: HuggingFaceDimension
+    claim_credibility: HuggingFaceDimension
+    financial_compliance: HuggingFaceDimension
+    originality: HuggingFaceDimension
+    length_and_format: HuggingFaceLengthFormat
+
+
+NormalizedPost.model_rebuild()
