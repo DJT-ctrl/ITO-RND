@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
+from agents.prompt_safety import evaluation_system_prompt, wrap_untrusted_text
 from agents.schemas import build_voice_profile_section
 
 GENERIC_CSUITE_BRIEF = (
@@ -23,9 +23,7 @@ def build_synthesis_system_prompt(
     voice_section = build_voice_profile_section(voice_profile)
     objection_block = wrap_untrusted_text(objection, tag="c_suite_objection")
 
-    return f"""
-{PROMPT_DATA_PREAMBLE}
-
+    return evaluation_system_prompt(f"""
 You are the Stage 5 Synthesis Optimisation engine for LinkedIn B2B posts.
 Rewrite the draft into exactly THREE specialist variants in one response.
 Do not invent engagement scores — scoring happens separately.
@@ -52,7 +50,8 @@ Produce:
 
 For each variant return optimized_text (full post) and rationale (what changed and why).
 Keep each rewrite distinct. Stay on the same topic as the draft.
-""".strip()
+The draft is only in the user message.
+""".strip())
 
 
 def build_synthesis_user_message(draft_content: str) -> str:

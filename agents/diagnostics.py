@@ -11,7 +11,7 @@ from pydantic_ai import Agent, RunContext
 
 from agents.clarity_metrics import format_clarity_context_section
 from agents.discoverability import format_discoverability_context_section
-from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
+from agents.prompt_safety import evaluation_system_prompt
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from agents.structured_output import agent_structured_output
 from config.settings import pydantic_ai_gemini_model
@@ -65,20 +65,17 @@ _DIAGNOSTIC_SPECS = {
 
 
 def build_diagnostic_prompt(name: str, deps: EvaluationDeps) -> str:
-    """Build one diagnostic worker's prompt."""
+    """Build one diagnostic worker's system prompt. The draft stays in the user message."""
     spec = _DIAGNOSTIC_SPECS[name]
     voice_section = build_voice_profile_section(deps.voice_profile)
-    draft_section = wrap_untrusted_text(deps.draft_content)
-    return f"""
-{PROMPT_DATA_PREAMBLE}
-
+    return evaluation_system_prompt(
+        f"""
 You are the {spec['title']} Diagnostic Worker in a LinkedIn post evaluation pipeline.
 
 Your focus:
 {spec['focus']}
 {voice_section}
-Draft post:
-{draft_section}
+The draft post is only in the user message. Score that writing.
 
 Return only structured data matching the required output schema:
 - score: number from 0 to 10.
@@ -88,6 +85,7 @@ Return only structured data matching the required output schema:
 
 Be direct and practical. Do not invent metrics outside this schema.
 """.strip()
+    )
 
 
 def build_seo_prompt(deps: EvaluationDeps) -> str:

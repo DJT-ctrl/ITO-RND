@@ -166,7 +166,8 @@ def test_evaluate_endpoint_runs_end_to_end_with_registered_agents(
         "predicted_engagement_percentile": 81.0,
         "predicted_total_engagement": 42,
     }
-    assert body["diagnostics"] == {"seo": {"score": 7.0}}
+    assert body["diagnostics"]["seo"]["score"] == 7.0
+    assert body["diagnostics"]["seo"]["score_source"] == "ungrounded"
     assert body["variants"] == []
     assert body["errors"] == []
     assert body["run_metadata"] is not None

@@ -17,9 +17,9 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
 from agents.prompt_safety import (
-    PROMPT_DATA_PREAMBLE,
     build_evaluation_user_message,
-    wrap_untrusted_text,
+    evaluation_system_prompt,
+    scrub_leaked_text,
 )
 from agents.structured_output import agent_structured_output
 from config.settings import pydantic_ai_gemini_model
@@ -85,9 +85,7 @@ class AudienceCriticOutput(BaseModel):
     peer: PeerLens
 
 
-AUDIENCE_CRITIC_SYSTEM_PROMPT = f"""
-{PROMPT_DATA_PREAMBLE}
-
+AUDIENCE_CRITIC_SYSTEM_PROMPT = evaluation_system_prompt("""
 You are an independent synthetic-audience critic for LinkedIn B2B posts.
 You are NOT part of the scoring/diagnostics loop — give a fresh, skeptical read.
 Do not flatter. Prefer concrete objections over vague praise.
@@ -111,18 +109,13 @@ Also return:
 - score: 0–10 overall persuasiveness/substance (not engagement prediction).
 
 Be direct and practical. Do not invent facts not implied by the draft.
-""".strip()
+The draft is only in the user message.
+""".strip())
 
 
-def build_audience_critic_system_prompt(draft_content: str = "") -> str:
-    """System prompt; optional draft inclusion for tests that inspect grounding."""
-    if not draft_content:
-        return AUDIENCE_CRITIC_SYSTEM_PROMPT
-    draft_section = wrap_untrusted_text(draft_content)
-    return (
-        f"{AUDIENCE_CRITIC_SYSTEM_PROMPT}\n\n"
-        f"Draft post (also provided as the user message):\n{draft_section}"
-    )
+def build_audience_critic_system_prompt() -> str:
+    """System prompt. The draft is sent only as the wrapped user message."""
+    return AUDIENCE_CRITIC_SYSTEM_PROMPT
 
 
 def build_audience_critic_user_message(draft_content: str) -> str:
@@ -153,4 +146,4 @@ async def run_audience_critic(
     """Run the critic on draft text only (no evaluate-loop deps)."""
     critic = agent if agent is not None else build_audience_critic_agent(model)
     result = await critic.run(build_audience_critic_user_message(content))
-    return result.output
+    return AudienceCriticOutput.model_validate(scrub_leaked_text(result.output.model_dump()))

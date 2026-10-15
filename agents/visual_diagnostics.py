@@ -16,11 +16,7 @@ from urllib.request import Request, urlopen
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, BinaryContent, ImageUrl, RunContext
 
-from agents.prompt_safety import (
-    PROMPT_DATA_PREAMBLE,
-    build_evaluation_user_message,
-    wrap_untrusted_text,
-)
+from agents.prompt_safety import build_evaluation_user_message, evaluation_system_prompt
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from agents.structured_output import agent_structured_output
 from config.settings import Settings, pydantic_ai_gemini_model
@@ -165,18 +161,12 @@ def prepare_visual_image(
 
 def build_visual_system_prompt(deps: EvaluationDeps) -> str:
     voice_section = build_voice_profile_section(deps.voice_profile)
-    draft_section = wrap_untrusted_text(deps.draft_content)
-    return f"""
-{PROMPT_DATA_PREAMBLE}
-
+    return evaluation_system_prompt(f"""
 You are the Visual Diagnostics worker (T7.9 hierarchy + T7.10 OCR/alignment) in a
-LinkedIn post evaluation pipeline. You receive the draft caption AND the attached
-image. Judge the image for feed/thumbnail performance and whether on-image text
-matches the caption.
+LinkedIn post evaluation pipeline. The caption is only in the user message, beside
+the attached image. Judge the image for feed/thumbnail performance and whether
+on-image text matches that caption.
 {voice_section}
-Draft caption (text only — evaluate alignment against the image):
-{draft_section}
-
 Return structured data only:
 - score: overall visual quality 0–10 (hierarchy + alignment combined).
 - flaws / advantages / improvements: concrete, practical bullets.
@@ -188,7 +178,7 @@ Return structured data only:
 - alignment_notes: clickbait / mismatch notes (empty if aligned).
 
 Be direct. Do not invent pixels you cannot see.
-""".strip()
+""".strip())
 
 
 def build_visual_user_prompt(deps: EvaluationDeps) -> VisualUserPrompt:

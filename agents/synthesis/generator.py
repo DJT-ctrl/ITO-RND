@@ -7,6 +7,7 @@ from typing import Any, Optional
 from pydantic_ai import Agent
 
 from agents.structured_output import agent_structured_output
+from agents.prompt_safety import discard_leaked_text, text_leaks_rules
 from agents.synthesis.prompts import (
     build_synthesis_system_prompt,
     build_synthesis_user_message,
@@ -53,4 +54,8 @@ async def generate_synthesis_drafts(
     drafts.maximizer.agent_id = "maximizer"
     drafts.counter.agent_id = "counter"
     drafts.brand_purist.agent_id = "brand_purist"
+    for item in (drafts.maximizer, drafts.counter, drafts.brand_purist):
+        if text_leaks_rules(item.optimized_text) or text_leaks_rules(item.rationale):
+            item.optimized_text = discard_leaked_text(item.optimized_text)
+            item.rationale = discard_leaked_text(item.rationale)
     return drafts
