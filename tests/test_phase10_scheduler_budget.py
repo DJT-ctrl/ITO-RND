@@ -29,6 +29,7 @@ def _settings(**overrides):
         agentic_gemini_monthly_cap_usd=200.0,
         agentic_general_refresh_interval_hours=3.0,
         agentic_niche_scrape_interval_hours=24.0,
+        agentic_subscriber_evidence_interval_hours=24.0,
         agentic_pro_digest_interval_hours=24.0,
         agentic_validation_limit=50,
         agentic_feedback_limit=20,
@@ -125,6 +126,7 @@ def test_get_budget_snapshot_live(mock_conn, _day, _month) -> None:
     assert snap.apify_cap_usd == 25.0
 
 
+@patch("phase_10.tick.is_tick_paused", return_value=False)
 @patch("phase_10.tick.schedule_store.upsert_run")
 @patch("phase_10.tick.schedule_store.load_run_rows", return_value={})
 @patch("phase_10.tick.agentic_connection")
@@ -134,6 +136,7 @@ def test_tick_disabled_and_stubs(
     mock_conn,
     _rows,
     mock_upsert,
+    _paused,
 ) -> None:
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_flags.return_value = JobFlags(
@@ -142,6 +145,7 @@ def test_tick_disabled_and_stubs(
         pro_digest=True,
         validation_worker=False,
         feedback_worker=False,
+        subscriber_evidence=False,
     )
     now = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
     result = run_agentic_tick(
@@ -156,6 +160,7 @@ def test_tick_disabled_and_stubs(
     assert "no handler" in by_id["pro_digest"].detail
 
 
+@patch("phase_10.tick.is_tick_paused", return_value=False)
 @patch("phase_10.tick.allow_paid_step")
 @patch("phase_10.tick.schedule_store.upsert_run")
 @patch("phase_10.tick.schedule_store.load_run_rows")
@@ -167,6 +172,7 @@ def test_tick_not_due_and_budget_skip(
     mock_rows,
     mock_upsert,
     mock_gate,
+    _paused,
 ) -> None:
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_flags.return_value = JobFlags(
@@ -175,6 +181,7 @@ def test_tick_not_due_and_budget_skip(
         pro_digest=False,
         validation_worker=True,
         feedback_worker=False,
+        subscriber_evidence=False,
     )
     now = datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc)
     mock_rows.return_value = {
@@ -217,6 +224,7 @@ def test_tick_not_due_and_budget_skip(
     assert "over apify daily cap" in by_id["niche_scrape"].detail
 
 
+@patch("phase_10.tick.is_tick_paused", return_value=False)
 @patch("phase_10.tick.allow_paid_step", return_value=BudgetDecision(allowed=True))
 @patch("phase_10.tick.schedule_store.upsert_run")
 @patch("phase_10.tick.schedule_store.load_run_rows", return_value={})
@@ -228,6 +236,7 @@ def test_tick_runs_feedback_handler(
     _rows,
     mock_upsert,
     _gate,
+    _paused,
 ) -> None:
     mock_conn.return_value.__enter__.return_value = MagicMock()
     mock_flags.return_value = JobFlags(
@@ -236,6 +245,7 @@ def test_tick_runs_feedback_handler(
         pro_digest=False,
         validation_worker=False,
         feedback_worker=True,
+        subscriber_evidence=False,
     )
 
     def _fb(_settings):
@@ -253,6 +263,43 @@ def test_tick_runs_feedback_handler(
         "Done: claimed=2 succeeded=2 failed=0 dead_lettered=0",
     )
     mock_upsert.assert_called()
+
+
+@patch("phase_10.tick.is_tick_paused", return_value=False)
+@patch("phase_10.tick.allow_paid_step", return_value=BudgetDecision(allowed=True))
+@patch("phase_10.tick.schedule_store.upsert_run")
+@patch("phase_10.tick.schedule_store.load_run_rows", return_value={})
+@patch("phase_10.tick.agentic_connection")
+@patch("phase_10.tick.load_job_flags")
+def test_tick_runs_subscriber_evidence_handler(
+    mock_flags,
+    mock_conn,
+    _rows,
+    mock_upsert,
+    _gate,
+    _paused,
+) -> None:
+    mock_conn.return_value.__enter__.return_value = MagicMock()
+    mock_flags.return_value = JobFlags(
+        general_refresh=False,
+        niche_scrape=False,
+        pro_digest=False,
+        validation_worker=False,
+        feedback_worker=False,
+        subscriber_evidence=True,
+    )
+
+    def _sub(_settings):
+        return "ran=1 skipped=0 failed=0 (sports-user-1:ran)"
+
+    result = run_agentic_tick(
+        _settings(),
+        now=datetime(2026, 7, 25, 12, 0, tzinfo=timezone.utc),
+        handlers={"subscriber_evidence": _sub},
+    )
+    job = next(r for r in result.results if r.job_id == "subscriber_evidence")
+    assert job.action == "ran"
+    assert "sports-user-1:ran" in job.detail
 
 
 @patch("phase_10.tick.is_tick_paused", return_value=True)
@@ -280,6 +327,7 @@ def test_tick_force_runs_when_paused(mock_conn, _paused) -> None:
             pro_digest=False,
             validation_worker=False,
             feedback_worker=False,
+            subscriber_evidence=False,
         )
         result = run_agentic_tick(
             _settings(),

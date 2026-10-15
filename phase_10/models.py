@@ -42,6 +42,7 @@ class JobFlags:
     pro_digest: bool = False
     validation_worker: bool = True
     feedback_worker: bool = True
+    subscriber_evidence: bool = True
 
     def to_dict(self) -> dict[str, bool]:
         return {
@@ -50,6 +51,7 @@ class JobFlags:
             "pro_digest": self.pro_digest,
             "validation_worker": self.validation_worker,
             "feedback_worker": self.feedback_worker,
+            "subscriber_evidence": self.subscriber_evidence,
         }
 
 
@@ -61,6 +63,7 @@ JOB_FLAG_LABELS: dict[str, str] = {
     "pro_digest": "Pro workflow digest (daily)",
     "validation_worker": "Validation worker",
     "feedback_worker": "Feedback worker",
+    "subscriber_evidence": "Subscriber evidence (Phase 19)",
 }
 
 

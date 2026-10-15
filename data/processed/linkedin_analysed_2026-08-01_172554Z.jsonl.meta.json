@@ -1,0 +1,9 @@
+{
+  "bundle_id": "2026-08-01_172554Z",
+  "source_scans": [
+    "linkedin_2026-08-01_165605Z.json"
+  ],
+  "with_gemini": true,
+  "post_count": 3933,
+  "restored_from": "postgres"
+}

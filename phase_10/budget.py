@@ -24,6 +24,7 @@ JOB_PROVIDER: dict[str, Provider | None] = {
     "general_refresh": "apify",
     "feedback_worker": "gemini",
     "pro_digest": "gemini",
+    "subscriber_evidence": "apify",
 }
 
 

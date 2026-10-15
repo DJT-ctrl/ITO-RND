@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 _POST_SCAN_TS_RE = re.compile(
-    r"^linkedin_(?P<ts>\d{8}T\d{6}Z|\d{4}-\d{2}-\d{2}_\d{6}Z)\.json$"
+    r"^linkedin_(?:company_)?(?P<ts>\d{8}T\d{6}Z|\d{4}-\d{2}-\d{2}_\d{6}Z)\.json$"
 )
 
 

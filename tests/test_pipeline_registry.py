@@ -13,6 +13,7 @@ from storage.pipeline_registry import (
     register_analysed_bundle,
     register_scrape_bundle,
     write_artefact_meta,
+    get_analysed_source_scans,
     _MANIFEST_PATH,
 )
 
@@ -78,3 +79,56 @@ def test_write_artefact_meta(tmp_path):
     artefact.write_text("{}\n")
     meta_path = write_artefact_meta(artefact, {"bundle_id": "test"})
     assert meta_path.name == "linkedin_analysed_test.jsonl.meta.json"
+
+
+def test_get_analysed_source_scans():
+    register_scrape_bundle(
+        bundle_id="2026-07-10_120000Z",
+        source_scans=["linkedin_20260710T120000Z.json"],
+        post_count=5,
+    )
+    # Scraped only - should not be in analysed scans
+    assert "linkedin_20260710T120000Z.json" not in get_analysed_source_scans()
+
+    register_analysed_bundle(
+        bundle_id="2026-07-10_120000Z",
+        source_scans=["linkedin_20260710T120000Z.json", "linkedin_company_20260710T120000Z.json"],
+        analysed_jsonl="linkedin_analysed_2026-07-10_120000Z.jsonl",
+        analysed_csv="linkedin_analysed_2026-07-10_120000Z.csv",
+        with_gemini=True,
+        post_count=5,
+    )
+    analysed = get_analysed_source_scans()
+    assert "linkedin_20260710T120000Z.json" in analysed
+    assert "linkedin_company_20260710T120000Z.json" in analysed
+
+
+def test_pipeline_bundle_label_and_company():
+    b_standard = PipelineBundle(
+        bundle_id="2026-07-10_120000Z",
+        created_at="2026-07-10T12:00:00Z",
+        source_scans=["linkedin_20260710T120000Z.json"],
+        analysed_jsonl="linkedin_analysed_2026-07-10_120000Z.jsonl",
+        post_count=10,
+    )
+    assert not b_standard.is_company
+    assert "✓" not in b_standard.label()
+    assert "[Company]" not in b_standard.label()
+    assert "analysed" in b_standard.label()
+
+    b_company_ingested = PipelineBundle(
+        bundle_id="2026-07-10_130000Z",
+        created_at="2026-07-10T13:00:00Z",
+        source_scans=["linkedin_company_20260710T130000Z.json"],
+        analysed_jsonl="linkedin_analysed_2026-07-10_130000Z.jsonl",
+        embeddings_npy="linkedin_gemini_20260710T130000Z.npy",
+        ingested_at="2026-07-10T13:05:00Z",
+        ingested_count=10,
+        post_count=10,
+    )
+    assert b_company_ingested.is_company
+    assert b_company_ingested.stage() == "ingested"
+    assert b_company_ingested.label().startswith("✓")
+    assert "[Company]" in b_company_ingested.label()
+
+

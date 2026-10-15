@@ -108,8 +108,9 @@ def test_build_visual_prompts_include_draft_and_image_part():
     user = build_visual_user_prompt(deps)
 
     assert "Visual Diagnostics" in system or "hierarchy" in system.lower()
-    assert "Launch day" in system
+    assert "Launch day" not in system
     assert isinstance(user, list)
+    assert any("Launch day" in p for p in user if isinstance(p, str))
     assert any(hasattr(p, "data") for p in user)
 
 

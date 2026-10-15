@@ -46,6 +46,10 @@ class PipelineBundle:
     ingested_at: Optional[str] = None
     ingested_count: Optional[int] = None
 
+    @property
+    def is_company(self) -> bool:
+        return any("company" in str(scan).lower() for scan in self.source_scans)
+
     def stage(self) -> ManifestStage:
         if self.ingested_at and self.ingested_count:
             return "ingested"
@@ -57,7 +61,9 @@ class PipelineBundle:
 
     def label(self) -> str:
         scans = ", ".join(self.source_scans) if self.source_scans else "unknown source"
-        return f"{self.bundle_id} — {scans} ({self.post_count or '?'} posts, {self.stage()})"
+        company_tag = "[Company] " if self.is_company else ""
+        tick = "✓ " if self.stage() in ("ingested", "embedded") else ""
+        return f"{tick}{self.bundle_id} — {company_tag}{scans} ({self.post_count or '?'} posts, {self.stage()})"
 
 
 def _now_iso() -> str:
@@ -362,3 +368,32 @@ def load_merged_analysed_records(
     for name in analysed_filenames:
         merged.extend(load_analysed_jsonl(root / name))
     return dedupe_records_by_post_id(merged), bundles
+
+
+def get_analysed_source_scans(require_gemini: bool = True, *args, **kwargs) -> set[str]:
+    """Return the set of raw post scan filenames that have already been analysed.
+
+    Aggregates all source_scans recorded across pipeline manifest bundles
+    that have completed the 'analysed' stage or later, plus any sidecar
+    .meta.json files in data/processed/.
+    """
+    analysed: set[str] = set()
+    for bundle in list_bundles(min_stage="analysed", require_gemini=require_gemini):
+        for scan in bundle.source_scans:
+            if scan:
+                analysed.add(_basename(scan))
+
+    processed_dir = resolve_data_path("data/processed")
+    if processed_dir.exists():
+        for meta_file in processed_dir.glob("*.jsonl.meta.json"):
+            # strip .meta.json to read sidecar
+            artefact = meta_file.name[:-10] if meta_file.name.endswith(".meta.json") else meta_file.name
+            meta = read_artefact_meta(processed_dir / artefact)
+            if meta:
+                if require_gemini and not meta.get("with_gemini", True):
+                    continue
+                for scan in meta.get("source_scans", []):
+                    if scan:
+                        analysed.add(_basename(scan))
+    return analysed
+

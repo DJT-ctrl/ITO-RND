@@ -34,7 +34,7 @@ _PROJECT_ROOT = PROJECT_ROOT
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # google-genai generative model (post_analyser Stage 2 + pydantic-ai agents).
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
 # pydantic-ai evaluation agents — same model unless AGENT_GEMINI_MODEL is set in .env.
 AGENT_GEMINI_MODEL = os.getenv("AGENT_GEMINI_MODEL", GEMINI_MODEL)
@@ -161,6 +161,7 @@ class Settings:
     # T10.3: schedule cadences (hours). Validation/feedback run every tick.
     agentic_general_refresh_interval_hours: float = 3.0
     agentic_niche_scrape_interval_hours: float = 24.0
+    agentic_subscriber_evidence_interval_hours: float = 24.0
     agentic_pro_digest_interval_hours: float = 24.0
     agentic_validation_limit: int = 50
     agentic_feedback_limit: int = 20
@@ -172,6 +173,11 @@ class Settings:
     # T10.10: Dev AI workflow critic (Gemini Pro).
     agentic_pro_digest_model: str = "gemini-3.1-pro-preview"
     agentic_pro_digest_dry_run: bool = False
+    # Browser frontend CORS (comma-separated origins in env).
+    cors_allowed_origins: tuple[str, ...] = (
+        "http://localhost:3000",
+        "http://localhost:5173",
+    )
 
     def validation_window(self) -> timedelta:
         """Delay between post publish time and scheduled re-scrape validation."""
@@ -313,6 +319,9 @@ def load_settings() -> Settings:
         agentic_niche_scrape_interval_hours=float(
             os.getenv("AGENTIC_NICHE_SCRAPE_INTERVAL_HOURS", "24")
         ),
+        agentic_subscriber_evidence_interval_hours=float(
+            os.getenv("AGENTIC_SUBSCRIBER_EVIDENCE_INTERVAL_HOURS", "24")
+        ),
         agentic_pro_digest_interval_hours=float(
             os.getenv("AGENTIC_PRO_DIGEST_INTERVAL_HOURS", "24")
         ),
@@ -334,6 +343,10 @@ def load_settings() -> Settings:
         agentic_pro_digest_dry_run=_env_bool(
             "AGENTIC_PRO_DIGEST_DRY_RUN", default=False
         ),
+        cors_allowed_origins=_env_csv(
+            "CORS_ALLOWED_ORIGINS",
+            default=("http://localhost:3000", "http://localhost:5173"),
+        ),
     )
     # Dashboard Feedback Loop toggles override env (see feedback/runtime_flags.py).
     from feedback.runtime_flags import apply_overrides_to_settings
@@ -346,6 +359,13 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, *, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
 def _env_injectability_mode(

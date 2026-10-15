@@ -42,7 +42,12 @@ from pgvector.psycopg import register_vector
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 
-from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text, build_evaluation_user_message
+from agents.prompt_safety import (
+    build_evaluation_user_message,
+    evaluation_system_prompt,
+    text_leaks_rules,
+    wrap_untrusted_text,
+)
 from agents.schemas import EvaluationDeps, PostEvaluationState, build_voice_profile_section, resolve_neighbor_limit
 from agents.structured_output import agent_structured_output
 from api.schemas import SimilarPost
@@ -161,21 +166,16 @@ def _build_neighbor_context(deps: EvaluationDeps) -> str:
 
 
 def build_variant_prompt(strategy: VariantStrategy, deps: EvaluationDeps, state: PostEvaluationState) -> str:
-    """Build the "cleanup prompt" — the variant engine's sole LLM input.
+    """Build the variant system prompt. The draft is sent only as the user message.
 
     Summarizes the predictor's score/reasoning and whatever diagnostic
-    criticism exists (T3.3 may not have produced all 3 checks, see
-    build_variant_engine's "run with what's available" rule) plus the
-    nearest historical posts, then instructs the model per the selected
-    strategy (see VariantStrategy).
+    criticism exists, plus the nearest historical posts, then instructs the
+    model per the selected strategy.
     """
     spec = _STRATEGY_SPECS[strategy]
     voice_section = build_voice_profile_section(deps.voice_profile)
-    draft_section = wrap_untrusted_text(deps.draft_content)
 
-    return f"""
-{PROMPT_DATA_PREAMBLE}
-
+    return evaluation_system_prompt(f"""
 You are the Variant Optimisation Engine in a LinkedIn post evaluation pipeline.
 
 Your task: rewrite the draft post into exactly 3 distinctly tuned alternatives, using the
@@ -184,8 +184,7 @@ predicted performance and diagnostic criticism below as your cleanup brief.
 Strategy: {spec['title']}
 {spec['instructions']}
 {voice_section}
-Draft post:
-{draft_section}
+The draft post is only in the user message. Rewrite that writing.
 
 Predictor assessment:
 {_build_predictor_context(state)}
@@ -200,10 +199,14 @@ Return only structured data matching the required output schema: exactly 3 varia
 - variant_text: the full rewritten post copy.
 - rationale: a concise explanation of what changed and why it should perform better.
 - strategy_label: a short tag describing what this variant targeted (e.g. "seo-focused", "bold-rewrite").
-""".strip()
+""".strip())
 
 
-def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, VariantDraftSet]:
+def build_variant_generation_agent(
+    model: Any = None,
+    *,
+    system_prompt: str | None = None,
+) -> Agent[EvaluationDeps, VariantDraftSet]:
     """Create the variant-generation agent.
 
     Unlike the T3.2/T3.3 agents, this one has no `@agent.system_prompt`
@@ -217,6 +220,7 @@ def build_variant_generation_agent(model: Any = None) -> Agent[EvaluationDeps, V
         resolved,
         deps_type=EvaluationDeps,
         output_type=agent_structured_output(VariantDraftSet, resolved),
+        system_prompt=system_prompt or evaluation_system_prompt(""),
         retries=2,
     )
 
@@ -307,6 +311,7 @@ async def _score_variant(
     settings: Optional[Settings],
     collector: Optional[RunMetadataCollector] = None,
     neighbor_limit: int = 10,
+    model: Any = None,
 ) -> Any:
     """Score one variant with the T3.2 predictor agent, using either the
     shared stage-1 neighbors or this variant's own re-embedded neighbors
@@ -331,7 +336,7 @@ async def _score_variant(
         agent=predictor_agent,
         prompt=build_evaluation_user_message(item.variant_text),
         deps=deps,
-        model=pydantic_ai_gemini_model(),
+        model=pydantic_ai_gemini_model() if model is None else str(model),
     )
 
 
@@ -368,7 +373,6 @@ def build_variant_engine(
         raise ValueError("build_variant_engine: settings is required when reembed_neighbors=True")
 
     resolved_neighbor_limit = resolve_neighbor_limit(neighbor_limit)
-    generation_agent = build_variant_generation_agent(model)
 
     async def _finalize(state: PostEvaluationState) -> None:
         # Nothing at all to work from — skip entirely rather than ask the
@@ -382,7 +386,9 @@ def build_variant_engine(
             similar_posts=state.similar_posts,
             voice_profile=state.voice_profile,
         )
-        prompt = build_variant_prompt(strategy, deps, state)
+        instructions = build_variant_prompt(strategy, deps, state)
+        generation_agent = build_variant_generation_agent(model, system_prompt=instructions)
+        prompt = build_evaluation_user_message(state.draft_content)
 
         gen_result = None
         try:
@@ -400,7 +406,16 @@ def build_variant_engine(
             state.errors.append(f"variant_engine: generation failed: {exc}")
             return
 
-        draft_items = gen_result.output.variants
+        draft_items = []
+        for item in gen_result.output.variants:
+            if text_leaks_rules(item.variant_text) or text_leaks_rules(item.rationale):
+                state.errors.append(
+                    "variant_engine: dropped a rewrite because it repeated hidden evaluation rules"
+                )
+                continue
+            draft_items.append(item)
+        if not draft_items:
+            return
 
         rerun_results = await asyncio.gather(
             *(
@@ -412,6 +427,7 @@ def build_variant_engine(
                     settings,
                     collector,
                     neighbor_limit=resolved_neighbor_limit,
+                    model=model,
                 )
                 for item in draft_items
             ),

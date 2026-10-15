@@ -26,16 +26,15 @@ def test_build_diagnostic_agents_returns_expected_workers():
     assert agents["clarity"] is not agents["tone"]
 
 
-def test_diagnostic_prompts_are_distinct_and_include_draft():
+def test_diagnostic_prompts_are_distinct_and_exclude_draft():
     deps = EvaluationDeps(draft_content="Draft post about hiring a backend engineer.")
 
     seo_prompt = build_diagnostic_prompt("seo", deps)
     clarity_prompt = build_diagnostic_prompt("clarity", deps)
     tone_prompt = build_diagnostic_prompt("tone", deps)
 
-    assert "Draft post about hiring" in seo_prompt
+    assert "Draft post about hiring" not in seo_prompt
     assert PROMPT_DATA_PREAMBLE in seo_prompt
-    assert "<post_content>" in seo_prompt
     assert "keyword" in seo_prompt.lower()
     assert "main point" in clarity_prompt.lower()
     assert "brand persona" in tone_prompt.lower()
@@ -97,7 +96,7 @@ def test_build_seo_prompt_corpus_includes_discoverability_evidence():
     assert "Corpus benchmark snapshot" in prompt
     assert "Deterministic draft checks" in prompt
     assert "Nearest historical posts" in prompt
-    assert "Hiring backend engineers today." in prompt
+    assert "Hiring backend engineers today." not in prompt
 
 
 def test_build_seo_prompt_corpus_includes_trends_section():
@@ -145,4 +144,4 @@ def test_build_clarity_prompt_includes_grounding_block():
 
     assert "deterministic clarity" in prompt.lower()
     assert "Flesch–Kincaid grade" in prompt
-    assert "Hiring backend engineers today." in prompt
+    assert "Hiring backend engineers today." not in prompt
