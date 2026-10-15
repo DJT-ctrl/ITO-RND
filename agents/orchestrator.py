@@ -45,7 +45,7 @@ from pydantic_ai import Agent
 from agents.clarity_metrics import compute_clarity_metrics
 from agents.discoverability_context import gather_discoverability_context, resolve_use_google_trends
 from agents.predictor import apply_deterministic_prediction
-from agents.prompt_safety import build_evaluation_user_message
+from agents.prompt_safety import apply_score_authority, build_evaluation_user_message, scrub_leaked_text
 from agents.schemas import (
     EvaluationDeps,
     PostEvaluationState,
@@ -514,7 +514,7 @@ async def run_evaluation_cycle(
             # state or crash the whole cycle — record it and move on.
             state.errors.append(f"{key}: {result}")
             continue
-        output = _as_dict(result.output)
+        output = scrub_leaked_text(_as_dict(result.output))
         if key == "__predictor__":
             from agents.predictor import PredictorOutput
 
@@ -523,6 +523,8 @@ async def run_evaluation_cycle(
                 output = corrected.model_dump()
             state.predictor_result = output
         else:
+            if key in ("tone", "clarity", "seo"):
+                output = apply_score_authority(key, output, deps)
             state.diagnostics[key] = output
 
     if finalize is not None:

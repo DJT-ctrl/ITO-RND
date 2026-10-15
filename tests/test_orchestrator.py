@@ -406,7 +406,8 @@ def test_visual_diagnostics_skipped_when_enabled_without_image():
     assert state.visual_image_provided is False
     assert "visual" not in state.diagnostics
     assert any("skipped" in err for err in state.errors)
-    assert state.diagnostics["seo"] == {"score": 7.0}
+    assert state.diagnostics["seo"]["score"] == 7.0
+    assert state.diagnostics["seo"]["score_source"] == "ungrounded"
 
 
 def test_visual_diagnostics_runs_when_enabled_with_image_bytes():

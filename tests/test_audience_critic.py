@@ -21,10 +21,10 @@ def test_system_prompt_covers_three_lenses():
     assert "independent" in prompt.lower() or "NOT part of" in prompt
 
 
-def test_system_prompt_can_include_draft():
-    prompt = build_audience_critic_system_prompt("ROI without metrics is fluff.")
-    assert "ROI without metrics" in prompt
-    assert "<post_content>" in prompt
+def test_system_prompt_excludes_draft():
+    prompt = build_audience_critic_system_prompt()
+    assert "ROI without metrics is fluff." not in prompt
+    assert "user message" in prompt
 
 
 def test_user_message_wraps_draft():

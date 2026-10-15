@@ -83,7 +83,7 @@ def test_build_clarity_prompt_includes_metrics_when_present():
     prompt = build_clarity_prompt(deps)
 
     assert "deterministic clarity" in prompt.lower()
-    assert "Hiring backend engineers today." in prompt
+    assert "Hiring backend engineers today." not in prompt
     assert prompt != build_diagnostic_prompt("clarity", deps)
 
 

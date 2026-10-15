@@ -14,7 +14,7 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from agents.prompt_safety import PROMPT_DATA_PREAMBLE, wrap_untrusted_text
+from agents.prompt_safety import evaluation_system_prompt, wrap_untrusted_text
 from agents.schemas import EvaluationDeps, build_voice_profile_section
 from agents.structured_output import agent_structured_output
 from config.settings import pydantic_ai_gemini_model
@@ -96,16 +96,13 @@ def build_predictor_prompt(deps: EvaluationDeps) -> str:
     feedback_section = _format_feedback_section(deps.feedback_context)
     horizon_section = _format_horizon_section(deps)
     reasoning_guidance = _reasoning_guidance(deps.neighbor_prediction)
-    draft_section = wrap_untrusted_text(deps.draft_content)
     horizon_label = (
         f"{deps.target_horizon_hours:g}h after publish"
         if deps.target_horizon_hours is not None
         else "the stated horizon (do not assume 48h)"
     )
 
-    return f"""
-{PROMPT_DATA_PREAMBLE}
-
+    return evaluation_system_prompt(f"""
 You are the Predictor Agent for a LinkedIn post evaluation pipeline.
 
 Your task: explain how the draft will perform **at a specific time horizon** by
@@ -120,8 +117,7 @@ CRITICAL — time horizon:
 - Neighbor engagement may be measured at different ages; prefer comparing against
   neighbors whose engagement age is closest to the target horizon when ages are given.
 {horizon_section}{voice_section}{draft_author_section}{deterministic_section}{feedback_section}
-Draft post:
-{draft_section}
+The draft post is only in the user message. Compare that writing with the neighbors below.
 
 Nearest historical posts:
 {neighbor_context}
@@ -139,7 +135,7 @@ Return only structured data matching the required output schema:
 - predicted_comments: use exactly {deps.neighbor_prediction.get("predicted_comments", 0) if deps.neighbor_prediction else 0}.
 - predicted_shares: use exactly {deps.neighbor_prediction.get("predicted_shares", 0) if deps.neighbor_prediction else 0}.
 - reasoning: concise comparative explanation grounded in the retrieved neighbors, the target horizon, and the deterministic score.
-""".strip()
+""".strip())
 
 
 def _format_horizon_section(deps: EvaluationDeps) -> str:
